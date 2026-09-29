@@ -1,7 +1,6 @@
 import { loadConfig } from './config.js';
 import path from 'node:path';
 import { PlatformDatabase } from './database.js';
-import { DemoIndicatorClient } from '../examples/demoClient.js';
 import { createHarness, HarnessFactory } from './harness.js';
 import {
   createSupersonicIndicatorClient,
@@ -21,13 +20,15 @@ import { WorkspaceService } from './workspace.js';
 import { SemanticValueRegistry } from './semanticValues.js';
 import { CodeExecutionService } from './codeExecution.js';
 
-export async function createApplication(config = loadConfig()) {
+export async function createApplication(
+  config = loadConfig(),
+  indicatorClientOverride = null,
+) {
   const database = new PlatformDatabase(config.dbPath);
-  const indicatorClient = config.supersonic.baseUrl
-    ? createSupersonicIndicatorClient(config.supersonic)
-    : config.allowDemoIndicatorSource
-      ? new DemoIndicatorClient()
-      : new UnavailableIndicatorClient();
+  const indicatorClient = indicatorClientOverride
+    ?? (config.supersonic.baseUrl
+      ? createSupersonicIndicatorClient(config.supersonic)
+      : new UnavailableIndicatorClient());
   function getSupersonicEnabled() {
     const stored = database.getPlatformSetting('supersonic.enabled', true);
     return Boolean(stored?.value ?? stored);
@@ -85,7 +86,7 @@ export async function createApplication(config = loadConfig()) {
   });
   const runtime = {
     sourceMode: getSupersonicEnabled()
-      ? indicatorClient.mode ?? (config.supersonic.baseUrl ? 'supersonic' : 'demo')
+      ? indicatorClient.mode ?? (config.supersonic.baseUrl ? 'supersonic' : 'unconfigured')
       : 'direct-llm',
     supersonicEnabled: getSupersonicEnabled(),
     sourceError: null,

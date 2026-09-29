@@ -106,15 +106,15 @@ function createIndicator(id, name, typeName, description, metricNames, dimension
       modelId: 1,
       modelName: '经营分析模型',
       modelBizName: 'business_model',
-      modelDatabase: 'demo',
+      modelDatabase: 'test',
       modelTable: 'dws_business_daily',
-      description: '演示指标模型',
+      description: '测试指标模型',
     }],
-    raw: { demo: true },
+    raw: { test: true },
   };
 }
 
-const DEMO_INDICATORS = [
+const TEST_INDICATORS = [
   createIndicator(
     'sales_amount',
     '销售额',
@@ -219,10 +219,10 @@ function valueFor(metricName, dimensions, row) {
   return Math.round(raw);
 }
 
-// Demo-only data source. It is not part of the production platform core.
-export class DemoIndicatorClient {
+// Synthetic indicator source used only by automated tests.
+export class FakeIndicatorClient {
   constructor() {
-    this.mode = 'demo';
+    this.mode = 'supersonic';
   }
 
   async health() {
@@ -240,7 +240,7 @@ export class DemoIndicatorClient {
   async listIndicators({ keyword = '', typeId = '', pageSize = 500 } = {}) {
     const normalizedKeyword = String(keyword).trim().toLowerCase();
     const normalizedTypeId = String(typeId ?? '');
-    const list = DEMO_INDICATORS
+    const list = TEST_INDICATORS
       .filter((indicator) => !normalizedTypeId || String(indicator.typeId) === normalizedTypeId)
       .filter((indicator) => !normalizedKeyword || [
         indicator.name,
@@ -256,7 +256,7 @@ export class DemoIndicatorClient {
       total: list.length,
       pageNum: 1,
       pageSize: list.length,
-      raw: { demo: true },
+      raw: { test: true },
     };
   }
 
@@ -265,7 +265,7 @@ export class DemoIndicatorClient {
   }
 
   async getIndicator(id) {
-    const indicator = DEMO_INDICATORS.find((item) => String(item.id) === String(id));
+    const indicator = TEST_INDICATORS.find((item) => String(item.id) === String(id));
     return indicator ? structuredClone(indicator) : null;
   }
 
@@ -285,7 +285,7 @@ export class DemoIndicatorClient {
         ? DATE_VALUES
         : normalizedValues(name, filters);
       if (valuesByDimension[name].length === 0) {
-        return { columns: [], resultList: [], totalCount: 0, demo: true };
+        return { columns: [], resultList: [], totalCount: 0, test: true };
       }
     }
 
@@ -326,7 +326,7 @@ export class DemoIndicatorClient {
       totalCount: rows.length,
       pageNo: 1,
       pageSize: rows.length,
-      demo: true,
+      test: true,
     };
   }
 
@@ -338,5 +338,3 @@ export class DemoIndicatorClient {
     return this.queryIndicatorPresentationEvidence(args);
   }
 }
-
-export { DEMO_INDICATORS };

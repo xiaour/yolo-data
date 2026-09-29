@@ -2185,9 +2185,7 @@ export class MetricAgentService {
       emit({
         type: 'warning',
         code: 'SUPERSONIC_NOT_CONFIGURED',
-        message: this.indicatorClient.mode === 'demo'
-          ? '当前显式启用了演示指标源，本轮优先使用已接入的真实业务数据集。'
-          : 'Supersonic 指标系统尚未配置，本轮优先使用已接入的真实业务数据集。',
+        message: 'Supersonic 指标系统尚未配置，本轮优先使用已接入的真实业务数据集。',
       });
     }
     if (activeHarness.mode === 'local-rule') {
@@ -2766,7 +2764,7 @@ export class MetricAgentService {
         source: {
           mode: this.indicatorClient.mode === 'supersonic'
             ? 'supersonic-indicator'
-            : 'demo-indicator',
+            : 'unconfigured-indicator',
           configured: this.indicatorClient.mode === 'supersonic',
           indicatorId: String(indicator.id),
           indicatorName: indicator.name,
@@ -2804,7 +2802,7 @@ export class MetricAgentService {
             execution: {
               adapter: this.indicatorClient.mode === 'supersonic'
                 ? 'supersonic-indicator'
-                : 'demo-indicator',
+                : 'unconfigured-indicator',
               endpoint: '/api/semantic/query/metric',
             },
           },
@@ -3023,13 +3021,13 @@ export class MetricAgentService {
       completeWorkflowStage('EXECUTE', {
         summary: this.indicatorClient.mode === 'supersonic'
           ? '通过 Supersonic 执行指标查询'
-          : '通过演示指标源执行本地查询',
+          : '指标源尚未配置，未执行真实查询',
         detail: `返回 ${secureResult.rows.length} 行 / ${secureResult.columns.length} 列`,
         evidence: [{
           type: 'EXECUTION',
           adapter: this.indicatorClient.mode === 'supersonic'
             ? 'supersonic-indicator'
-            : 'demo-indicator',
+            : 'unconfigured-indicator',
           rowCount: secureResult.rows.length,
           queryFingerprint: fingerprint,
           dataHash: stableResult.dataHash,
@@ -3098,7 +3096,7 @@ export class MetricAgentService {
           name: indicator.name,
           adapter: this.indicatorClient.mode === 'supersonic'
             ? 'supersonic-indicator'
-            : 'demo-indicator',
+            : 'unconfigured-indicator',
         },
         indicator: {
           id: String(indicator.id),
@@ -5229,9 +5227,7 @@ export class MetricAgentService {
             ? 'direct-llm'
             : this.indicatorClient.mode === 'supersonic'
             ? 'supersonic-indicator'
-            : this.indicatorClient.mode === 'demo'
-              ? 'demo-indicator'
-              : 'unconfigured-indicator',
+            : 'unconfigured-indicator',
         usage: harnessResult.usage ?? null,
         toolCalls: processSteps.filter((step) => step.type === 'tool').length,
         reuseCount: processSteps.filter((step) => step.type === 'reuse').length,

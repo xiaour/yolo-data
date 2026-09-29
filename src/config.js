@@ -59,9 +59,6 @@ export function loadConfig(env = process.env) {
       ).trim(),
       timeoutMs: readInt(env.SUPERSONIC_TIMEOUT_MS, 30_000),
     },
-    allowDemoIndicatorSource: String(
-      env.ALLOW_DEMO_INDICATOR_SOURCE ?? '',
-    ).toLowerCase() === 'true',
     deepseek: {
       baseUrl: normalizeBaseUrl(env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1'),
       apiKey: String(env.DEEPSEEK_API_KEY ?? '').trim(),

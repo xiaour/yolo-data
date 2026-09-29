@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { startServer } from '../src/server.js';
+import { FakeIndicatorClient } from './fixtures/fakeIndicatorClient.js';
 
 function testConfig(directory) {
   return {
@@ -15,7 +16,6 @@ function testConfig(directory) {
       token: '',
       timeoutMs: 5_000,
     },
-    allowDemoIndicatorSource: true,
     deepseek: {
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
@@ -34,7 +34,7 @@ function testConfig(directory) {
 
 test('theme API stores model keys encrypted and never returns plaintext', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-server-'));
-  const { server, application } = await startServer(testConfig(directory));
+  const { server, application } = await startServer(testConfig(directory), new FakeIndicatorClient());
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const headers = {
@@ -112,7 +112,7 @@ test('theme API stores model keys encrypted and never returns plaintext', async 
 
 test('theme semantic value API persists field switches independently per agent', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-semantic-api-'));
-  const { server, application } = await startServer(testConfig(directory));
+  const { server, application } = await startServer(testConfig(directory), new FakeIndicatorClient());
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const adminHeaders = {
@@ -197,7 +197,7 @@ test('theme semantic value API persists field switches independently per agent',
 
 test('system settings can disable Supersonic and switch the agent to direct LLM mode', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-settings-'));
-  const { server, application } = await startServer(testConfig(directory));
+  const { server, application } = await startServer(testConfig(directory), new FakeIndicatorClient());
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const adminHeaders = {
@@ -242,7 +242,7 @@ test('system settings can disable Supersonic and switch the agent to direct LLM 
     const enabled = await enabledResponse.json();
     assert.equal(enabledResponse.status, 200);
     assert.equal(enabled.supersonic.enabled, true);
-    assert.equal(enabled.health.source.mode, 'demo');
+    assert.equal(enabled.health.source.mode, 'supersonic');
   } finally {
     await new Promise((resolve) => server.close(resolve));
     application.database.close();
@@ -251,7 +251,7 @@ test('system settings can disable Supersonic and switch the agent to direct LLM 
 
 test('model management persists multiple models and theme default selection', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-models-'));
-  const { server, application } = await startServer(testConfig(directory));
+  const { server, application } = await startServer(testConfig(directory), new FakeIndicatorClient());
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const adminHeaders = {

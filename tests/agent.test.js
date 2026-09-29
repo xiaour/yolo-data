@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createApplication } from '../src/application.js';
+import { FakeIndicatorClient } from './fixtures/fakeIndicatorClient.js';
 
 function testConfig() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-agent-'));
@@ -16,7 +17,6 @@ function testConfig() {
       token: '',
       timeoutMs: 5_000,
     },
-    allowDemoIndicatorSource: true,
     deepseek: {
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
@@ -28,7 +28,7 @@ function testConfig() {
 }
 
 test('agent answer enforces user row policy during indicator execution', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -68,7 +68,7 @@ test('agent answer enforces user row policy during indicator execution', async (
 });
 
 test('theme permission blocks users without a query grant', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('channel_analyst');
   const theme = application.database.listThemes().find((item) => item.name === '履约运营');
@@ -83,7 +83,7 @@ test('theme permission blocks users without a query grant', async () => {
 });
 
 test('chat session model is locked after the first conversation message', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -128,7 +128,7 @@ test('chat session model is locked after the first conversation message', async 
 });
 
 test('multi-turn questions reuse session memory and inherit prior context', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -169,7 +169,7 @@ test('multi-turn questions reuse session memory and inherit prior context', asyn
 });
 
 test('chat sessions are isolated per user and prompt changes are agent-scoped', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const owner = application.database.getUserByUsername('east_manager');
   const otherUser = application.database.getUserByUsername('channel_analyst');
@@ -199,7 +199,7 @@ test('chat sessions are isolated per user and prompt changes are agent-scoped', 
 });
 
 test('revoked theme permission also hides its stored session memory', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -225,7 +225,7 @@ test('revoked theme permission also hides its stored session memory', async () =
 });
 
 test('theme configuration is persisted without storing the indicator catalog', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -240,7 +240,7 @@ test('theme configuration is persisted without storing the indicator catalog', a
 });
 
 test('indicator query is rejected until semantic definition confirmation completes', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -276,7 +276,7 @@ test('indicator query is rejected until semantic definition confirmation complet
 });
 
 test('agent emits auditable runtime events while answering', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -304,9 +304,8 @@ test('agent emits auditable runtime events while answering', async () => {
   );
 });
 
-test('production runtime never falls back to the demo indicator source', async () => {
+test('production runtime requires a configured Supersonic indicator source', async () => {
   const config = testConfig();
-  config.allowDemoIndicatorSource = false;
   const application = await createApplication(config);
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
@@ -323,7 +322,7 @@ test('production runtime never falls back to the demo indicator source', async (
 });
 
 test('agent reuses identical snapshots but preserves distinct query results', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -429,7 +428,7 @@ test('agent reuses identical snapshots but preserves distinct query results', as
 });
 
 test('agent executes indicator queries only through a compiled query contract', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -507,7 +506,7 @@ test('agent executes indicator queries only through a compiled query contract', 
 });
 
 test('independent questions keep session history without inheriting query context', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -555,7 +554,7 @@ test('independent questions keep session history without inheriting query contex
 });
 
 test('artifact follow-up keeps controlled dataset requery tools', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -632,7 +631,7 @@ test('artifact follow-up keeps controlled dataset requery tools', async () => {
 });
 
 test('agent returns structured clarification options with a recommended path', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');

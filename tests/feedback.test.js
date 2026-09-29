@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createApplication } from '../src/application.js';
+import { FakeIndicatorClient } from './fixtures/fakeIndicatorClient.js';
 
 function testConfig() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-feedback-'));
@@ -12,7 +13,6 @@ function testConfig() {
     port: 0,
     dbPath: path.join(directory, 'test.db'),
     supersonic: { baseUrl: '', token: '', timeoutMs: 5_000 },
-    allowDemoIndicatorSource: true,
     deepseek: {
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
@@ -25,7 +25,7 @@ function testConfig() {
 }
 
 test('negative feedback feeds prompt hints and knowledge gaps', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');

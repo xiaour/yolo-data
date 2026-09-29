@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { createApplication } from '../src/application.js';
 import { DatasourceCrypto } from '../src/datasourceCrypto.js';
+import { FakeIndicatorClient } from './fixtures/fakeIndicatorClient.js';
 
 function testConfig() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-business-'));
@@ -14,7 +15,6 @@ function testConfig() {
     dbPath: path.join(directory, 'test.db'),
     datasourceSecretKeyPath: path.join(directory, '.key'),
     supersonic: { baseUrl: '', token: '', timeoutMs: 5_000 },
-    allowDemoIndicatorSource: true,
     deepseek: {
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
@@ -106,7 +106,7 @@ function createBusinessDataset(application, user, { attachToTheme = true } = {})
 }
 
 test('business dataset query is compiled from semantic fields without raw SQL', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
@@ -124,7 +124,7 @@ test('business dataset query is compiled from semantic fields without raw SQL', 
 });
 
 test('business dataset query groups time dimensions at the requested grain', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
@@ -172,7 +172,7 @@ test('business dataset query groups time dimensions at the requested grain', asy
 });
 
 test('business dataset query separates row filters from aggregate filters', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
@@ -205,7 +205,7 @@ test('business dataset query separates row filters from aggregate filters', asyn
 });
 
 test('business dataset can load distinct values for enum-like fields', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
@@ -232,7 +232,7 @@ test('business dataset can load distinct values for enum-like fields', async () 
 });
 
 test('semantic value preview follows draft dataset selection without saving it', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user, { attachToTheme: false });
@@ -271,7 +271,7 @@ test('semantic value preview follows draft dataset selection without saving it',
 });
 
 test('agent rejects indicator execution when the theme has a business dataset', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
@@ -328,7 +328,7 @@ test('agent rejects indicator execution when the theme has a business dataset', 
 });
 
 test('agent routes business questions to the authorized dataset executor', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
@@ -367,7 +367,7 @@ test('agent routes business questions to the authorized dataset executor', async
 });
 
 test('agent does not execute a guessed aggregate when the model only clarifies', async () => {
-  const application = await createApplication(testConfig());
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);

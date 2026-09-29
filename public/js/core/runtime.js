@@ -676,14 +676,8 @@ function formatSourceMode(mode) {
   if (mode === 'supersonic-indicator') {
     return 'Supersonic 指标查询';
   }
-  if (mode === 'demo') {
-    return '演示指标源';
-  }
   if (mode === 'unconfigured') {
     return 'Supersonic 未配置';
-  }
-  if (mode === 'demo-indicator') {
-    return '演示指标查询';
   }
   if (mode === 'unconfigured-indicator') {
     return 'Supersonic 未配置';
@@ -741,9 +735,7 @@ function renderRuntime(health) {
     ? '大模型直连模式'
     : source?.mode === 'supersonic'
       ? '指标平台已连接'
-      : source?.mode === 'demo'
-        ? '演示指标源'
-        : 'Supersonic 未配置';
+      : 'Supersonic 未配置';
   document.getElementById('sourceSync').textContent = source?.error
     ? 'Supersonic 连接异常'
     : source?.mode === 'direct-llm'

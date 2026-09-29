@@ -243,8 +243,11 @@ async function serveStatic(request, response, pathname) {
   fs.createReadStream(filePath).pipe(response);
 }
 
-export async function startServer(configOverride) {
-  const application = await createApplication(configOverride);
+export async function startServer(configOverride, indicatorClientOverride = null) {
+  const application = await createApplication(
+    configOverride,
+    indicatorClientOverride,
+  );
   await application.init();
   const {
     config,
