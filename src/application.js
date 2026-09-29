@@ -1,0 +1,341 @@
+import { loadConfig } from './config.js';
+import path from 'node:path';
+import { PlatformDatabase } from './database.js';
+import { DemoIndicatorClient } from '../examples/demoClient.js';
+import { createHarness, HarnessFactory } from './harness.js';
+import {
+  createSupersonicIndicatorClient,
+  UnavailableIndicatorClient,
+} from './indicatorClient.js';
+import { MetricAgentService } from './agent.js';
+import { SessionMemoryStore } from './memory.js';
+import { SkillRegistry } from './skills.js';
+import { SemanticCompiler } from './semanticCompiler.js';
+import { QueryContractCompiler } from './queryContractCompiler.js';
+import { FeedbackService } from './feedback.js';
+import { GrowthService } from './growth.js';
+import { LlmAuditService } from './llmAudit.js';
+import { DatasourceCrypto } from './datasourceCrypto.js';
+import { BusinessDatasetService } from './businessDatasets.js';
+import { WorkspaceService } from './workspace.js';
+import { SemanticValueRegistry } from './semanticValues.js';
+import { CodeExecutionService } from './codeExecution.js';
+
+export async function createApplication(config = loadConfig()) {
+  const database = new PlatformDatabase(config.dbPath);
+  const indicatorClient = config.supersonic.baseUrl
+    ? createSupersonicIndicatorClient(config.supersonic)
+    : config.allowDemoIndicatorSource
+      ? new DemoIndicatorClient()
+      : new UnavailableIndicatorClient();
+  function getSupersonicEnabled() {
+    const stored = database.getPlatformSetting('supersonic.enabled', true);
+    return Boolean(stored?.value ?? stored);
+  }
+  const harness = createHarness(config.deepseek);
+  const llmAudit = new LlmAuditService(database);
+  const datasourceCrypto = new DatasourceCrypto({
+    keyFilePath: config.datasourceSecretKeyPath
+      ?? path.resolve(config.projectRoot ?? process.cwd(), 'data', '.datasource-key'),
+    secretKey: config.datasourceSecretKey,
+  });
+  const businessDatasets = new BusinessDatasetService({
+    database,
+    crypto: datasourceCrypto,
+    config,
+  });
+  const harnessFactory = new HarnessFactory(
+    config.deepseek,
+    fetch,
+    (entry) => llmAudit.record(entry),
+    datasourceCrypto,
+  );
+  const memory = new SessionMemoryStore(database, {
+    contextLimit: config.chatMemoryMessageLimit,
+  });
+  const skillRegistry = new SkillRegistry(database, {
+    skillDirectories: config.skillDirectories ?? [],
+  });
+  const semanticCompiler = new SemanticCompiler();
+  const queryContractCompiler = new QueryContractCompiler();
+  const growth = new GrowthService(database);
+  const feedback = new FeedbackService(database, growth);
+  const workspace = new WorkspaceService(database);
+  const codeExecution = new CodeExecutionService({
+    database,
+    workspace,
+    config,
+  });
+  const semanticValues = new SemanticValueRegistry(database);
+  const agent = new MetricAgentService({
+    database,
+    indicatorClient,
+    harness,
+    harnessFactory,
+    memory,
+    skillRegistry,
+    semanticCompiler,
+    queryContractCompiler,
+    feedback,
+    growth,
+    businessDatasets,
+    workspace,
+    codeExecution,
+    semanticValues,
+  });
+  const runtime = {
+    sourceMode: getSupersonicEnabled()
+      ? indicatorClient.mode ?? (config.supersonic.baseUrl ? 'supersonic' : 'demo')
+      : 'direct-llm',
+    supersonicEnabled: getSupersonicEnabled(),
+    sourceError: null,
+    lastSyncAt: null,
+    lastSyncCount: 0,
+    lastTypeCount: 0,
+    skillSync: null,
+  };
+
+  async function syncIndicators() {
+    if (!getSupersonicEnabled()) {
+      runtime.sourceMode = 'direct-llm';
+      runtime.supersonicEnabled = false;
+      runtime.sourceError = null;
+      return {
+        disabled: true,
+        types: 0,
+        indicators: 0,
+      };
+    }
+    try {
+      const [types, page] = await Promise.all([
+        indicatorClient.listTypes(),
+        indicatorClient.listIndicators({ current: 1, pageSize: 500 }),
+      ]);
+      database.clearIndicatorCatalog();
+      runtime.sourceMode = indicatorClient.mode ?? 'supersonic';
+      runtime.supersonicEnabled = true;
+      runtime.sourceError = null;
+      runtime.lastSyncAt = new Date().toISOString();
+      runtime.lastSyncCount = Number(page.total ?? page.list?.length ?? 0);
+      runtime.lastTypeCount = types?.length ?? 0;
+      return {
+        types: types?.length ?? 0,
+        indicators: runtime.lastSyncCount,
+      };
+    } catch (error) {
+      runtime.sourceError = error.message;
+      throw error;
+    }
+  }
+
+  async function applySupersonicSetting(enabled) {
+    const normalized = enabled !== false;
+    database.savePlatformSetting('supersonic.enabled', normalized);
+    runtime.supersonicEnabled = normalized;
+    if (!normalized) {
+      runtime.sourceMode = 'direct-llm';
+      runtime.sourceError = null;
+      return {
+        enabled: false,
+        sourceMode: runtime.sourceMode,
+      };
+    }
+    try {
+      const result = await syncIndicators();
+      return {
+        enabled: true,
+        sourceMode: runtime.sourceMode,
+        sync: result,
+      };
+    } catch (error) {
+      runtime.sourceError = `Supersonic 启用后同步失败：${error.message}`;
+      return {
+        enabled: true,
+        sourceMode: runtime.sourceMode,
+        syncError: error.message,
+      };
+    }
+  }
+
+  async function init() {
+    try {
+      runtime.skillSync = skillRegistry.refreshExternalSkills();
+    } catch (error) {
+      runtime.skillSync = {
+        error: error.message,
+        configuredRoots: config.skillDirectories ?? [],
+      };
+    }
+    for (const theme of database.listThemes()) {
+      const llmConfig = theme.llmConfig ?? {};
+      if (Number(llmConfig.deterministicDefaultsVersion) >= 3) {
+        continue;
+      }
+      database.saveTheme({
+        ...theme,
+        llmConfig: {
+          ...llmConfig,
+          temperature: llmConfig.temperature === undefined
+            || Number(llmConfig.temperature) === 0.1
+            ? 0
+            : Number(llmConfig.temperature),
+          maxToolRounds: llmConfig.maxToolRounds === undefined
+            || [4, 6, 8].includes(Number(llmConfig.maxToolRounds))
+            ? 12
+            : Number(llmConfig.maxToolRounds),
+          deterministicDefaultsVersion: 3,
+        },
+      }, theme.id);
+    }
+    try {
+      if (getSupersonicEnabled()) {
+        await syncIndicators();
+      } else {
+        runtime.sourceMode = 'direct-llm';
+        runtime.supersonicEnabled = false;
+        runtime.sourceError = null;
+      }
+    } catch (error) {
+      runtime.sourceError = getSupersonicEnabled()
+        ? `Supersonic 初始化失败：${error.message}`
+        : error.message;
+    }
+    try {
+      const bootstrapped = await businessDatasets.bootstrap(
+        config.bootstrapDatasource ?? {},
+      );
+      if (bootstrapped?.length) {
+        const bootstrappedIds = bootstrapped.map((dataset) => dataset.id);
+        for (const theme of database.listThemes()) {
+          const businessDatasetIds = [...new Set([
+            ...(theme.businessDatasetIds ?? []),
+            ...bootstrappedIds,
+          ])];
+          database.saveTheme({
+            ...theme,
+            businessDatasetIds,
+            skillCodes: [...new Set([
+              ...(theme.skillCodes ?? []),
+              'business_dataset_list',
+              'business_dataset_query',
+            ])],
+          }, theme.id);
+        }
+        for (const user of database.listUsers()) {
+          if (user.role === 'ADMIN') {
+            continue;
+          }
+          for (const datasetId of bootstrappedIds) {
+            database.grantDatasetAccess(user.id, datasetId, true);
+          }
+        }
+      }
+    } catch (error) {
+      runtime.sourceError ??= `业务数据集初始化失败：${error.message}`;
+    }
+    for (const theme of database.listThemes()) {
+      if ((theme.businessDatasetIds ?? []).length === 0) {
+        continue;
+      }
+      database.saveTheme({
+        ...theme,
+        skillCodes: [...new Set([
+          ...(theme.skillCodes ?? []),
+          'business_dataset_list',
+          'business_dataset_schema',
+          'business_dataset_query',
+        ])],
+      }, theme.id);
+    }
+    return runtime;
+  }
+
+  function currentHealth() {
+    runtime.supersonicEnabled = getSupersonicEnabled();
+    if (!runtime.supersonicEnabled) {
+      runtime.sourceMode = 'direct-llm';
+    }
+    return {
+      status: 'ok',
+      now: new Date().toISOString(),
+      source: {
+        mode: runtime.sourceMode,
+        enabled: runtime.supersonicEnabled,
+        configured: runtime.supersonicEnabled && runtime.sourceMode === 'supersonic',
+        baseUrl: config.supersonic.baseUrl || null,
+        lastSyncAt: runtime.lastSyncAt,
+        lastSyncCount: runtime.lastSyncCount,
+        error: runtime.sourceError,
+      },
+      llm: {
+        mode: harness.mode,
+        model: harness.mode === 'local-rule' ? null : config.deepseek.model,
+        configured: Boolean(config.deepseek.apiKey) && harness.mode !== 'local-rule',
+        themeCredentials: database.listThemes()
+          .filter((theme) => (
+            Boolean(theme.llmConfig?.apiKeyEncrypted)
+            || (theme.modelIds ?? []).some((modelId) => (
+              Boolean(database.getModel(modelId)?.hasApiKey)
+            ))
+          ))
+          .length,
+        capabilities: harness.capabilities ?? {},
+      },
+      skills: {
+        externalCount: database.listSkills()
+          .filter((skill) => skill.source === 'SKILL_MD')
+          .length,
+        sync: runtime.skillSync,
+      },
+      counts: {
+        users: database.countRows('app_users'),
+        themes: database.countRows('themes'),
+        indicators: runtime.lastSyncCount,
+        indicatorTypes: runtime.lastTypeCount,
+        conversations: database.countRows('conversations'),
+        chatSessions: database.countRows('chat_sessions'),
+        chatMessages: database.countRows('chat_messages'),
+        workspaces: database.countRows('workspaces'),
+        workspaceArtifacts: database.countRows('workspace_artifacts'),
+        artifactVersions: database.countRows('artifact_versions'),
+        audits: database.countRows('audit_logs'),
+        queryPlans: database.countRows('query_plans'),
+        feedback: database.countRows('qa_feedback'),
+        knowledgeGaps: database.countRows('knowledge_gaps'),
+        llmCalls: database.countRows('llm_call_logs'),
+        dataSources: database.countRows('data_sources'),
+        businessDatasets: database.countRows('business_datasets'),
+        models: database.countRows('models'),
+        datasetFields: database.countRows('dataset_fields'),
+        semanticValueDomains: database.countRows('theme_semantic_value_domains'),
+        legacySemanticValueDomains: database.countRows('semantic_value_domains'),
+      },
+    };
+  }
+
+  return {
+    config,
+    database,
+    indicatorClient,
+    harness,
+    memory,
+    skillRegistry,
+    semanticCompiler,
+    queryContractCompiler,
+    feedback,
+    growth,
+    llmAudit,
+    datasourceCrypto,
+    businessDatasets,
+    workspace,
+    codeExecution,
+    harnessFactory,
+    agent,
+    runtime,
+    init,
+    syncIndicators,
+    applySupersonicSetting,
+    getSupersonicEnabled,
+    currentHealth,
+  };
+}

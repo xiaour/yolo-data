@@ -1,0 +1,15 @@
+# Local runtime state. The application recreates this directory on startup.
+data/*
+!data/.gitkeep
+
+# Local secrets and environment overrides.
+.env
+.env.*
+!.env.example
+
+node_modules/
+coverage/
+*.log
+artifacts/
+test-results/
+*.tmp

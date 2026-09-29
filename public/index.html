@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>YOLO · 基于指标语义的智能问数平台</title>
+    <link rel="icon" type="image/svg+xml" href="/yolo-mark.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/tokens.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <img src="/yolo-mark.svg" alt="" />
+          </span>
+          <span class="brand-copy">
+            <strong>YOLO</strong>
+            <small>基于指标语义的智能问数平台</small>
+          </span>
+        </div>
+
+        <nav class="main-nav" id="mainNav" aria-label="主导航">
+          <div class="nav-group-label">分析</div>
+          <button class="nav-item is-active" data-page="query" type="button">
+            <span data-icon="sparkles"></span><span>开始问数</span>
+          </button>
+          <div class="nav-group-label">资产</div>
+          <button class="nav-item" data-page="indicators" type="button">
+            <span data-icon="library"></span><span>指标体系</span>
+          </button>
+          <button class="nav-item" data-page="models" type="button">
+            <span data-icon="brain-circuit"></span><span>模型管理</span>
+          </button>
+          <button class="nav-item" data-page="themes" type="button">
+            <span data-icon="bot"></span><span>主题智能体</span>
+          </button>
+          <button class="nav-item" data-page="datasets" type="button">
+            <span data-icon="database"></span><span>数据集</span>
+          </button>
+          <div class="nav-group-label">治理</div>
+          <button class="nav-item" data-page="permissions" type="button">
+            <span data-icon="shield-check"></span><span>数据权限</span>
+          </button>
+          <button class="nav-item" data-page="growth" type="button">
+            <span data-icon="sprout"></span><span>质量运营</span>
+          </button>
+          <button class="nav-item" data-page="audit" type="button">
+            <span data-icon="scroll-text"></span><span>运行审计</span>
+          </button>
+          <button class="nav-item" data-page="settings" type="button">
+            <span data-icon="settings"></span><span>系统设置</span>
+          </button>
+        </nav>
+
+        <section class="sidebar-sessions" id="sessionSidebar" hidden></section>
+
+        <div class="sidebar-foot">
+          <div class="runtime-box" id="runtimeBox">
+            <span class="runtime-dot"></span>
+            <div>
+              <strong id="sourceMode">连接中</strong>
+              <small id="sourceSync">正在读取运行状态</small>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div class="topbar-heading">
+            <div class="topbar-title-row">
+              <h1 id="pageTitle">开始问数</h1>
+              <div class="theme-breadcrumb" id="themeBreadcrumb" hidden>
+                <span class="theme-breadcrumb-separator">/</span>
+                <select class="theme-breadcrumb-select" id="themeSelect" aria-label="切换问数主题"></select>
+                <span class="theme-breadcrumb-chevron" data-icon="chevron-down"></span>
+              </div>
+            </div>
+            <p id="pageSubtitle">面向业务主题的自然语言指标查询</p>
+          </div>
+          <div class="topbar-actions">
+            <div class="density-seg" id="densitySeg" hidden aria-label="对话展示密度">
+              <button class="density-option" data-density="compact" type="button">简洁</button>
+              <button class="density-option" data-density="detailed" type="button">详细</button>
+            </div>
+            <button class="topbar-icon-btn workspace-toggle" id="workspaceToggle" type="button"
+              data-tooltip="工作区产物" aria-label="工作区产物" hidden>
+              <span class="topbar-icon-slot" data-icon="table"></span>
+              <small class="topbar-count" id="workspaceCount">0</small>
+            </button>
+            <span class="topbar-icon-btn runtime-icon" id="harnessStatus"
+              data-tooltip="Agent 运行时" tabindex="0" aria-label="Agent 运行时">
+              <span class="topbar-icon-slot" data-icon="bot"></span>
+            </span>
+            <label class="user-switch topbar-icon-btn" data-tooltip="切换当前用户" aria-label="切换当前用户">
+              <span class="topbar-icon-slot" data-icon="user"></span>
+              <select id="currentUserSelect" aria-label="切换当前用户"></select>
+            </label>
+          </div>
+        </header>
+
+        <main class="main-content" id="appMain">
+          <div class="loading-state"><span class="spinner"></span>正在加载平台配置</div>
+        </main>
+      </section>
+    </div>
+
+    <aside class="workspace-drawer" id="workspaceDrawer" aria-hidden="true">
+      <header class="workspace-drawer-head">
+        <div>
+          <strong>工作区产物</strong>
+          <small id="workspaceSubtitle">当前会话暂无产物</small>
+        </div>
+        <button class="btn btn-quiet btn-icon" id="workspaceClose" type="button" aria-label="关闭工作区产物">
+          <span data-icon="x"></span>
+        </button>
+      </header>
+      <div class="workspace-drawer-body" id="workspaceArtifactList"></div>
+    </aside>
+
+    <div id="modalRoot"></div>
+    <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+    <script src="/vendor/echarts.min.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

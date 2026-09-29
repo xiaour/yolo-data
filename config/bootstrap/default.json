@@ -1,0 +1,136 @@
+{
+  "users": [
+    {
+      "username": "admin",
+      "displayName": "平台管理员",
+      "role": "ADMIN",
+      "attributes": {}
+    },
+    {
+      "username": "east_manager",
+      "displayName": "华东区域经理",
+      "role": "ANALYST",
+      "attributes": {
+        "region": "华东"
+      }
+    },
+    {
+      "username": "channel_analyst",
+      "displayName": "渠道分析员",
+      "role": "ANALYST",
+      "attributes": {
+        "channel": "线上"
+      }
+    }
+  ],
+  "themes": [
+    {
+      "name": "经营总览",
+      "description": "销售规模、订单和盈利质量分析",
+      "systemPrompt": "围绕经营结果回答，优先按时间趋势或区域、渠道做对比，必须明确指标口径和统计周期。",
+      "defaultChart": "auto",
+      "skillCodes": [
+        "indicator_search",
+        "indicator_definition",
+        "indicator_query",
+        "trend_analysis",
+        "dimension_breakdown",
+        "period_comparison",
+        "contribution_analysis",
+        "business_dataset_list",
+        "business_dataset_query",
+        "business_dataset_schema"
+      ]
+    },
+    {
+      "name": "履约运营",
+      "description": "订单履约、及时率和异常单分析",
+      "systemPrompt": "面向运营人员回答履约问题，优先关注及时率、异常单和趋势变化。",
+      "defaultChart": "auto",
+      "skillCodes": [
+        "indicator_search",
+        "indicator_definition",
+        "indicator_query",
+        "trend_analysis",
+        "dimension_breakdown",
+        "anomaly_detection",
+        "business_dataset_list",
+        "business_dataset_query",
+        "business_dataset_schema"
+      ]
+    },
+    {
+      "name": "财务分析",
+      "description": "收入、利润和费用结构分析",
+      "systemPrompt": "面向财务人员回答收支与利润问题，金额单位保持元，并解释同比或环比口径。",
+      "defaultChart": "auto",
+      "skillCodes": [
+        "indicator_search",
+        "indicator_definition",
+        "indicator_query",
+        "trend_analysis",
+        "dimension_breakdown",
+        "period_comparison",
+        "contribution_analysis",
+        "business_dataset_list",
+        "business_dataset_query",
+        "business_dataset_schema"
+      ]
+    }
+  ],
+  "themeGrants": [
+    {
+      "username": "admin",
+      "theme": "经营总览",
+      "canManage": true
+    },
+    {
+      "username": "admin",
+      "theme": "履约运营",
+      "canManage": true
+    },
+    {
+      "username": "admin",
+      "theme": "财务分析",
+      "canManage": true
+    },
+    {
+      "username": "east_manager",
+      "theme": "经营总览",
+      "canManage": false
+    },
+    {
+      "username": "east_manager",
+      "theme": "履约运营",
+      "canManage": false
+    },
+    {
+      "username": "channel_analyst",
+      "theme": "经营总览",
+      "canManage": false
+    },
+    {
+      "username": "channel_analyst",
+      "theme": "财务分析",
+      "canManage": false
+    }
+  ],
+  "rowPolicies": [
+    {
+      "username": "east_manager",
+      "dimension": "region",
+      "operator": "IN",
+      "values": [
+        "华东"
+      ]
+    },
+    {
+      "username": "channel_analyst",
+      "dimension": "channel",
+      "operator": "IN",
+      "values": [
+        "线上"
+      ]
+    }
+  ]
+}
