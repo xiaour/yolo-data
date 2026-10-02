@@ -3643,6 +3643,13 @@ body.workspace-open .app-shell {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+
+  /* Loading spinners are progress feedback, not decoration: a frozen ring
+     reads as a hung UI. Keep them turning, just slower than the default. */
+  .spinner {
+    animation-duration: 1.4s !important;
+    animation-iteration-count: infinite !important;
+  }
 }
 
 /* ChatGPT-inspired neutral surface system. */
