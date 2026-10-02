@@ -49,7 +49,7 @@ async function renderSettingsPage(root) {
           </div>
           <div class="form-field span-2">
             <div class="detail-list">
-              <div class="detail-row"><span>连接状态</span><strong>${escapeHtml(supersonic.mode ?? '-')}</strong></div>
+              <div class="detail-row"><span>连接状态</span><strong>${escapeHtml(supersonic.mode === 'direct-llm' ? '已停用（大模型直连）' : supersonic.configured ? (supersonic.error ? '连接异常' : '已连接') : '未配置')}</strong></div>
               <div class="detail-row"><span>服务地址</span><strong>${escapeHtml(supersonic.baseUrl || '未配置')}</strong></div>
               <div class="detail-row"><span>最近同步</span><strong>${supersonic.lastSyncAt ? `${formatDate(supersonic.lastSyncAt)} · ${supersonic.lastSyncCount ?? 0} 个指标` : '尚无同步记录'}</strong></div>
               <div class="detail-row"><span>错误信息</span><strong>${escapeHtml(supersonic.error || '无')}</strong></div>

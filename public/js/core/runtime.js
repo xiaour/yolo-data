@@ -735,18 +735,30 @@ function renderRuntime(health) {
   const runtimeBox = document.getElementById('runtimeBox');
   runtimeBox?.classList.toggle('is-warning', indicatorSource === 'SNAPSHOT');
   runtimeBox?.classList.toggle('is-error', indicatorSource === 'UNAVAILABLE');
-  document.getElementById('sourceMode').textContent = source?.mode === 'direct-llm'
+  // Distinguish "not configured yet" from "configured but unreachable" so the
+  // global notice does not claim a connection error when nothing is set up.
+  const directLlm = source?.mode === 'direct-llm';
+  const unconfigured = !directLlm
+    && (source?.mode === 'unconfigured' || source?.configured === false);
+  const connectionError = !directLlm && !unconfigured && Boolean(source?.error);
+  document.getElementById('sourceMode').textContent = directLlm
     ? '大模型直连模式'
-    : source?.mode === 'supersonic'
-      ? '指标平台已连接'
-      : '指标平台未配置';
-  const baseSyncText = source?.error
-    ? '指标平台连接异常'
-    : source?.mode === 'direct-llm'
-      ? '指标平台匹配已停用'
-    : source?.lastSyncAt
-      ? `${source.lastSyncCount} 个指标 · ${formatDate(source.lastSyncAt)}`
-      : '尚无同步记录';
+    : unconfigured
+      ? '指标平台未配置'
+      : connectionError
+        ? '指标平台连接异常'
+        : source?.mode === 'supersonic'
+          ? '指标平台已连接'
+          : '指标平台未配置';
+  const baseSyncText = directLlm
+    ? '指标平台匹配已停用'
+    : unconfigured
+      ? '尚未配置服务地址'
+      : connectionError
+        ? '指标读取失败'
+        : source?.lastSyncAt
+          ? `${source.lastSyncCount} 个指标 · ${formatDate(source.lastSyncAt)}`
+          : '尚无同步记录';
   const sourceWarning = indicatorSource === 'SNAPSHOT'
     ? ` · 快照模式，快照时间 ${source?.indicatorSourceDetail?.freshAt ? formatDate(source.indicatorSourceDetail.freshAt) : '未知'}，可能已过期`
     : indicatorSource === 'UNAVAILABLE'
