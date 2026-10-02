@@ -33,7 +33,7 @@ async function renderSettingsPage(root) {
       <section class="section-band">
         <div class="section-head compact">
           <div>
-            <h3>Supersonic 指标模块</h3>
+            <h3>指标平台模块</h3>
             <p>启用时先经过实时指标体系检索和口径匹配；停用时跳过指标库，由大模型结合业务数据集、主题提示词和语义包直接执行。</p>
           </div>
           <span class="tag ${supersonic.enabled ? 'tag-teal' : 'tag-red'}">${supersonic.enabled ? '已启用' : '已停用'}</span>
@@ -43,7 +43,7 @@ async function renderSettingsPage(root) {
           <div class="form-field span-2">
             <label class="inline-check settings-toggle">
               <input type="checkbox" id="supersonicEnabled"${supersonic.enabled ? ' checked' : ''} />
-              <span>启用 Supersonic 指标体系匹配</span>
+              <span>启用指标平台匹配</span>
             </label>
             <small>停用后，开始问数不再暴露指标检索、指标详情和指标查询工具，转而使用“大模型直连模式”。</small>
           </div>
@@ -73,8 +73,8 @@ async function renderSettingsPage(root) {
         body: JSON.stringify({ enabled }),
       });
       toast(result.supersonic?.syncError
-        ? `设置已保存，但 Supersonic 同步失败：${result.supersonic.syncError}`
-        : `Supersonic 指标模块已${enabled ? '启用' : '停用'}`);
+        ? `设置已保存，但指标平台同步失败：${result.supersonic.syncError}`
+        : `指标平台模块已${enabled ? '启用' : '停用'}`);
       await loadBootstrap(state.currentUser.id);
       renderPage();
     } catch (error) {

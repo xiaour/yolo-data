@@ -51,6 +51,6 @@ export function indicatorSourceIssue(state, {
     level: 'ERROR',
     code: 'INDICATOR_SOURCE_UNAVAILABLE',
     phase,
-    message: '指标目录来源不可用（Supersonic 未配置且无可用快照），不得继续规划指标查询。',
+    message: '指标目录来源不可用（指标平台未配置且无可用快照），不得继续规划指标查询。',
   };
 }

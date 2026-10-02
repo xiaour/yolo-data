@@ -351,7 +351,7 @@ export class SupersonicIndicatorClient {
 }
 
 export class UnavailableIndicatorClient {
-  constructor(message = 'Supersonic 指标系统尚未配置，无法执行指标查询') {
+  constructor(message = '指标平台尚未配置，无法执行指标查询') {
     this.message = message;
     this.mode = 'unconfigured';
   }

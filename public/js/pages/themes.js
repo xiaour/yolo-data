@@ -788,7 +788,7 @@ async function renderThemeEditorPage(root, theme) {
             <label class="inline-check">
               <input type="checkbox" id="themeSemanticValuesAutoDiscover"
                 ${semanticValueConfig.autoDiscover !== false ? 'checked' : ''} />
-              <span>元数据缺失时允许从 Supersonic 或业务数据集补齐</span>
+              <span>元数据缺失时允许从指标平台或业务数据集补齐</span>
             </label>
           </div>
           <p class="semantic-value-scope-hint">字段列表会跟随上方数据范围实时预览；初始化值域仍以保存后的主题配置为准。</p>
@@ -811,7 +811,7 @@ async function renderThemeEditorPage(root, theme) {
               <div class="check-grid">
                 ${allIndicators.length === 0
                   ? `<div class="muted">${indicatorSource === 'UNAVAILABLE'
-                    ? '未接入 Supersonic 指标平台，且本地无指标快照，暂无可选指标；主题智能体仍可正常编辑和保存。'
+                    ? '未接入指标平台，且本地无指标快照，暂无可选指标；主题智能体仍可正常编辑和保存。'
                     : '暂无可选指标。'}</div>`
                   : allIndicators.map((indicator) => `
                   <label class="check-item">

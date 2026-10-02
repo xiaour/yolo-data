@@ -1379,8 +1379,8 @@ function buildMappingProvenance({
       confidence: 1,
       requiresAttention: fuzzyValueMapping,
       reason: fuzzyValueMapping
-        ? '指标和字段来自 Supersonic 指标库，部分过滤值通过高置信度近似枚举映射。'
-        : '结果来自 Supersonic 指标库已确认的指标定义与字段。',
+        ? '指标和字段来自指标库，部分过滤值通过高置信度近似枚举映射。'
+        : '结果来自指标库已确认的指标定义与字段。',
       fieldMappings: mappings,
       valueMappings,
     };

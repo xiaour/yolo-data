@@ -114,11 +114,11 @@ async function renderIndicatorsPage(root) {
     try {
       const result = await api('/api/indicators/sync', { method: 'POST' });
       if (result.disabled) {
-        toast('Supersonic 指标匹配已停用，未执行同步');
+        toast('指标平台匹配已停用，未执行同步');
       } else if (result.skipped) {
-        toast(result.message ?? 'Supersonic 指标系统未接入，已跳过同步');
+        toast(result.message ?? '指标平台未接入，已跳过同步');
       } else {
-        toast(`Supersonic 连接正常，共 ${result.indicators} 个指标`);
+        toast(`指标平台连接正常，共 ${result.indicators} 个指标`);
       }
       await loadBootstrap(state.currentUser.id);
       renderPage();

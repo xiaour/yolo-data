@@ -341,7 +341,7 @@ export class RuleBasedHarness {
       const dataset = relevantDataset
         ?? (metadata.preferBusinessDatasets ? null : catalog?.datasets?.[0]);
       if (metadata.preferBusinessDatasets && !dataset) {
-        const content = 'Supersonic 指标系统尚未配置，当前已接入的业务数据集无法回答该问题。请配置 Supersonic 指标源，或补充相关业务数据集。';
+        const content = '指标平台尚未配置，当前已接入的业务数据集无法回答该问题。请配置指标平台，或补充相关业务数据集。';
         this.onCall?.({
           ...metadata,
           callType: 'AGENT_RULE_FALLBACK',
@@ -494,7 +494,7 @@ export class RuleBasedHarness {
       metadata.sourceMode
       && !['supersonic'].includes(String(metadata.sourceMode))
     ) {
-      const content = 'Supersonic 指标系统尚未配置，无法执行真实指标查询。请配置 Supersonic 指标源后重试。';
+      const content = '指标平台尚未配置，无法执行真实指标查询。请配置指标平台后重试。';
       this.onCall?.({
         ...metadata,
         callType: 'AGENT_RULE_FALLBACK',

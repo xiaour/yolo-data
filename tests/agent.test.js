@@ -316,7 +316,7 @@ test('production runtime requires a configured Supersonic indicator source', asy
     themeId: theme.id,
     question: '近7天销售额趋势',
   });
-  assert.match(answer.message, /Supersonic 指标系统尚未配置/);
+  assert.match(answer.message, /指标平台尚未配置/);
   assert.equal(answer.runtime.executionAdapter, 'unconfigured-indicator');
   assert.equal(application.currentHealth().source.mode, 'unconfigured');
 });

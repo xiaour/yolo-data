@@ -46,7 +46,7 @@ const ICONS = {
 
 const PAGE_META = {
   query: ['开始问数', '面向业务主题的自然语言指标查询'],
-  indicators: ['指标体系', '实时读取 Supersonic 指标类型、口径和指标详情'],
+  indicators: ['指标体系', '实时读取指标类型、口径和指标详情'],
   models: ['模型管理', '统一管理模型连接、运行参数和平台默认模型'],
   themes: ['主题智能体', '按业务主题限定指标范围、维度和回答策略'],
   themeEditor: ['编辑主题智能体', '配置主题的数据范围、运行模型、Skills 和独立提示词'],
@@ -671,16 +671,16 @@ function formatModelName(runtime) {
 
 function formatSourceMode(mode) {
   if (mode === 'supersonic') {
-    return 'Supersonic 指标源';
+    return '指标平台指标源';
   }
   if (mode === 'supersonic-indicator') {
-    return 'Supersonic 指标查询';
+    return '指标平台指标查询';
   }
   if (mode === 'unconfigured') {
-    return 'Supersonic 未配置';
+    return '指标平台未配置';
   }
   if (mode === 'unconfigured-indicator') {
-    return 'Supersonic 未配置';
+    return '指标平台未配置';
   }
   if (mode === 'doris-dataset') {
     return 'Doris 业务数据集';
@@ -739,11 +739,11 @@ function renderRuntime(health) {
     ? '大模型直连模式'
     : source?.mode === 'supersonic'
       ? '指标平台已连接'
-      : 'Supersonic 未配置';
+      : '指标平台未配置';
   const baseSyncText = source?.error
-    ? 'Supersonic 连接异常'
+    ? '指标平台连接异常'
     : source?.mode === 'direct-llm'
-      ? 'Supersonic 指标匹配已停用'
+      ? '指标平台匹配已停用'
     : source?.lastSyncAt
       ? `${source.lastSyncCount} 个指标 · ${formatDate(source.lastSyncAt)}`
       : '尚无同步记录';

@@ -18,7 +18,7 @@ export function registerSystemRoutes(table) {
     method: 'GET',
     path: '/api/settings',
     tags: ['system'],
-    summary: '读取 Supersonic 设置（管理员）',
+    summary: '读取指标平台设置（管理员）',
     middleware: ['auth', 'admin'],
     adminOnly: true,
     handler: async (ctx) => {
@@ -47,7 +47,7 @@ export function registerSystemRoutes(table) {
     method: 'PUT',
     path: '/api/settings/supersonic',
     tags: ['system'],
-    summary: '启停 Supersonic 指标源（管理员）',
+    summary: '启停指标平台（管理员）',
     middleware: ['auth', 'admin'],
     adminOnly: true,
     handler: async (ctx) => {

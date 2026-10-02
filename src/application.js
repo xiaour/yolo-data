@@ -181,7 +181,7 @@ export async function createApplication(
         sync: result,
       };
     } catch (error) {
-      runtime.sourceError = `Supersonic 启用后同步失败：${error.message}`;
+      runtime.sourceError = `指标平台启用后同步失败：${error.message}`;
       return {
         enabled: true,
         sourceMode: runtime.sourceMode,
@@ -231,7 +231,7 @@ export async function createApplication(
       }
     } catch (error) {
       runtime.sourceError = getSupersonicEnabled()
-        ? `Supersonic 初始化失败：${error.message}`
+        ? `指标平台初始化失败：${error.message}`
         : error.message;
     }
     try {

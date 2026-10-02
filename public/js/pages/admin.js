@@ -514,7 +514,7 @@ async function loadPermissionEditor() {
           <input type="checkbox" name="indicatorGrant" value="${escapeAttr(indicator.id)}"${indicatorGrantMap.has(String(indicator.id)) ? ' checked' : ''} />
           <span>${escapeHtml(indicator.name)}<small class="muted"> ${escapeHtml(indicator.typeName ?? '')}</small></span>
         </label>
-      `).join('') || '<div class="muted">Supersonic 暂无可用指标</div>'}
+      `).join('') || '<div class="muted">指标平台暂无可用指标</div>'}
     </div>
 
     <div class="section-head" style="margin-top:22px">

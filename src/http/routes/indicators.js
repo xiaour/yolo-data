@@ -17,8 +17,8 @@ function sendSnapshotIndicators({
     source: application.resolveIndicatorSource(),
     offline: true,
     message: snapshot.source === 'UNAVAILABLE'
-      ? 'Supersonic 指标系统未接入，且本地无指标快照'
-      : 'Supersonic 指标系统未接入，已使用本地指标快照',
+      ? '指标平台未接入，且本地无指标快照'
+      : '指标平台未接入，已使用本地指标快照',
   };
   if (error) {
     payload.warning = {
@@ -61,7 +61,7 @@ export function registerIndicatorRoutes(table) {
           total: 0,
           disabled: true,
           source: application.resolveIndicatorSource(),
-          message: 'Supersonic 指标模块已停用',
+          message: '指标平台模块已停用',
         });
         return;
       }
@@ -138,7 +138,7 @@ export function registerIndicatorRoutes(table) {
       const user = getRequestUser(request, database);
       if (!application.getSupersonicEnabled()) {
         throw Object.assign(
-          new Error('Supersonic 指标模块已停用'),
+          new Error('指标平台模块已停用'),
           { statusCode: 404 },
         );
       }
@@ -223,7 +223,7 @@ export function registerIndicatorRoutes(table) {
           types: 0,
           indicators: 0,
           persisted: false,
-          message: 'Supersonic 指标系统未接入，已跳过同步；已有的本地指标快照仍然可用',
+          message: '指标平台未接入，已跳过同步；已有的本地指标快照仍然可用',
           source,
           health: application.currentHealth(),
         });
