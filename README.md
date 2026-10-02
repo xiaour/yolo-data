@@ -160,23 +160,9 @@ npm run dev
 手动初始化（等价于 `npm run setup`）：
 
 ```bash
-# 克隆仓库
-git clone <仓库地址> yolo-data
-cd yolo-data
-
-# 安装依赖（mysql2 是 MySQL/Doris 数据源所需驱动）
-npm install
-
-# 创建配置文件
-cp .env.example .env
-
-# 编辑 .env
-# 配置 DEEPSEEK_API_KEY
-# 配置 SUPERSONIC_BASE_URL 和 SUPERSONIC_TOKEN
-# 如需要，配置 Doris 数据源
-
-# 启动开发服务
-npm run dev
+npm install            # 安装依赖（含 mysql2）
+cp .env.example .env   # 生成配置；按需填写模型密钥、Supersonic、Doris 连接
+npm run dev            # 启动，默认 http://localhost:8088/
 ```
 
 `npm run setup` 是幂等的：已存在的 `.env` 不会被覆盖，重复执行只会补装依赖并复检驱动。
@@ -230,61 +216,32 @@ Supersonic 是**可选**依赖，未接入时平台仍可完整启动和管理�
 
 #### MySQL / Doris 驱动初始化
 
-MySQL/Doris 数据源依赖 `mysql2`，它已声明在 `package.json` 的 `dependencies` 中，
-`npm run setup` 或 `npm install` 会自动安装。以下几种情况需要单独处理：
+`mysql2` 已在 `dependencies` 中，`npm run setup` / `npm install` 会自动安装。仅在缺驱动时
+（例如曾以“脱离数据库”模式运行）需要手动补装与校验：
 
 ```bash
-# 依赖已装好，但只缺 mysql2（例如曾以“脱离数据库”模式运行）
 npm install mysql2
-
-# 校验驱动是否可加载
 node -e "import('mysql2/promise').then(m => console.log('mysql2 ok', typeof m.default.createConnection))"
 ```
 
-注意：`mysql2` 在 `src/businessDatasets.js` 加载时一次性导入。**安装或升级驱动后必须重启服务**
-（`npm run dev` 会自动重启），否则运行中的进程仍会报
-`mysql2 驱动未安装：MySQL/Doris 数据源需要先执行 npm install mysql2`。
-
-Doris 数据源请填写 FE 的 MySQL 协议端口（默认 `9030`），而不是 HTTP 端口。
+驱动在进程启动时导入，**安装或升级后必须重启服务**。Doris 请填 FE 的 MySQL 协议端口（默认 `9030`），不是 HTTP 端口。
 
 #### 数据集智能识别（初始化口径与默认时间条件）
 
-为了让业务用户「裸跑」时不再反复追问口径和时间范围，`/datasets` 页面的数据集
-列表提供「智能识别」入口。它是一个**独立组件**，不依赖 Supersonic 指标平台，
-也不改动 DataAgent 主流程：
+`/datasets` 列表的「智能识别」入口会抽样推断字段角色（`TIME/METRIC/DIMENSION/IDENTIFIER`）、
+聚合方式与默认时间窗口，管理员逐项确认后写回既有配置面（`dataset_fields.role/aggregator`、
+`config.autoLatestDateRange/autoRangeDays`），减少问数时的口径与时间范围追问。
 
-- 后端：`src/datasetProfiler.js`（纯函数启发式，零依赖）+ `src/businessDatasets.js`
-  中的只读抽样封装。对数据表按前 50 个字段抽样，并对日期列取 `MIN/MAX` 计算数据跨度。
-- 前端：`public/js/components/datasetProfiler.js`，管理员在弹窗中逐项确认或修改建议。
-- 接口：
-  - `POST /api/business-datasets/:id/profile` 只做分析，**不落库**，返回每个字段的建议角色（`TIME/METRIC/DIMENSION/IDENTIFIER`）、建议聚合方式和默认时间窗口。
-  - `PUT /api/business-datasets/:id/profile` 只把管理员勾选的结果写回既有配置面：
-    `dataset_fields.role` / `dataset_fields.aggregator`，以及
-    `business_datasets.config.autoLatestDateRange` / `config.autoRangeDays`。
-- 因为写入的是既有配置面，大模型的默认口径和默认时间窗口会随之改变；建议采用保守窗口
-  （如 30–90 天），窗口过大有扫全表的风险。
-- 识别结果只是建议，弹窗默认只勾选发生变化的字段，管理员可以逐项否决。
-- 数据源不可达（或平台完全脱离数据库运行）时不会报错，而是降级为「按字段名与类型识别」：
-  返回 `degraded: true` 与 `degradedReason`，前端显示黄色提示，默认时间窗口回退到 30 天。
-
-脱离数据库时也可以用模拟数据验证：`node --test tests/datasetProfiler.test.js`
-和 `tests/http.test.js` 中的 `dataset profiling API ...` /
-`dataset profiling degrades gracefully ...` 用例都通过 monkey-patch 抽样返回值，
-不需要真实 MySQL/Doris。
+- 独立组件，不依赖指标平台，也不改动 DataAgent 主流程：`POST /api/business-datasets/:id/profile`
+  只分析不落库，`PUT` 才写入勾选结果。
+- 数据源不可达时降级为按字段名与类型识别（`degraded: true`，窗口回退 30 天）；建议窗口保守（30–90 天），过大有扫全表风险。
 
 #### 字段启用与禁用
 
-`/datasets` 页面数据集列表的「字段」弹窗支持逐个字段启用/禁用，**默认全部启用**：
-
-- 禁用只是把 `dataset_fields.enabled` 置 0，字段配置与语义角色都保留，随时可以重新启用。
-- 智能体侧完全不可见：agent 与查询链路（`buildQuery`、`executeDatasetQuery`、
-  `listDistinctFieldValues`、字段值域、契约编译）统一以
-  `listDatasetFields(datasetId, { enabledOnly: true })` 读取字段，被禁用的字段既不能作为
-  维度/指标/时间字段，也不能用于筛选；对禁用字段取数会按「字段不存在」处理。
-- 「同步结构」不会覆盖禁用状态：按字段名保留显式禁用，新增列默认启用。
-- 接口：`PUT /api/business-datasets/:id/fields/:fieldName`，body `{"enabled": false}`，
-  管理员专属并写审计日志 `DATASET_FIELD_TOGGLE`。
-- 数据集列表的「字段数」下方会显示 `启用 N`，便于确认禁用结果。
+「字段」弹窗支持逐个字段启用/禁用，**默认全部启用**。禁用只改 `dataset_fields.enabled`，
+配置保留、可随时恢复；agent 与查询链路统一按 `enabledOnly` 读取字段，禁用字段不可作为
+维度/指标/时间字段或筛选条件。「同步结构」会保留禁用状态，新增列默认启用。接口为
+`PUT /api/business-datasets/:id/fields/:fieldName`。
 
 ## API 示例
 
@@ -350,25 +307,15 @@ curl http://localhost:8088/api/openapi.json
 # 所有端点路径均与源码中的路由表一致（含 /api/chat/query/stream）
 ```
 
-目录结构：
+`src/http/router.js` 提供路由表、路径参数（支持 `:id(\\d+)` 数字约束）与中间件管线；
+`src/http/middleware.js` 提供 `errorBoundary`、`auth`、`admin`、
+`rateLimit:<profile>`、`timeout:<sec>s`；`src/http/routes/*.js` 按域拆分处理器。
 
-- `src/http/router.js`：路由表、路径参数（支持 `:id(\\d+)` 数字约束）、中间件管线。
-- `src/http/middleware.js`：`errorBoundary`（框架级）、`auth`、`admin`、
-  `rateLimit:<profile>`、`timeout:<sec>s`。
-- `src/http/support.js`：响应/请求辅助函数（与原实现逐字一致）。
-- `src/http/routes/*.js`：按域拆分的路由与处理器。
-
-中间件边界说明：
-
-- `errorBoundary` 是所有路由的框架级兜底，把处理器异常统一转换为与旧实现
-  完全相同的 `{ code, message }` 响应；`/api/chat/query/stream` 的 NDJSON
-  协议（`stream_error` 等事件）保持不变。
-- 审计仍由各处理器按域写入，未抽成通用中间件：审计明细是业务证据真源，
-  通用层会产生重复或语义缺失的记录。
-- `rateLimit:chat` 与 `timeout:180s` 是本次新增的可选保护，仅作用于
-  `/api/chat/query*`。对话限流默认每用户 30 次、0.5 次/秒回填，可用
-  `RATE_LIMIT_CHAT_CAPACITY` / `RATE_LIMIT_CHAT_REFILL_PER_SECOND` 调整；
-  流式接口不设超时（长分析是合法时长）。
+`errorBoundary` 把处理器异常统一转换为既有的 `{ code, message }` 响应，
+`/api/chat/query/stream` 的 NDJSON 协议不变。审计仍由各处理器按域写入
+（审计明细是业务证据真源，抽成通用中间件会产生重复或语义缺失的记录）。
+`rateLimit:chat` 与 `timeout:180s` 仅作用于 `/api/chat/query*`，可用
+`RATE_LIMIT_CHAT_CAPACITY` / `RATE_LIMIT_CHAT_REFILL_PER_SECOND` 调整；流式接口不设超时。
 
 ```bash
 # 架构约束与文件体积棘轮（新增文件 > 800 行、既有文件增长超过阈值即失败）
