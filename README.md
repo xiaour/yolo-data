@@ -14,7 +14,7 @@
 ## 核心能力
 
 - **实时指标体系**
-  - 对接 Supersonic 指标目录、指标详情、口径、维度和聚合查询。
+  - 对接指标目录、指标详情、口径、维度和聚合查询。
   - 不复制指标库，不把缓存当作指标事实来源。
 - **主题智能体**
   - 每个主题独立配置提示词、模型、Skills、指标范围、数据集范围和默认口径。
@@ -52,16 +52,9 @@
 
 ## 页面截图
 
-| 开始问数 | 指标体系 | 数据集 |
-| --- | --- | --- |
-| ![开始问数](docs/screenshots/query.png) | ![指标体系](docs/screenshots/indicators.png) | ![数据集](docs/screenshots/datasets.png) |
-
-| 模型管理 | 智能体 | 数据权限 |
-| --- | --- | --- |
-| ![模型管理](docs/screenshots/models.png) | ![主题智能体](docs/screenshots/themes.png) | ![数据权限](docs/screenshots/permissions.png) |
-| 质量运营 | 运行审计 | 系统设置 |
-| --- | --- | --- |
-| ![质量运营](docs/screenshots/growth.png) | ![运行审计](docs/screenshots/audit.png) | ![系统设置](docs/screenshots/settings.png) |
+| 开始问数 | 数据集 |
+| --- | --- |
+| ![开始问数](docs/screenshots/query.png) | ![数据集](docs/screenshots/datasets.png) |
 
 ## 总体架构
 
@@ -79,13 +72,13 @@ flowchart LR
   AGENT --> POLICY["权限引擎"]
   AGENT --> CONTRACT["查询契约编译器"]
   AGENT --> HARNESS["DeepSeek 或兼容模型 Harness"]
-  AGENT --> INDICATOR["Supersonic 指标适配器"]
+  AGENT --> INDICATOR["指标平台适配器"]
   AGENT --> DATASET["业务数据集服务"]
   AGENT --> WORKSPACE["工作区产物"]
   AGENT --> VISUAL["图表与展示规划"]
 
   HARNESS --> LLM["DeepSeek 或兼容大模型"]
-  INDICATOR --> SUPERSONIC["Supersonic 指标体系"]
+  INDICATOR --> PLATFORM["指标平台"]
   DATASET --> DORIS["Doris 或 MySQL 兼容数据源"]
   API --> DB["SQLite 平台数据库"]
   AGENT --> DB
@@ -100,7 +93,7 @@ flowchart LR
 | 接入层 | HTTP API、SPA 静态资源回退、NDJSON 流 | `src/server.js` |
 | 编排层 | Agent 工具循环、Harness、Skill 裁剪、结果锁 | `src/agent.js`、`src/harness.js`、`src/skills.js` |
 | 治理层 | 条件账本、查询契约、语义映射、权限、来源标记 | `src/queryContractCompiler.js`、`src/permissions.js`、`src/semanticPolicy.js` |
-| 执行层 | Supersonic 查询、Doris/MySQL 数据集查询、结果稳定化 | `src/indicatorClient.js`、`src/businessDatasets.js`、`src/queryContract.js` |
+| 执行层 | 指标平台查询、Doris/MySQL 数据集查询、结果稳定化 | `src/indicatorClient.js`、`src/businessDatasets.js`、`src/queryContract.js` |
 | 持久化层 | SQLite 平台数据库、加密凭证 | `src/database.js`、`src/datasourceCrypto.js` |
 
 ### 核心 DataAgent 工作流
@@ -136,7 +129,7 @@ sequenceDiagram
 - npm 或 pnpm
 - 可选：Python 3，用于高级数据处理和文件生成
 - 可选外部服务：
-  - Supersonic 指标服务
+  - 指标平台
   - Doris 或 MySQL 兼容业务数据库
   - DeepSeek 或其他 OpenAI 兼容模型服务
 
@@ -152,7 +145,7 @@ cd yolo-data
 # 校验 Node 版本、安装依赖（含 MySQL 驱动 mysql2）、从 .env.example 生成 .env
 npm run setup
 
-# 按需编辑 .env（密钥、Supersonic、Doris 连接）
+# 按需编辑 .env（模型密钥、指标平台、Doris 连接）
 # 启动开发服务
 npm run dev
 ```
@@ -161,7 +154,7 @@ npm run dev
 
 ```bash
 npm install            # 安装依赖（含 mysql2）
-cp .env.example .env   # 生成配置；按需填写模型密钥、Supersonic、Doris 连接
+cp .env.example .env   # 生成配置；按需填写模型密钥、指标平台、Doris 连接
 npm run dev            # 启动，默认 http://localhost:8088/
 ```
 
@@ -185,12 +178,12 @@ http://localhost:8088/
 
 ## 配置说明
 
-### Supersonic 指标服务
+### 指标平台
 
-在 `.env` 中配置 `SUPERSONIC_BASE_URL` 和 `SUPERSONIC_TOKEN`。指标模块未配置或停用时，
+在 `.env` 中配置指标平台服务地址与 Token（变量名见 `.env.example`）。未配置或停用时，
 平台可切换到大模型直连模式，但不会把指标目录缓存当作在线指标事实来源。
 
-Supersonic 是**可选**依赖，未接入时平台仍可完整启动和管理：
+指标平台是**可选**依赖，未接入时平台仍可完整启动和管理：
 
 - 指标列表读取（`/api/indicators`、指标详情、`/api/indicator-types`）会降级为本地快照，
   没有快照时返回空列表并在响应中标记 `offline: true`，不会返回错误。
@@ -200,7 +193,7 @@ Supersonic 是**可选**依赖，未接入时平台仍可完整启动和管理�
 
 系统设置页面还支持：
 
-- 启用或停用 Supersonic 指标匹配。
+- 启用或停用指标平台匹配。
 - 停用后切换到大模型直连模式，直接使用业务数据集和工作区产物。
 
 ### DeepSeek 或兼容模型
@@ -381,7 +374,7 @@ npm test
 - 业务特定映射不要写入平台核心代码。
 - 保持 Contract-first 执行和权限强制。
 - 新工作流或回归修复应补充对应测试。
-- 不要从本仓库修改外部 Supersonic 项目。
+- 不要从本仓库修改外部指标平台项目。
 
 更详细的设计说明请查看 [docs/architecture.md](docs/architecture.md)。
 
