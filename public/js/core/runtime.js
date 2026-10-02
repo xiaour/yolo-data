@@ -729,18 +729,20 @@ function formatProvenance(provenance) {
 function renderRuntime(health) {
   const source = health?.source;
   const llm = health?.llm;
-  const dot = document.querySelector('#runtimeBox .runtime-dot');
-  dot.classList.toggle('is-error', Boolean(source?.error));
-  const indicatorSource = source?.indicatorSource;
-  const runtimeBox = document.getElementById('runtimeBox');
-  runtimeBox?.classList.toggle('is-warning', indicatorSource === 'SNAPSHOT');
-  runtimeBox?.classList.toggle('is-error', indicatorSource === 'UNAVAILABLE');
   // Distinguish "not configured yet" from "configured but unreachable" so the
   // global notice does not claim a connection error when nothing is set up.
   const directLlm = source?.mode === 'direct-llm';
   const unconfigured = !directLlm
     && (source?.mode === 'unconfigured' || source?.configured === false);
   const connectionError = !directLlm && !unconfigured && Boolean(source?.error);
+  const dot = document.querySelector('#runtimeBox .runtime-dot');
+  dot.classList.toggle('is-error', Boolean(source?.error));
+  const indicatorSource = source?.indicatorSource;
+  const runtimeBox = document.getElementById('runtimeBox');
+  // The indicator catalog state only matters while the module is switched on;
+  // when it is intentionally off we must not nag about a missing catalog.
+  runtimeBox?.classList.toggle('is-warning', !directLlm && indicatorSource === 'SNAPSHOT');
+  runtimeBox?.classList.toggle('is-error', !directLlm && indicatorSource === 'UNAVAILABLE');
   document.getElementById('sourceMode').textContent = directLlm
     ? '大模型直连模式'
     : unconfigured
@@ -759,11 +761,13 @@ function renderRuntime(health) {
         : source?.lastSyncAt
           ? `${source.lastSyncCount} 个指标 · ${formatDate(source.lastSyncAt)}`
           : '尚无同步记录';
-  const sourceWarning = indicatorSource === 'SNAPSHOT'
-    ? ` · 快照模式，快照时间 ${source?.indicatorSourceDetail?.freshAt ? formatDate(source.indicatorSourceDetail.freshAt) : '未知'}，可能已过期`
-    : indicatorSource === 'UNAVAILABLE'
-      ? ' · 指标目录不可用'
-      : '';
+  const sourceWarning = directLlm
+    ? ''
+    : indicatorSource === 'SNAPSHOT'
+      ? ` · 快照模式，快照时间 ${source?.indicatorSourceDetail?.freshAt ? formatDate(source.indicatorSourceDetail.freshAt) : '未知'}，可能已过期`
+      : indicatorSource === 'UNAVAILABLE'
+        ? ' · 指标目录不可用'
+        : '';
   const sourceSyncElement = document.getElementById('sourceSync');
   sourceSyncElement.textContent = `${baseSyncText}${sourceWarning}`;
   if (sourceWarning) {
