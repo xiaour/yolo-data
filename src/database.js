@@ -2147,6 +2147,8 @@ export class PlatformDatabase {
              d.config_json AS configJson, d.status, d.last_synced_at AS lastSyncedAt,
              d.created_at AS createdAt, d.updated_at AS updatedAt,
              (SELECT COUNT(*) FROM dataset_fields f WHERE f.dataset_id = d.id) AS fieldCount,
+             (SELECT COUNT(*) FROM dataset_fields f
+               WHERE f.dataset_id = d.id AND f.enabled = 1) AS enabledFieldCount,
              CASE WHEN ? IS NULL THEN 1 ELSE (
                SELECT COUNT(*) FROM user_dataset_grants g
                WHERE g.dataset_id = d.id AND g.user_id = ? AND g.can_query = 1
@@ -2270,6 +2272,21 @@ export class PlatformDatabase {
       allowedOperators: parseJson(row.allowedOperatorsJson, []),
       enabled: asBool(row.enabled),
     }));
+  }
+
+  // Toggles one field without touching the schema-sync timestamp: a disabled
+  // field stays in the table but is filtered out of every query path (all of
+  // them read with enabledOnly: true).
+  setDatasetFieldEnabled(datasetId, fieldName, enabled) {
+    const result = this.db.prepare(`
+      UPDATE dataset_fields SET enabled = ?
+      WHERE dataset_id = ? AND field_name = ?
+    `).run(enabled === false ? 0 : 1, Number(datasetId), String(fieldName));
+    if (result.changes === 0) {
+      return null;
+    }
+    return this.listDatasetFields(datasetId)
+      .find((field) => field.fieldName === String(fieldName)) ?? null;
   }
 
   replaceSemanticValueDomains({

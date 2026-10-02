@@ -227,7 +227,7 @@ function renderBusinessDatasetsTable(datasets) {
             <tr>
               <td><strong>${escapeHtml(dataset.name)}</strong><div class="muted mono">${escapeHtml(dataset.code)}</div></td>
               <td class="mono">${escapeHtml(dataset.schemaName)}.${escapeHtml(dataset.primaryTable)}</td>
-              <td>${dataset.fieldCount}</td>
+              <td>${dataset.fieldCount}<div class="muted">启用 ${dataset.enabledFieldCount ?? dataset.fieldCount}</div></td>
               <td><span class="tag ${dataset.canQuery ? 'tag-teal' : 'tag-amber'}">${dataset.canQuery ? '可查询' : '未授权'}</span></td>
               <td>${escapeHtml(formatDate(dataset.lastSyncedAt))}</td>
               <td>
@@ -396,27 +396,57 @@ function openDatasetCreator() {
 
 async function showDatasetFields(datasetId) {
   const fields = await api(`/api/business-datasets/${datasetId}/fields`);
-  openModal({
+  const disabledCount = fields.filter((field) => field.enabled === false).length;
+  const modal = openModal({
     title: '数据集字段',
     editor: true,
+    wide: true,
     body: `
+      <div class="answer-meta">
+        <span class="meta-pill">字段 ${fields.length}</span>
+        <span class="meta-pill">启用 ${fields.length - disabledCount}</span>
+        <span class="meta-pill">禁用 ${disabledCount}</span>
+      </div>
+      <p class="muted">默认全部启用。禁用的字段仍保留配置，但不会再进入智能体的查询流程（不可作为维度、指标或时间字段）。</p>
       <div class="data-table-wrap">
         <table class="data-table">
-          <thead><tr><th>字段</th><th>名称</th><th>类型</th><th>语义角色</th><th>聚合</th></tr></thead>
+          <thead><tr><th>字段</th><th>名称</th><th>类型</th><th>语义角色</th><th>聚合</th><th>状态</th><th></th></tr></thead>
           <tbody>
-            ${fields.map((field) => `
-              <tr>
-                <td class="mono">${escapeHtml(field.fieldName)}</td>
-                <td>${escapeHtml(field.displayName)}</td>
-                <td>${escapeHtml(field.dataType)}</td>
-                <td><span class="tag ${field.role === 'METRIC' ? 'tag-blue' : field.role === 'TIME' ? 'tag-amber' : 'tag-teal'}">${escapeHtml(field.role)}</span></td>
-                <td>${escapeHtml(field.aggregator)}</td>
-              </tr>
-            `).join('')}
+            ${fields.map((field) => {
+              const enabled = field.enabled !== false;
+              return `
+                <tr class="${enabled ? '' : 'field-row-disabled'}">
+                  <td class="mono">${escapeHtml(field.fieldName)}</td>
+                  <td>${escapeHtml(field.displayName)}</td>
+                  <td>${escapeHtml(field.dataType)}</td>
+                  <td><span class="tag ${field.role === 'METRIC' ? 'tag-blue' : field.role === 'TIME' ? 'tag-amber' : 'tag-teal'}">${escapeHtml(field.role)}</span></td>
+                  <td>${escapeHtml(field.aggregator)}</td>
+                  <td><span class="tag ${enabled ? 'tag-teal' : 'tag-red'}">${enabled ? '启用' : '已禁用'}</span></td>
+                  <td><button class="btn btn-quiet btn-small" type="button" data-field-toggle data-field-name="${escapeAttr(field.fieldName)}" data-field-enabled="${enabled}">${enabled ? '禁用' : '启用'}</button></td>
+                </tr>
+              `;
+            }).join('')}
           </tbody>
         </table>
       </div>
     `,
+  });
+  modal.querySelectorAll('[data-field-toggle]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const enabled = button.dataset.fieldEnabled !== 'true';
+      setBusy(button, true);
+      try {
+        await api(
+          `/api/business-datasets/${datasetId}/fields/${encodeURIComponent(button.dataset.fieldName)}`,
+          { method: 'PUT', body: JSON.stringify({ enabled }) },
+        );
+        toast(enabled ? '字段已启用' : '字段已禁用');
+        await showDatasetFields(datasetId);
+      } catch (error) {
+        toast(error.message, 'error');
+        setBusy(button, false);
+      }
+    });
   });
 }
 

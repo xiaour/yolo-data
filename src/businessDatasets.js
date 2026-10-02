@@ -181,6 +181,32 @@ export class BusinessDatasetService {
     return this.database.listDatasetFields(datasetId, { enabledOnly });
   }
 
+  // Enable/disable a single field. Disabled fields stay in the metadata table so
+  // they can be re-enabled later, but every query/agent path reads fields with
+  // enabledOnly: true, so a disabled field becomes unreachable for the agent.
+  setFieldEnabled(datasetId, fieldName, enabled) {
+    const dataset = this.database.getBusinessDataset(datasetId);
+    if (!dataset) {
+      throw Object.assign(new Error('dataset not found'), { statusCode: 404 });
+    }
+    const field = this.database.setDatasetFieldEnabled(dataset.id, fieldName, enabled);
+    if (!field) {
+      throw Object.assign(
+        new Error(`dataset field not found: ${fieldName}`),
+        { statusCode: 404 },
+      );
+    }
+    const all = this.database.listDatasetFields(dataset.id);
+    return {
+      datasetId: dataset.id,
+      field,
+      summary: {
+        total: all.length,
+        enabled: all.filter((item) => item.enabled !== false).length,
+      },
+    };
+  }
+
   saveDataSource(payload, id = null) {
     const encryptedPassword = payload.password
       ? this.crypto.encrypt(payload.password)
@@ -320,9 +346,18 @@ export class BusinessDatasetService {
       dataset.schemaName,
       dataset.primaryTable,
     );
+    // Keep explicit disables across a schema re-sync; new columns default to enabled.
+    const previousEnabled = new Map(
+      this.database.listDatasetFields(dataset.id)
+        .map((field) => [field.fieldName, field.enabled]),
+    );
     return this.database.replaceDatasetFields(
       dataset.id,
-      columns.map(inferField),
+      columns.map(inferField).map((field) => (
+        previousEnabled.get(field.fieldName) === false
+          ? { ...field, enabled: false }
+          : field
+      )),
     );
   }
 

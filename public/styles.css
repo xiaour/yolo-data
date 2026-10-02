@@ -2202,6 +2202,15 @@ body.workspace-open .app-shell {
   max-width: 330px;
 }
 
+.data-table tbody tr.field-row-disabled td {
+  color: #93a5b6;
+  background: #fbfcfd;
+}
+
+.data-table tbody tr.field-row-disabled td.mono {
+  text-decoration: line-through;
+}
+
 .profile-degraded {
   margin: 10px 0 0;
   padding: 9px 12px;

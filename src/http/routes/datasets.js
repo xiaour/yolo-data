@@ -193,6 +193,47 @@ export function registerDatasetRoutes(table) {
   });
 
   table.add({
+    id: 'businessDatasets.fields.setEnabled',
+    method: 'PUT',
+    path: '/api/business-datasets/:id(\\d+)/fields/:fieldName',
+    tags: ['datasets'],
+    summary: '启用/禁用数据集字段（管理员）',
+    middleware: ['auth', 'admin'],
+    adminOnly: true,
+    handler: async (ctx) => {
+      const {
+        request, response, database, application, params, getRequestUser, readJson, sendJson,
+      } = ctx;
+      const user = getRequestUser(request, database);
+      if (user.role !== 'ADMIN') {
+        throw Object.assign(new Error('admin permission required'), { statusCode: 403 });
+      }
+      const datasetId = Number(params[0]);
+      const fieldName = String(params[1] ?? '');
+      const body = await readJson(request);
+      if (typeof body.enabled !== 'boolean') {
+        throw Object.assign(new Error('enabled must be a boolean'), { statusCode: 400 });
+      }
+      const result = application.businessDatasets.setFieldEnabled(
+        datasetId,
+        fieldName,
+        body.enabled,
+      );
+      database.addAuditLog({
+        userId: user.id,
+        action: 'DATASET_FIELD_TOGGLE',
+        detail: {
+          datasetId,
+          fieldName,
+          enabled: body.enabled,
+          enabledFieldCount: result.summary.enabled,
+        },
+      });
+      sendJson(response, 200, result);
+    },
+  });
+
+  table.add({
     id: 'businessDatasets.sample',
     method: 'GET',
     path: '/api/business-datasets/:id(\\d+)/sample',

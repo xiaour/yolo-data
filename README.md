@@ -272,6 +272,20 @@ Doris 数据源请填写 FE 的 MySQL 协议端口（默认 `9030`），而不�
 `dataset profiling degrades gracefully ...` 用例都通过 monkey-patch 抽样返回值，
 不需要真实 MySQL/Doris。
 
+#### 字段启用与禁用
+
+`/datasets` 页面数据集列表的「字段」弹窗支持逐个字段启用/禁用，**默认全部启用**：
+
+- 禁用只是把 `dataset_fields.enabled` 置 0，字段配置与语义角色都保留，随时可以重新启用。
+- 智能体侧完全不可见：agent 与查询链路（`buildQuery`、`executeDatasetQuery`、
+  `listDistinctFieldValues`、字段值域、契约编译）统一以
+  `listDatasetFields(datasetId, { enabledOnly: true })` 读取字段，被禁用的字段既不能作为
+  维度/指标/时间字段，也不能用于筛选；对禁用字段取数会按「字段不存在」处理。
+- 「同步结构」不会覆盖禁用状态：按字段名保留显式禁用，新增列默认启用。
+- 接口：`PUT /api/business-datasets/:id/fields/:fieldName`，body `{"enabled": false}`，
+  管理员专属并写审计日志 `DATASET_FIELD_TOGGLE`。
+- 数据集列表的「字段数」下方会显示 `启用 N`，便于确认禁用结果。
+
 ## API 示例
 
 ### 同步问数

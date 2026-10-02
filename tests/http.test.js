@@ -400,3 +400,112 @@ test('dataset profiling degrades gracefully when the datasource is unreachable',
     assert.equal(profile.timeCondition.autoRangeDays, 30);
   });
 });
+
+test('dataset fields can be disabled and become unreachable in the query flow', async () => {
+  await withServer(async ({ baseUrl, application }) => {
+    const admin = { 'content-type': 'application/json', 'x-user-id': '1' };
+    const analyst = { 'content-type': 'application/json', 'x-user-id': '2' };
+    const source = application.businessDatasets.saveDataSource({
+      code: 'field-toggle',
+      name: 'Field toggle',
+      host: '127.0.0.1',
+      port: 9030,
+      databaseName: 'demo',
+      username: 'reader',
+      password: 'secret',
+    });
+    const dataset = application.database.saveBusinessDataset({
+      code: 'field_toggle_orders',
+      name: '字段开关订单',
+      datasourceId: source.id,
+      schemaName: 'demo',
+      primaryTable: 'orders',
+      config: {},
+    });
+    const fields = application.database.replaceDatasetFields(dataset.id, [
+      { fieldName: 'order_date', semanticType: 'DATE', dataType: 'date', role: 'TIME', aggregator: 'NONE' },
+      { fieldName: 'sale_amt', semanticType: 'NUMBER', dataType: 'decimal(12,2)', role: 'METRIC', aggregator: 'SUM' },
+      { fieldName: 'region', semanticType: 'STRING', dataType: 'varchar(20)', role: 'DIMENSION', aggregator: 'NONE' },
+    ]);
+    // Every field defaults to enabled.
+    assert.deepEqual(fields.map((field) => field.enabled), [true, true, true]);
+    assert.equal(
+      application.database.listBusinessDatasets()[0].enabledFieldCount,
+      3,
+    );
+
+    const denied = await fetch(
+      `${baseUrl}/api/business-datasets/${dataset.id}/fields/sale_amt`,
+      { method: 'PUT', headers: analyst, body: JSON.stringify({ enabled: false }) },
+    );
+    assert.equal(denied.status, 403);
+
+    const badBody = await fetch(
+      `${baseUrl}/api/business-datasets/${dataset.id}/fields/sale_amt`,
+      { method: 'PUT', headers: admin, body: JSON.stringify({ enabled: 'no' }) },
+    );
+    assert.equal(badBody.status, 400);
+
+    const missingField = await fetch(
+      `${baseUrl}/api/business-datasets/${dataset.id}/fields/nope`,
+      { method: 'PUT', headers: admin, body: JSON.stringify({ enabled: false }) },
+    );
+    assert.equal(missingField.status, 404);
+
+    const disable = await fetch(
+      `${baseUrl}/api/business-datasets/${dataset.id}/fields/sale_amt`,
+      { method: 'PUT', headers: admin, body: JSON.stringify({ enabled: false }) },
+    );
+    assert.equal(disable.status, 200);
+    const disabled = await disable.json();
+    assert.equal(disabled.field.enabled, false);
+    assert.deepEqual(disabled.summary, { total: 3, enabled: 2 });
+
+    // The admin console still sees the field, marked as disabled.
+    const listed = await (await fetch(
+      `${baseUrl}/api/business-datasets/${dataset.id}/fields`,
+      { headers: admin },
+    )).json();
+    assert.equal(listed.find((field) => field.fieldName === 'sale_amt').enabled, false);
+    assert.equal(listed.length, 3);
+
+    // Every agent/query path reads with enabledOnly, so the field is unreachable.
+    const queryable = application.database
+      .listDatasetFields(dataset.id, { enabledOnly: true })
+      .map((field) => field.fieldName);
+    assert.deepEqual(queryable, ['order_date', 'region']);
+    assert.throws(
+      () => application.businessDatasets.buildQuery(dataset.id, { metrics: ['sale_amt'] }),
+      /dataset metric field not found: sale_amt/,
+    );
+    assert.doesNotThrow(
+      () => application.businessDatasets.buildQuery(
+        dataset.id,
+        { metrics: [{ field: 'region', aggregator: 'COUNT' }] },
+      ),
+    );
+
+    // A schema re-sync keeps the explicit disable; new columns default to enabled.
+    application.businessDatasets.listColumns = async () => [
+      { columnName: 'order_date', dataType: 'date' },
+      { columnName: 'sale_amt', dataType: 'decimal(12,2)' },
+      { columnName: 'region', dataType: 'varchar(20)' },
+      { columnName: 'channel', dataType: 'varchar(20)' },
+    ];
+    await application.businessDatasets.syncDatasetFields(dataset.id);
+    const afterSync = application.database.listDatasetFields(dataset.id);
+    assert.equal(afterSync.find((field) => field.fieldName === 'sale_amt').enabled, false);
+    assert.equal(afterSync.find((field) => field.fieldName === 'channel').enabled, true);
+
+    // Re-enabling restores it for the query flow.
+    const enable = await fetch(
+      `${baseUrl}/api/business-datasets/${dataset.id}/fields/sale_amt`,
+      { method: 'PUT', headers: admin, body: JSON.stringify({ enabled: true }) },
+    );
+    assert.equal(enable.status, 200);
+    assert.equal((await enable.json()).field.enabled, true);
+    assert.doesNotThrow(
+      () => application.businessDatasets.buildQuery(dataset.id, { metrics: ['sale_amt'] }),
+    );
+  });
+});
