@@ -241,6 +241,11 @@ body.workspace-open .app-shell {
   font-size: 10px;
 }
 
+/* `.runtime-box small` sets display:block, which would override [hidden]. */
+.runtime-box small[hidden] {
+  display: none;
+}
+
 .runtime-dot {
   width: 8px;
   height: 8px;

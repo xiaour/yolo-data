@@ -769,9 +769,13 @@ function renderRuntime(health) {
         ? ' · 指标目录不可用'
         : '';
   const sourceSyncElement = document.getElementById('sourceSync');
-  sourceSyncElement.textContent = `${baseSyncText}${sourceWarning}`;
-  if (sourceWarning) {
+  // 「未配置」只保留标题，不再显示下面这行小字。
+  sourceSyncElement.hidden = unconfigured;
+  sourceSyncElement.textContent = unconfigured ? '' : `${baseSyncText}${sourceWarning}`;
+  if (!unconfigured && sourceWarning) {
     sourceSyncElement.setAttribute('aria-label', `${baseSyncText}${sourceWarning}`);
+  } else {
+    sourceSyncElement.removeAttribute('aria-label');
   }
   const harnessStatus = document.getElementById('harnessStatus');
   const runtimeText = llm?.configured
