@@ -16,3 +16,6 @@ test-results/
 
 # Generated semantic-eval output (baseline.json is committed on purpose).
 eval/report.json
+
+# Local-only CI config: these workflows are not published to the remote repo.
+.github/workflows/
