@@ -1,6 +1,12 @@
 # YOLO Data
 
-面向企业指标语义的智能问数平台。YOLO Data 将大模型 DataAgent、实时指标体系、业务数据集、数据权限、会话记忆和工作区产物整合为一条可审计、可复现、可治理的查询链路。
+面向企业指标语义的智能问数平台。YOLO Data 将大模型 DataAgent、实时指标体系、业务数据集、数据权限、会话记忆和工作区产物整合为一条可审计、可复现、可治理的workflow。
+
+## 主要解决的问题
+1. Text2SQL每次回答不一致，答案随机性强。
+2. 企业的数据处理流程过长，语义层不统一，业务各说各话
+3. 现有组织架构数据处理“出数>归因>决策>执行”流程过长
+
 
 ## 项目定位
 
@@ -27,7 +33,7 @@
   - 平台根据字段语义生成只读查询，不向模型暴露原始 SQL。
   - 支持字段同步、抽样、默认枚举值域和数据集查询审计。
   - 支持「智能识别」：抽样数据自动推断时间字段、常用指标与默认时间窗口，管理员确认后写入字段口径。
-- **Contract-first 查询**
+- **Contract-first 契约先行查询**
   - 自然语言被编译为条件账本和查询契约。
   - 查询契约冻结后才允许执行。
   - 时间范围、权限、排序和结果行序由平台确定性处理。
@@ -171,7 +177,7 @@ http://localhost:8088/
 | 用户名 | 显示名称 | 角色 |
 | --- | --- | --- |
 | `admin` | 平台管理员 | `ADMIN` |
-| `east_manager` | 华东区域经理 | `ANALYST` |
+| `east_manager` | 区域经理 | `ANALYST` |
 | `channel_analyst` | 渠道分析员 | `ANALYST` |
 
 当前开发模式下，可以通过右上角用户切换控件切换当前用户。
@@ -180,61 +186,36 @@ http://localhost:8088/
 
 ### 指标平台
 
-在 `.env` 中配置指标平台服务地址与 Token（变量名见 `.env.example`）。未配置或停用时，
-平台可切换到大模型直连模式，但不会把指标目录缓存当作在线指标事实来源。
-
-指标平台是**可选**依赖，未接入时平台仍可完整启动和管理：
-
-- 指标列表读取（`/api/indicators`、指标详情、`/api/indicator-types`）会降级为本地快照，
-  没有快照时返回空列表并在响应中标记 `offline: true`，不会返回错误。
-- 主题智能体编辑、用户权限编辑等管理功能不受影响，可正常打开和保存；只是候选指标为空。
-- 真正的指标查询仍受 `SOURCE-002` 门禁约束：`UNAVAILABLE` 时不会继续规划，会明确提示
-  指标目录不可用，而不是给出无依据的结果。
-
-系统设置页面还支持：
-
 - 启用或停用指标平台匹配。
 - 停用后切换到大模型直连模式，直接使用业务数据集和工作区产物。
 
 ### DeepSeek 或兼容模型
 
-
-模型也可以在 `/models` 页面统一管理。主题智能体可以选择一个或多个模型，并指定默认模型。
+- 主题智能体可以选择一个或多个模型，并指定默认模型。
 
 ### 业务数据集
 
-可以通过 `/datasets` 页面创建数据源，目前支持 MySQL 协议数据库。
+目前支持 MySQL 协议数据库。
 
 所有数据源密码、主题模型密钥和模型独立密钥都会使用 AES-256-GCM 加密后保存。
 
 #### MySQL / Doris 驱动初始化
-
-`mysql2` 已在 `dependencies` 中，`npm run setup` / `npm install` 会自动安装。仅在缺驱动时
-（例如曾以“脱离数据库”模式运行）需要手动补装与校验：
 
 ```bash
 npm install mysql2
 node -e "import('mysql2/promise').then(m => console.log('mysql2 ok', typeof m.default.createConnection))"
 ```
 
-驱动在进程启动时导入，**安装或升级后必须重启服务**。Doris 请填 FE 的 MySQL 协议端口（默认 `9030`），不是 HTTP 端口。
+#### 数据集智能识别
 
-#### 数据集智能识别（初始化口径与默认时间条件）
+数据集列表的「智能识别」入口会自动推断字段角色（`TIME/METRIC/DIMENSION/IDENTIFIER`）、
+聚合方式与默认时间窗口，管理员逐项确认后写回既有配置面，减少问数时的口径与时间范围追问。
 
-`/datasets` 列表的「智能识别」入口会抽样推断字段角色（`TIME/METRIC/DIMENSION/IDENTIFIER`）、
-聚合方式与默认时间窗口，管理员逐项确认后写回既有配置面（`dataset_fields.role/aggregator`、
-`config.autoLatestDateRange/autoRangeDays`），减少问数时的口径与时间范围追问。
-
-- 独立组件，不依赖指标平台，也不改动 DataAgent 主流程：`POST /api/business-datasets/:id/profile`
-  只分析不落库，`PUT` 才写入勾选结果。
-- 数据源不可达时降级为按字段名与类型识别（`degraded: true`，窗口回退 30 天）；建议窗口保守（30–90 天），过大有扫全表风险。
 
 #### 字段启用与禁用
 
-「字段」弹窗支持逐个字段启用/禁用，**默认全部启用**。禁用只改 `dataset_fields.enabled`，
-配置保留、可随时恢复；agent 与查询链路统一按 `enabledOnly` 读取字段，禁用字段不可作为
-维度/指标/时间字段或筛选条件。「同步结构」会保留禁用状态，新增列默认启用。接口为
-`PUT /api/business-datasets/:id/fields/:fieldName`。
+「字段」弹窗支持逐个字段启用/禁用，**默认全部启用**。agent 与查询链路统一按启用读取字段，禁用字段不可作为
+维度/指标/时间字段或筛选条件。「同步结构」会保留禁用状态。
 
 ## API 示例
 
@@ -266,65 +247,6 @@ curl -N -X POST http://localhost:8088/api/chat/query/stream \
 
 ```bash
 curl http://localhost:8088/api/health
-```
-
-响应中的 `source.indicatorSource` 显式标记指标目录来源：`LIVE`（实时）、
-`SNAPSHOT{freshAt}`（快照降级，前端会显示过期警示）或 `UNAVAILABLE`
-（无实时源且无快照，指标查询会被 `SOURCE-002` 门禁阻断）。
-
-### 执行轨迹（traceId）
-
-所有 HTTP 入口都会生成 `traceId`（也接受调用方传入的 `x-trace-id`），
-它贯穿契约编译、工具调用、SQL、LLM、产物与审计，并随 NDJSON 事件下发。
-
-```bash
-# 管理员可查看完整链路；业务用户仅能看到自己的、且不含契约/SQL/Token 的信息
-curl http://localhost:8088/api/traces/<traceId> -H 'x-user-id: 1'
-
-# 门禁拦截与运行指标的 Prometheus 文本（管理员）
-curl http://localhost:8088/metrics -H 'x-user-id: 1'
-```
-
-## 工程化基线
-
-### 接入层路由表与 OpenAPI
-
-HTTP 端点不再由 `server.js` 的顺序 `if` 链分发，而是集中在声明式路由表
-（`src/http/router.js` + `src/http/routes/*.js`）。路由表是端点的唯一真源：
-分发和 OpenAPI 文档都从它读取，因此不会与实现漂移。
-
-```bash
-# 由路由表生成的 OpenAPI 3.1 文档
-curl http://localhost:8088/api/openapi.json
-
-# 所有端点路径均与源码中的路由表一致（含 /api/chat/query/stream）
-```
-
-`src/http/router.js` 提供路由表、路径参数（支持 `:id(\\d+)` 数字约束）与中间件管线；
-`src/http/middleware.js` 提供 `errorBoundary`、`auth`、`admin`、
-`rateLimit:<profile>`、`timeout:<sec>s`；`src/http/routes/*.js` 按域拆分处理器。
-
-`errorBoundary` 把处理器异常统一转换为既有的 `{ code, message }` 响应，
-`/api/chat/query/stream` 的 NDJSON 协议不变。审计仍由各处理器按域写入
-（审计明细是业务证据真源，抽成通用中间件会产生重复或语义缺失的记录）。
-`rateLimit:chat` 与 `timeout:180s` 仅作用于 `/api/chat/query*`，可用
-`RATE_LIMIT_CHAT_CAPACITY` / `RATE_LIMIT_CHAT_REFILL_PER_SECOND` 调整；流式接口不设超时。
-
-```bash
-# 架构约束与文件体积棘轮（新增文件 > 800 行、既有文件增长超过阈值即失败）
-npm run lint
-
-# 语义评测集 L1（契约级，无需模型与数据库），并输出与基线的 diff
-npm run eval
-npm run eval -- --update-baseline   # 仅在人工确认后更新基线
-```
-
-评测报告写入 `eval/report.json`，基线为 `eval/baseline.json`。
-
-## 自动化测试
-
-```bash
-npm test
 ```
 
 前端为无构建浏览器 ESM 应用，页面按路由动态加载，初始加载时不会同步下载所有管理页面代码。
@@ -372,7 +294,7 @@ npm test
 欢迎参与贡献，请保持以下边界：
 
 - 业务特定映射不要写入平台核心代码。
-- 保持 Contract-first 执行和权限强制。
+- 保持 Contract-first【契约先行】 执行和权限强制。
 - 新工作流或回归修复应补充对应测试。
 - 不要从本仓库修改外部指标平台项目。
 
