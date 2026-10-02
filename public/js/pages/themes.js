@@ -581,6 +581,7 @@ async function renderThemeEditorPage(root, theme) {
   }
   root.innerHTML = '<div class="loading-state"><span class="spinner"></span>正在加载智能体配置</div>';
   const allIndicators = (await api('/api/indicators?limit=2000')).items ?? [];
+  const indicatorSource = state.bootstrap?.health?.source?.indicatorSource ?? null;
   const models = await api('/api/models');
   const selectedIds = new Set(theme?.indicatorIds ?? []);
   const selectedSkillCodes = new Set(
@@ -808,7 +809,11 @@ async function renderThemeEditorPage(root, theme) {
             <div class="form-field span-2">
               <label>主题指标</label>
               <div class="check-grid">
-                ${allIndicators.map((indicator) => `
+                ${allIndicators.length === 0
+                  ? `<div class="muted">${indicatorSource === 'UNAVAILABLE'
+                    ? '未接入 Supersonic 指标平台，且本地无指标快照，暂无可选指标；主题智能体仍可正常编辑和保存。'
+                    : '暂无可选指标。'}</div>`
+                  : allIndicators.map((indicator) => `
                   <label class="check-item">
                     <input type="checkbox" name="themeIndicator" value="${escapeAttr(indicator.id)}"${selectedIds.has(String(indicator.id)) ? ' checked' : ''} />
                     <span>${escapeHtml(indicator.name)}<small class="muted"> ${escapeHtml(indicator.typeName ?? '')}</small></span>

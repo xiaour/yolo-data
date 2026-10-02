@@ -1,0 +1,19 @@
+{
+  "id": "L1-DERIVED-METRIC-INVALID",
+  "description": "无法解析的派生指标定义必须被 CONTRACT-004 阻断",
+  "question": "本月销售额",
+  "draft": {
+    "sourceType": "INDICATOR",
+    "indicatorId": "sales",
+    "conditions": [
+      { "id": "metric", "sourceText": "本月销售额", "kind": "METRIC", "status": "RESOLVED" }
+    ],
+    "metricFields": [{ "field": "sale_amt", "aggregator": "SUM", "sourceText": "销售额", "conditionIds": ["metric"] }],
+    "derivedMetrics": [{ "type": "RATIO", "left": "sale_amt", "right": "missing_field" }],
+    "timeWindows": [{ "sourceText": "本月", "dateMode": "BETWEEN", "startDate": "2026-09-01", "endDate": "2026-09-21", "conditionIds": ["metric"] }]
+  },
+  "expect": {
+    "valid": false,
+    "gateIds": ["CONTRACT-004"]
+  }
+}

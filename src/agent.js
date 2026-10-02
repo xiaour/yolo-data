@@ -19,6 +19,13 @@ import {
   resolveArtifactReusePolicy,
 } from './queryIntent.js';
 import { DataAgentWorkflow } from './workflow.js';
+import {
+  createTraceId,
+  currentTraceId,
+  normalizeTraceId,
+  runWithTrace,
+} from './trace.js';
+import { describeIndicatorSource } from './indicatorSource.js';
 import { QueryContractCompiler } from './queryContractCompiler.js';
 import { parseTemporalExpression } from './timeSemantics.js';
 import { aggregateRowsByTimeGrain } from './timeAggregation.js';
@@ -1696,17 +1703,48 @@ export class MetricAgentService {
 
   async getIndicatorsForUser(userId, themeId, filters = {}) {
     const { user, theme, scope } = this.resolveContext(userId, themeId);
+    const keyword = filters.keyword ?? '';
+    const typeId = filters.typeId ?? '';
+    const limit = Math.max(1, Math.min(Number(filters.limit) || 500, 500));
+    const liveAvailable = this.isSupersonicEnabled()
+      && this.indicatorClient.mode !== 'unconfigured';
+    // Supersonic is optional: when it is disabled or not wired up, degrade to
+    // the local indicator snapshot (P0-1) instead of failing the request, so
+    // theme and permission editing keep working without the external platform.
+    if (!liveAvailable) {
+      const snapshot = this.database.listIndicators({ keyword, typeId, limit });
+      const indicators = sortIndicators(
+        filterIndicatorsByScope(snapshot.items, scope),
+      );
+      return {
+        user,
+        theme,
+        scope,
+        indicators,
+        total: indicators.length,
+        source: snapshot.source,
+        freshAt: snapshot.freshAt,
+      };
+    }
     const page = await this.indicatorClient.listCatalog({
-      keyword: filters.keyword ?? '',
-      typeId: filters.typeId ?? '',
+      keyword,
+      typeId,
       current: 1,
-      pageSize: Math.max(1, Math.min(Number(filters.limit) || 500, 500)),
+      pageSize: limit,
     });
     const indicators = filterIndicatorsByScope(
       (page.list ?? []).map(normalizeIndicatorSummary),
       scope,
     );
-    return { user, theme, scope, indicators, total: indicators.length };
+    return {
+      user,
+      theme,
+      scope,
+      indicators,
+      total: indicators.length,
+      source: 'LIVE',
+      freshAt: null,
+    };
   }
 
   async listSemanticValueFields(themeId, overrides = null) {
@@ -2036,7 +2074,20 @@ export class MetricAgentService {
     };
   }
 
-  async answer({
+  async answer(options = {}) {
+    const runTraceId = normalizeTraceId(options?.traceId)
+      ?? currentTraceId()
+      ?? createTraceId();
+    if (currentTraceId() === runTraceId) {
+      return this.answerWithTrace(options, runTraceId);
+    }
+    return runWithTrace(
+      runTraceId,
+      () => this.answerWithTrace(options, runTraceId),
+    );
+  }
+
+  async answerWithTrace({
     userId,
     themeId,
     sessionId,
@@ -2046,7 +2097,7 @@ export class MetricAgentService {
     modelId = null,
     signal = null,
     onEvent = null,
-  }) {
+  }, runTraceId = currentTraceId()) {
     const normalizedQuestion = String(question ?? '').trim();
     if (normalizedQuestion.length < 2) {
       throw new Error('question is required');
@@ -2060,6 +2111,7 @@ export class MetricAgentService {
         onEvent({
           seq: eventSequence += 1,
           timestamp: new Date().toISOString(),
+          traceId: runTraceId,
           ...event,
         });
       } catch {
@@ -2196,6 +2248,10 @@ export class MetricAgentService {
       });
     }
     let allowedIndicators = [];
+    let indicatorSourceState = describeIndicatorSource({
+      live: { available: false },
+      snapshot: this.database.indicatorCacheStats(),
+    });
     if (supersonicEnabled && this.indicatorClient.mode !== 'unconfigured') {
       try {
         const livePage = await this.runtimeCache.catalog.getOrSet(
@@ -2213,14 +2269,49 @@ export class MetricAgentService {
             scope,
           ),
         );
+        indicatorSourceState = describeIndicatorSource({
+          live: { available: true },
+          snapshot: this.database.indicatorCacheStats(),
+        });
       } catch (error) {
         emit({
           type: 'warning',
           code: 'SUPERSONIC_REALTIME_CATALOG_FAILED',
           message: `实时读取 Supersonic 指标体系失败：${error.message}`,
         });
+        indicatorSourceState = describeIndicatorSource({
+          live: { available: false },
+          snapshot: this.database.indicatorCacheStats(),
+        });
+        if (indicatorSourceState.source === 'SNAPSHOT') {
+          // Degrade to the snapshot, but never silently: SOURCE-002 requires the
+          // fallback to be visible to the user and the audit trail.
+          allowedIndicators = sortIndicators(
+            filterIndicatorsByScope(
+              this.database.listIndicators({ limit: 2000 }).items,
+              scope,
+            ),
+          );
+          emit({
+            type: 'warning',
+            code: 'INDICATOR_SOURCE_SNAPSHOT',
+            message: `实时指标目录不可用，已降级为快照（${indicatorSourceState.freshAt ?? 'unknown'}），结果可能过期`,
+          });
+        } else {
+          emit({
+            type: 'warning',
+            code: 'INDICATOR_SOURCE_UNAVAILABLE',
+            message: '指标目录来源不可用：Supersonic 读取失败且无可用快照，指标查询将被阻止',
+          });
+        }
       }
     }
+    emit({
+      type: 'indicator_source',
+      source: indicatorSourceState.source,
+      freshAt: indicatorSourceState.freshAt,
+      snapshotCount: indicatorSourceState.snapshotCount,
+    });
     const feedbackHints = this.feedback?.promptHints(theme.id, 8) ?? [];
     const workflow = new DataAgentWorkflow({
       question: normalizedQuestion,
@@ -2712,6 +2803,7 @@ export class MetricAgentService {
       effectivePlan.calculation = boundContract?.calculation ?? { type: 'NONE' };
       effectivePlan.contractId = boundContract?.id ?? null;
       effectivePlan.queryContract = boundContract ?? null;
+      effectivePlan.compilerVersion = boundContract?.compilerVersion ?? null;
       const queryContractFilters = boundContract
         ? boundContract.filterFields.map((filter) => ({
           field: filter.field,
@@ -3476,6 +3568,7 @@ export class MetricAgentService {
       effectivePlan.postProcessing = boundContract?.postProcessing ?? null;
       effectivePlan.contractId = boundContract?.id ?? null;
       effectivePlan.queryContract = boundContract ?? null;
+      effectivePlan.compilerVersion = boundContract?.compilerVersion ?? null;
       if (boundContract?.analysisPipeline) {
         effectivePlan.limit = boundContract.limit;
       }
@@ -4318,6 +4411,17 @@ export class MetricAgentService {
         && ['search_indicators', 'get_indicator', 'query_indicator'].includes(name)
       ) {
         throw new Error('Supersonic 指标模块已停用，指标工具不可用');
+      }
+      if (
+        indicatorSourceState.source === 'UNAVAILABLE'
+        && ['search_indicators', 'get_indicator', 'query_indicator'].includes(name)
+      ) {
+        const sourceError = new Error(
+          '指标目录来源不可用（SOURCE-002）：Supersonic 读取失败且无可用快照，不得继续指标查询。',
+        );
+        sourceError.code = 'INDICATOR_SOURCE_UNAVAILABLE';
+        sourceError.gateId = 'SOURCE-002';
+        throw sourceError;
       }
       switch (name) {
         case 'search_indicators':
@@ -5365,6 +5469,8 @@ export class MetricAgentService {
       conversationId,
       durationMs: savedAnswer.runtime.durationMs,
     });
+    savedAnswer.traceId = runTraceId;
+    savedAnswer.indicatorSource = indicatorSourceState;
     return savedAnswer;
   }
 }

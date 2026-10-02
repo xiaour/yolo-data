@@ -1,0 +1,15 @@
+{
+  "id": "L1-MISSING-LEDGER",
+  "description": "缺少条件账本必须被 CONTRACT-001 阻断（阻断类门禁分布）",
+  "question": "本月销售额",
+  "draft": {
+    "sourceType": "INDICATOR",
+    "indicatorId": "sales",
+    "conditions": [],
+    "metricFields": []
+  },
+  "expect": {
+    "valid": false,
+    "gateIds": ["CONTRACT-001"]
+  }
+}

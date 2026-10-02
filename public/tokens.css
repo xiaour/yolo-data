@@ -333,6 +333,19 @@ a {
   font-size: 10px;
 }
 
+/* Snapshot / unavailable indicator-source warnings must stay visible (SOURCE-002). */
+.runtime-box.is-warning small {
+  color: var(--warn, #b7791f);
+}
+
+.runtime-box.is-warning .runtime-dot {
+  background: var(--warn, #b7791f);
+}
+
+.runtime-box.is-error small {
+  color: var(--danger, #c53030);
+}
+
 /* Header */
 .workspace {
   min-width: 0;

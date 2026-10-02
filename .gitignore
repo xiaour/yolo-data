@@ -13,3 +13,6 @@ coverage/
 artifacts/
 test-results/
 *.tmp
+
+# Generated semantic-eval output (baseline.json is committed on purpose).
+eval/report.json

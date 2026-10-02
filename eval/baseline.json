@@ -1,0 +1,9 @@
+{
+  "generatedAt": "2026-10-01T14:05:12.944Z",
+  "cases": {
+    "L1-DERIVED-METRIC-INVALID": true,
+    "L1-MISSING-LEDGER": true,
+    "L1-UNRESOLVED-DIMENSION": true,
+    "L1-VALID-WEEKLY-TOPN": true
+  }
+}

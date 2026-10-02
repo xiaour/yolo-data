@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { incrementCounter } from './metrics.js';
 
 const BLOCKED_IMPORTS = [
   'ctypes',
@@ -15,6 +16,28 @@ const BLOCKED_IMPORTS = [
   'subprocess',
   'urllib',
   'webbrowser',
+  // CODE-001: generated code must never hold datasource access. Database
+  // drivers are blocked at import time both by the static scan and the
+  // in-sandbox import guard.
+  'sqlite3',
+  'pymysql',
+  'MySQLdb',
+  'mysql',
+  'psycopg',
+  'psycopg2',
+  'sqlalchemy',
+  'pyodbc',
+  'pymongo',
+  'redis',
+  'cx_Oracle',
+  'oracledb',
+  'clickhouse_driver',
+  'duckdb',
+  'snowflake',
+  'trino',
+  'presto',
+  'pyhive',
+  'impala',
 ];
 const BLOCKED_PATTERNS = [
   /\bsubprocess\b/i,
@@ -30,7 +53,29 @@ const BLOCKED_PATTERNS = [
   /\bshutil\.rmtree\b/i,
   /(^|[^a-z])[a-z]:[\\/]/i,
   /(?:^|[\\/])\.\.(?:[\\/]|$)/,
+  // CODE-001: no datasource connection strings or credential environment access.
+  /\b(?:mysql|mariadb|postgres(?:ql)?|doris|clickhouse|mongodb|redis|oracle|sqlserver|jdbc|odbc):\/\//i,
+  /\b(?:pymysql|psycopg2?|sqlalchemy|pyodbc|sqlite3|MySQLdb|clickhouse_driver|pymongo|oracledb)\./i,
+  /\bos\.(?:environ|getenv)\b/i,
+  /\b(?:DATASOURCE_SECRET_KEY|DORIS_BOOTSTRAP_PASSWORD|SUPERSONIC_TOKEN|DEEPSEEK_API_KEY)\b/,
+  /\b__import__\s*\(/i,
 ];
+
+// Static import scan: the in-sandbox guard blocks these at runtime, but a hard
+// gate must refuse them before the process is ever spawned (CODE-001).
+function findBlockedImport(source) {
+  const statements = String(source ?? '').match(/(?:^|\n)\s*(?:from|import)\s+[^\n]+/g) ?? [];
+  for (const statement of statements) {
+    const target = statement.replace(/(?:^|\n)\s*(?:from|import)\s+/, '');
+    for (const name of BLOCKED_IMPORTS) {
+      if (new RegExp(`(^|[^\\w.])${name}([^\\w]|$)`).test(target)) {
+        return name;
+      }
+    }
+  }
+  return null;
+}
+
 const TEXT_EXTENSIONS = new Set(['csv', 'json', 'txt', 'md']);
 const BINARY_EXTENSIONS = new Set(['xlsx', 'xls', 'png', 'jpg', 'jpeg', 'pdf']);
 const ALLOWED_EXTENSIONS = new Set([...TEXT_EXTENSIONS, ...BINARY_EXTENSIONS]);
@@ -88,18 +133,48 @@ function tableToCsv(artifact) {
   ].join('\r\n');
 }
 
-function validateCode(code) {
+function reviewGeneratedCode(code) {
   const source = String(code ?? '');
+  const issues = [];
   if (!source.trim()) {
-    throw new Error('analysis code is required');
+    issues.push({
+      level: 'ERROR',
+      code: 'CODE_REQUIRED',
+      message: 'analysis code is required',
+    });
+    return { valid: false, issues };
   }
   if (source.length > 200_000) {
-    throw new Error('analysis code is too large');
+    issues.push({
+      level: 'ERROR',
+      code: 'CODE_TOO_LARGE',
+      message: 'analysis code is too large',
+    });
+    return { valid: false, issues };
   }
   const match = BLOCKED_PATTERNS.find((pattern) => pattern.test(source));
-  if (match) {
-    throw new Error(`analysis code contains blocked operation: ${match}`);
+  const blockedImport = match ? null : findBlockedImport(source);
+  if (match || blockedImport) {
+    issues.push({
+      level: 'ERROR',
+      code: 'CODE_DATASOURCE_ACCESS_FORBIDDEN',
+      phase: 'EXECUTE',
+      message: `analysis code contains blocked operation: ${match ?? blockedImport}`,
+    });
   }
+  return { valid: issues.length === 0, issues };
+}
+
+function validateCode(code) {
+  const review = reviewGeneratedCode(code);
+  if (review.valid) {
+    return;
+  }
+  const error = new Error(review.issues[0].message);
+  error.code = review.issues[0].code;
+  error.gateId = 'CODE-001';
+  error.issues = review.issues;
+  throw error;
 }
 
 function safeEnv(runRoot) {
@@ -419,7 +494,26 @@ export class CodeExecutionService {
     if (!this.workspace) {
       throw new Error('workspace service is not configured');
     }
-    validateCode(code);
+    try {
+      validateCode(code);
+    } catch (error) {
+      // CODE-001 is a hard, auditable gate: record the block before surfacing it.
+      incrementCounter('gate_block_total', {
+        gateId: 'CODE-001',
+        phase: 'EXECUTE',
+        blocking: 'true',
+      });
+      this.database?.addAuditLog?.({
+        userId,
+        action: 'CODE_GATE_BLOCK',
+        detail: {
+          sessionId: sessionId ?? null,
+          code: error.code ?? 'CODE_DATASOURCE_ACCESS_FORBIDDEN',
+          message: error.message,
+        },
+      });
+      throw error;
+    }
     const runId = crypto.randomUUID();
     const runRoot = path.join(this.root, String(sessionId ?? 'global'), runId);
     const inputDir = path.join(runRoot, 'input');
@@ -502,4 +596,4 @@ export class CodeExecutionService {
   }
 }
 
-export { validateCode };
+export { validateCode, reviewGeneratedCode };

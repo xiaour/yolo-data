@@ -1,0 +1,48 @@
+{
+  "id": "L1-VALID-WEEKLY-TOPN",
+  "description": "完整的条件账本 + 周粒度 + TopN + 规则来源过滤应产出有效契约",
+  "now": "2026-09-22T03:00:00Z",
+  "question": "本月重点客户组业务的销售额，按照每周分组，排名前10的客户",
+  "draft": {
+    "sourceType": "INDICATOR",
+    "indicatorId": "sales",
+    "conditions": [
+      { "id": "metric", "sourceText": "本月重点客户组业务的销售额", "kind": "METRIC", "status": "RESOLVED" },
+      { "id": "filter", "sourceText": "本月重点客户组业务的销售额", "kind": "FILTER", "status": "RESOLVED", "ruleSource": "第2节：重点客户组子板块=企业客户+零售客户+大客户" },
+      { "id": "week", "sourceText": "按照每周分组", "kind": "DIMENSION", "status": "RESOLVED" },
+      { "id": "top", "sourceText": "排名前10的客户", "kind": "LIMIT", "status": "RESOLVED" },
+      { "id": "customer", "sourceText": "排名前10的客户", "kind": "DIMENSION", "status": "RESOLVED" }
+    ],
+    "metricFields": [{ "field": "sale_amt", "aggregator": "SUM", "sourceText": "销售额", "conditionIds": ["metric"] }],
+    "dimensionFields": [
+      { "field": "sdt", "sourceText": "每周", "timeGrain": "WEEK", "conditionIds": ["week"] },
+      { "field": "customer_name", "sourceText": "客户", "conditionIds": ["customer"] }
+    ],
+    "filterFields": [{
+      "field": "business_type_name",
+      "operator": "IN",
+      "value": ["企业客户", "零售客户", "大客户"],
+      "sourceText": "本月重点客户组业务的销售额",
+      "ruleSource": "第2节：重点客户组子板块=企业客户+零售客户+大客户",
+      "conditionIds": ["filter"]
+    }],
+    "timeWindows": [{
+      "sourceText": "本月",
+      "dateMode": "BETWEEN",
+      "startDate": "2026-09-01",
+      "endDate": "2026-09-21",
+      "conditionIds": ["metric"]
+    }],
+    "timeGrain": "WEEK",
+    "limit": 10
+  },
+  "expect": {
+    "valid": true,
+    "contract.metricFields.0.field": "sale_amt",
+    "contract.timeGrain": "WEEK",
+    "contract.filterFields.0.field": "business_type_name",
+    "contract.limit": 10,
+    "contract.gateSummary.blocking": 0,
+    "contract.compilerVersion": "1.0.0"
+  }
+}

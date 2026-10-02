@@ -209,7 +209,8 @@ flowchart LR
 
 | 模块 | 核心职责 |
 | --- | --- |
-| `src/server.js` | HTTP 路由、静态资源、NDJSON 流、请求用户解析 |
+| `src/server.js` | HTTP 入口：CORS、traceId 绑定、路由表分发、静态资源回退、NDJSON 流 |
+| `src/http/` | 声明式路由表与中间件管线（`router.js`/`middleware.js`/`support.js`）、按域拆分的 `routes/*.js`、由路由表生成的 OpenAPI |
 | `src/application.js` | 依赖装配、运行时初始化、Supersonic 健康检查和数据集引导 |
 | `src/agent.js` | Agent 主流程、工具协议、指标/数据集执行、结果锁和审计落库 |
 | `src/workflow.js` | 标准 DataAgent 十二阶段工作流和阶段事件 |

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { formatPresentationCell } from './resultPresentation.js';
+import { CONTRACT_COMPILER_VERSION } from './contractVersion.js';
 
 const DATE_DIMENSION_PATTERN =
   /(^|_)(date|time|day|week|month|quarter|year)($|_)|sdt|日期|时间|账期/i;
@@ -559,6 +560,7 @@ export function buildQueryContract({
   const normalizedAnalysisMode = String(analysisMode ?? '').toUpperCase();
   return {
     version: 1,
+    compilerVersion: CONTRACT_COMPILER_VERSION,
     indicatorId: String(indicatorId ?? ''),
     metrics: uniqueSortedStrings(metrics),
     internalMetrics: uniqueSortedStrings(internalMetrics),

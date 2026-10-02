@@ -1,0 +1,20 @@
+{
+  "id": "L1-UNRESOLVED-DIMENSION",
+  "description": "未绑定字段的维度必须被 CONTRACT-002 阻断",
+  "question": "本月销售额按不存在维度分组",
+  "draft": {
+    "sourceType": "INDICATOR",
+    "indicatorId": "sales",
+    "conditions": [
+      { "id": "metric", "sourceText": "本月销售额", "kind": "METRIC", "status": "RESOLVED" },
+      { "id": "dim", "sourceText": "不存在维度", "kind": "DIMENSION", "status": "UNRESOLVED" }
+    ],
+    "metricFields": [{ "field": "sale_amt", "aggregator": "SUM", "sourceText": "销售额", "conditionIds": ["metric"] }],
+    "dimensionFields": [{ "field": "not_a_field", "sourceText": "不存在维度", "conditionIds": ["dim"] }],
+    "timeWindows": [{ "sourceText": "本月", "dateMode": "BETWEEN", "startDate": "2026-09-01", "endDate": "2026-09-21", "conditionIds": ["metric"] }]
+  },
+  "expect": {
+    "valid": false,
+    "gateIds": ["CONTRACT-002"]
+  }
+}

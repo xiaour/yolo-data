@@ -19,6 +19,9 @@ import { BusinessDatasetService } from './businessDatasets.js';
 import { WorkspaceService } from './workspace.js';
 import { SemanticValueRegistry } from './semanticValues.js';
 import { CodeExecutionService } from './codeExecution.js';
+import { describeIndicatorSource } from './indicatorSource.js';
+import { assertGateCoverage } from './gateRegistry.js';
+import { STAGE_DEFINITIONS } from './workflow.js';
 
 export async function createApplication(
   config = loadConfig(),
@@ -94,17 +97,35 @@ export async function createApplication(
     lastSyncCount: 0,
     lastTypeCount: 0,
     skillSync: null,
+    indicatorSource: { source: 'UNAVAILABLE', freshAt: null, snapshotCount: 0 },
+    indicatorSnapshot: { count: 0, freshAt: null, typeCount: 0 },
   };
 
-  async function syncIndicators() {
+  function resolveIndicatorSource() {
+    const snapshot = database.indicatorCacheStats();
+    const live = getSupersonicEnabled()
+      && indicatorClient.mode !== 'unconfigured'
+      && indicatorClient.mode !== 'unavailable'
+      && !runtime.sourceError;
+    runtime.indicatorSnapshot = snapshot;
+    runtime.indicatorSource = describeIndicatorSource({
+      live: { available: live },
+      snapshot,
+    });
+    return runtime.indicatorSource;
+  }
+
+  async function syncIndicators({ persist = false } = {}) {
     if (!getSupersonicEnabled()) {
       runtime.sourceMode = 'direct-llm';
       runtime.supersonicEnabled = false;
       runtime.sourceError = null;
+      resolveIndicatorSource();
       return {
         disabled: true,
         types: 0,
         indicators: 0,
+        source: runtime.indicatorSource,
       };
     }
     try {
@@ -112,19 +133,30 @@ export async function createApplication(
         indicatorClient.listTypes(),
         indicatorClient.listIndicators({ current: 1, pageSize: 500 }),
       ]);
-      database.clearIndicatorCatalog();
+      if (persist) {
+        // Snapshot persistence is an explicit management action only; startup
+        // must not write to (or clear) the indicator cache.
+        const list = page.list ?? [];
+        const total = Number(page.total ?? list.length);
+        database.syncIndicatorTypes(types ?? []);
+        database.syncIndicators(list, { prune: total <= list.length });
+      }
       runtime.sourceMode = indicatorClient.mode ?? 'supersonic';
       runtime.supersonicEnabled = true;
       runtime.sourceError = null;
       runtime.lastSyncAt = new Date().toISOString();
       runtime.lastSyncCount = Number(page.total ?? page.list?.length ?? 0);
       runtime.lastTypeCount = types?.length ?? 0;
+      resolveIndicatorSource();
       return {
         types: types?.length ?? 0,
         indicators: runtime.lastSyncCount,
+        persisted: persist,
+        source: runtime.indicatorSource,
       };
     } catch (error) {
       runtime.sourceError = error.message;
+      resolveIndicatorSource();
       throw error;
     }
   }
@@ -159,6 +191,7 @@ export async function createApplication(
   }
 
   async function init() {
+    assertGateCoverage(STAGE_DEFINITIONS.map((stage) => stage.code));
     try {
       runtime.skillSync = skillRegistry.refreshExternalSkills();
     } catch (error) {
@@ -256,6 +289,7 @@ export async function createApplication(
     if (!runtime.supersonicEnabled) {
       runtime.sourceMode = 'direct-llm';
     }
+    const indicatorSource = resolveIndicatorSource();
     return {
       status: 'ok',
       now: new Date().toISOString(),
@@ -263,6 +297,9 @@ export async function createApplication(
         mode: runtime.sourceMode,
         enabled: runtime.supersonicEnabled,
         configured: runtime.supersonicEnabled && runtime.sourceMode === 'supersonic',
+        indicatorSource: indicatorSource.source,
+        indicatorSourceDetail: indicatorSource,
+        snapshot: runtime.indicatorSnapshot,
         baseUrl: config.supersonic.baseUrl || null,
         lastSyncAt: runtime.lastSyncAt,
         lastSyncCount: runtime.lastSyncCount,
@@ -335,6 +372,7 @@ export async function createApplication(
     runtime,
     init,
     syncIndicators,
+    resolveIndicatorSource,
     applySupersonicSetting,
     getSupersonicEnabled,
     currentHealth,

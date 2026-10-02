@@ -731,18 +731,32 @@ function renderRuntime(health) {
   const llm = health?.llm;
   const dot = document.querySelector('#runtimeBox .runtime-dot');
   dot.classList.toggle('is-error', Boolean(source?.error));
+  const indicatorSource = source?.indicatorSource;
+  const runtimeBox = document.getElementById('runtimeBox');
+  runtimeBox?.classList.toggle('is-warning', indicatorSource === 'SNAPSHOT');
+  runtimeBox?.classList.toggle('is-error', indicatorSource === 'UNAVAILABLE');
   document.getElementById('sourceMode').textContent = source?.mode === 'direct-llm'
     ? '大模型直连模式'
     : source?.mode === 'supersonic'
       ? '指标平台已连接'
       : 'Supersonic 未配置';
-  document.getElementById('sourceSync').textContent = source?.error
+  const baseSyncText = source?.error
     ? 'Supersonic 连接异常'
     : source?.mode === 'direct-llm'
       ? 'Supersonic 指标匹配已停用'
     : source?.lastSyncAt
       ? `${source.lastSyncCount} 个指标 · ${formatDate(source.lastSyncAt)}`
       : '尚无同步记录';
+  const sourceWarning = indicatorSource === 'SNAPSHOT'
+    ? ` · 快照模式，快照时间 ${source?.indicatorSourceDetail?.freshAt ? formatDate(source.indicatorSourceDetail.freshAt) : '未知'}，可能已过期`
+    : indicatorSource === 'UNAVAILABLE'
+      ? ' · 指标目录不可用'
+      : '';
+  const sourceSyncElement = document.getElementById('sourceSync');
+  sourceSyncElement.textContent = `${baseSyncText}${sourceWarning}`;
+  if (sourceWarning) {
+    sourceSyncElement.setAttribute('aria-label', `${baseSyncText}${sourceWarning}`);
+  }
   const harnessStatus = document.getElementById('harnessStatus');
   const runtimeText = llm?.configured
     ? `DeepSeek · ${llm.model}`

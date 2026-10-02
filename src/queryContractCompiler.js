@@ -21,6 +21,7 @@ import { classifyAnalysisSemantics } from './analysisSemantics.js';
 import { applySemanticPolicy } from './semanticPolicy.js';
 import { resolveWithPlugins } from './analysisPluginRegistry.js';
 import { normalizeAnalysisPipeline } from './analysisPipeline.js';
+import { CONTRACT_COMPILER_VERSION } from './contractVersion.js';
 
 const CONDITION_KINDS = new Set([
   'METRIC',
@@ -2247,6 +2248,7 @@ export class QueryContractCompiler {
     }
     const contract = {
       version: 1,
+      compilerVersion: CONTRACT_COMPILER_VERSION,
       id: crypto.randomUUID(),
       sourceType: normalizedSourceType,
       question: String(question ?? '').trim(),

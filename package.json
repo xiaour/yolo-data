@@ -8,11 +8,15 @@
     "node": ">=22.5.0"
   },
   "scripts": {
+    "setup": "node scripts/setup.mjs",
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "lint": "node scripts/check-architecture.mjs",
+    "lint:baseline": "node scripts/check-architecture.mjs --baseline",
+    "eval": "node scripts/run-eval.mjs"
   },
   "dependencies": {
-    "mysql2": "^3.24.4"
+    "mysql2": "^3.24.5"
   }
 }

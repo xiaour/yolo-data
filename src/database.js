@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { currentTraceId } from './trace.js';
+import { CONTRACT_COMPILER_VERSION } from './contractVersion.js';
 import { normalizeSemanticPolicy } from './semanticPolicy.js';
 import {
   mergeValueCandidates,
@@ -262,6 +264,7 @@ export class PlatformDatabase {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
         session_id INTEGER,
+        trace_id TEXT,
         dataset_id INTEGER NOT NULL,
         sql_text TEXT NOT NULL,
         row_count INTEGER NOT NULL DEFAULT 0,
@@ -568,6 +571,7 @@ export class PlatformDatabase {
         theme_id INTEGER,
         action TEXT NOT NULL,
         detail_json TEXT NOT NULL DEFAULT '{}',
+        trace_id TEXT,
         created_at TEXT NOT NULL
       );
 
@@ -578,6 +582,8 @@ export class PlatformDatabase {
         session_id INTEGER,
         source_type TEXT NOT NULL DEFAULT 'INDICATOR',
         dataset_id TEXT,
+        compiler_version TEXT,
+        trace_id TEXT,
         question TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'COMPILED',
         plan_json TEXT NOT NULL DEFAULT '{}',
@@ -622,6 +628,7 @@ export class PlatformDatabase {
         user_id INTEGER,
         session_id INTEGER,
         theme_id INTEGER,
+        trace_id TEXT,
         call_type TEXT NOT NULL,
         provider TEXT NOT NULL DEFAULT 'deepseek',
         model TEXT NOT NULL DEFAULT '',
@@ -683,12 +690,25 @@ export class PlatformDatabase {
     this.ensureColumn('chat_sessions', 'model_id', 'INTEGER');
     this.ensureColumn('query_plans', 'source_type', "TEXT NOT NULL DEFAULT 'INDICATOR'");
     this.ensureColumn('query_plans', 'dataset_id', 'TEXT');
+    this.ensureColumn('query_plans', 'compiler_version', 'TEXT');
+    this.ensureColumn('query_plans', 'trace_id', 'TEXT');
+    this.ensureColumn('audit_logs', 'trace_id', 'TEXT');
+    this.ensureColumn('llm_call_logs', 'trace_id', 'TEXT');
+    this.ensureColumn('dataset_query_logs', 'trace_id', 'TEXT');
     this.ensureColumn('skills', 'source', "TEXT NOT NULL DEFAULT 'BUILTIN'");
     this.ensureColumn('skills', 'source_path', 'TEXT');
     this.ensureColumn('skills', 'metadata_json', "TEXT NOT NULL DEFAULT '{}'");
     this.ensureColumn('skills', 'phase_tags_json', "TEXT NOT NULL DEFAULT '[]'");
     this.ensureColumn('skills', 'content', "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn('skills', 'content_hash', 'TEXT');
+    // Trace indexes must be created after ensureColumn so pre-existing databases
+    // (whose tables predate the trace_id column) migrate cleanly.
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_query_plans_trace ON query_plans(trace_id);
+      CREATE INDEX IF NOT EXISTS idx_llm_logs_trace ON llm_call_logs(trace_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_logs_trace ON audit_logs(trace_id);
+      CREATE INDEX IF NOT EXISTS idx_dataset_query_logs_trace ON dataset_query_logs(trace_id);
+    `);
   }
 
   ensureColumn(table, column, definition) {
@@ -1812,7 +1832,7 @@ export class PlatformDatabase {
     }
   }
 
-  syncIndicators(indicators) {
+  syncIndicators(indicators, { prune = true } = {}) {
     const timestamp = nowIso();
     const upsert = this.db.prepare(`
       INSERT INTO indicator_cache
@@ -1860,7 +1880,9 @@ export class PlatformDatabase {
           timestamp,
         );
       }
-      if (indicators.length > 0) {
+      // Only reconcile deletions when the caller supplied a complete catalog;
+      // a partial page must never prune indicators it did not fetch.
+      if (prune && indicators.length > 0) {
         const placeholders = indicators.map(() => '?').join(', ');
         this.db.prepare(`
           DELETE FROM indicator_cache
@@ -1885,6 +1907,21 @@ export class PlatformDatabase {
       this.db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  indicatorCacheStats() {
+    const indicators = this.db.prepare(`
+      SELECT COUNT(*) AS count, MAX(synced_at) AS freshAt FROM indicator_cache
+    `).get();
+    const types = this.db.prepare(`
+      SELECT COUNT(*) AS count, MAX(synced_at) AS freshAt FROM indicator_types
+    `).get();
+    return {
+      count: Number(indicators?.count ?? 0),
+      freshAt: indicators?.freshAt ?? null,
+      typeCount: Number(types?.count ?? 0),
+      typesFreshAt: types?.freshAt ?? null,
+    };
   }
 
   syncIndicatorTypes(types) {
@@ -1928,6 +1965,7 @@ export class PlatformDatabase {
   }
 
   listIndicators({ keyword = '', typeId = '', limit = 500 } = {}) {
+    const stats = this.indicatorCacheStats();
     const rows = this.db.prepare(`
       SELECT source_id AS id, name, biz_name AS bizName, type_id AS typeId,
              type_name AS typeName, indicator_level AS indicatorLevel,
@@ -1945,7 +1983,7 @@ export class PlatformDatabase {
 
     const normalizedKeyword = String(keyword).trim().toLowerCase();
     const normalizedTypeId = String(typeId ?? '').trim();
-    return rows
+    const items = rows
       .filter((indicator) => !normalizedTypeId || indicator.typeId === normalizedTypeId)
       .filter((indicator) => {
         if (!normalizedKeyword) {
@@ -1960,9 +1998,15 @@ export class PlatformDatabase {
         ].some((value) => String(value ?? '').toLowerCase().includes(normalizedKeyword));
       })
       .slice(0, Math.max(1, Math.min(Number(limit) || 500, 2000)));
+    return {
+      items,
+      source: stats.count > 0 ? 'SNAPSHOT' : 'UNAVAILABLE',
+      freshAt: stats.freshAt,
+    };
   }
 
   listDatasetOptions() {
+    const stats = this.indicatorCacheStats();
     const options = new Map();
     const rows = this.db.prepare('SELECT models_json AS modelsJson FROM indicator_cache').all();
     for (const row of rows) {
@@ -1983,7 +2027,12 @@ export class PlatformDatabase {
         }
       }
     }
-    return [...options.values()].sort((left, right) => left.name.localeCompare(right.name, 'zh-CN'));
+    return {
+      items: [...options.values()]
+        .sort((left, right) => left.name.localeCompare(right.name, 'zh-CN')),
+      source: stats.count > 0 ? 'SNAPSHOT' : 'UNAVAILABLE',
+      freshAt: stats.freshAt,
+    };
   }
 
   listDataSources() {
@@ -2750,6 +2799,7 @@ export class PlatformDatabase {
   logDatasetQuery({
     userId = null,
     sessionId = null,
+    traceId = currentTraceId(),
     datasetId,
     sqlText,
     rowCount = 0,
@@ -2759,12 +2809,13 @@ export class PlatformDatabase {
   }) {
     const result = this.db.prepare(`
       INSERT INTO dataset_query_logs
-        (user_id, session_id, dataset_id, sql_text, row_count,
+        (user_id, session_id, trace_id, dataset_id, sql_text, row_count,
          latency_ms, success, error_message, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       userId ? Number(userId) : null,
       sessionId ? Number(sessionId) : null,
+      traceId ? String(traceId) : null,
       Number(datasetId),
       String(sqlText ?? ''),
       Number(rowCount) || 0,
@@ -2776,27 +2827,32 @@ export class PlatformDatabase {
     return Number(result.lastInsertRowid);
   }
 
-  listDatasetQueryLogs(limit = 100) {
+  listDatasetQueryLogs(limit = 100, { traceId = null } = {}) {
     return this.db.prepare(`
       SELECT l.id, l.user_id AS userId, u.display_name AS userName,
              l.session_id AS sessionId, l.dataset_id AS datasetId,
              d.name AS datasetName, l.sql_text AS sqlText,
              l.row_count AS rowCount, l.latency_ms AS latencyMs,
-             l.success, l.error_message AS errorMessage,
+             l.success, l.error_message AS errorMessage, l.trace_id AS traceId,
              l.created_at AS createdAt
       FROM dataset_query_logs l
       LEFT JOIN app_users u ON u.id = l.user_id
       LEFT JOIN business_datasets d ON d.id = l.dataset_id
+      WHERE (? IS NULL OR l.trace_id = ?)
       ORDER BY l.id DESC
       LIMIT ?
-    `).all(Math.max(1, Math.min(Number(limit) || 100, 500))).map((row) => ({
+    `).all(
+      traceId ? String(traceId) : null,
+      traceId ? String(traceId) : null,
+      Math.max(1, Math.min(Number(limit) || 100, 500)),
+    ).map((row) => ({
       ...row,
       success: asBool(row.success),
     }));
   }
 
   getIndicator(id) {
-    return this.listIndicators({ limit: 2000 }).find(
+    return this.listIndicators({ limit: 2000 }).items.find(
       (indicator) => String(indicator.id) === String(id),
     ) ?? null;
   }
@@ -3405,33 +3461,82 @@ export class PlatformDatabase {
     return this.getTheme(id);
   }
 
-  addAuditLog({ userId = null, themeId = null, action, detail = {} }) {
+  addAuditLog({
+    userId = null,
+    themeId = null,
+    action,
+    detail = {},
+    traceId = currentTraceId(),
+  }) {
     const result = this.db.prepare(`
-      INSERT INTO audit_logs (user_id, theme_id, action, detail_json, created_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO audit_logs (user_id, theme_id, action, detail_json, trace_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
     `).run(
       userId ? Number(userId) : null,
       themeId ? Number(themeId) : null,
       action,
       asJson(detail),
+      traceId ? String(traceId) : null,
       nowIso(),
     );
     return Number(result.lastInsertRowid);
   }
 
-  listAuditLogs(limit = 100) {
+  listAuditLogs(limit = 100, { traceId = null } = {}) {
     return this.db.prepare(`
       SELECT a.id, a.user_id AS userId, u.display_name AS userName,
              a.theme_id AS themeId, t.name AS themeName,
-             a.action, a.detail_json AS detailJson, a.created_at AS createdAt
+             a.action, a.detail_json AS detailJson, a.trace_id AS traceId,
+             a.created_at AS createdAt
       FROM audit_logs a
       LEFT JOIN app_users u ON u.id = a.user_id
       LEFT JOIN themes t ON t.id = a.theme_id
+      WHERE (? IS NULL OR a.trace_id = ?)
       ORDER BY a.id DESC LIMIT ?
-    `).all(Math.max(1, Math.min(Number(limit) || 100, 500))).map((row) => ({
+    `).all(
+      traceId ? String(traceId) : null,
+      traceId ? String(traceId) : null,
+      Math.max(1, Math.min(Number(limit) || 100, 500)),
+    ).map((row) => ({
       ...row,
       detail: parseJson(row.detailJson, {}),
     }));
+  }
+
+  getTraceEvidence(traceId) {
+    const id = String(traceId ?? '').trim();
+    if (!id) {
+      return null;
+    }
+    const plans = this.db.prepare(`
+      SELECT id, user_id AS userId, theme_id AS themeId, session_id AS sessionId,
+             source_type AS sourceType, dataset_id AS datasetId,
+             compiler_version AS compilerVersion, question, status,
+             plan_json AS planJson, validation_json AS validationJson,
+             evidence_json AS evidenceJson, created_at AS createdAt
+      FROM query_plans WHERE trace_id = ? ORDER BY created_at
+    `).all(id).map((row) => ({
+      ...row,
+      plan: parseJson(row.planJson, {}),
+      validation: parseJson(row.validationJson, {}),
+      evidence: parseJson(row.evidenceJson, {}),
+    }));
+    const audit = this.listAuditLogs(500, { traceId: id });
+    const llmCalls = this.listLlmLogs(1000, { traceId: id });
+    const datasetQueries = this.listDatasetQueryLogs(500, { traceId: id });
+    return {
+      traceId: id,
+      queryPlans: plans,
+      audit,
+      llmCalls,
+      datasetQueries,
+      counts: {
+        queryPlans: plans.length,
+        audit: audit.length,
+        llmCalls: llmCalls.length,
+        datasetQueries: datasetQueries.length,
+      },
+    };
   }
 
   saveQueryPlan({
@@ -3441,6 +3546,8 @@ export class PlatformDatabase {
     sessionId,
     sourceType = 'INDICATOR',
     datasetId = null,
+    compilerVersion = null,
+    traceId = currentTraceId(),
     question,
     status = 'COMPILED',
     plan,
@@ -3450,12 +3557,15 @@ export class PlatformDatabase {
     const timestamp = nowIso();
     this.db.prepare(`
       INSERT INTO query_plans
-        (id, user_id, theme_id, session_id, source_type, dataset_id, question, status,
+        (id, user_id, theme_id, session_id, source_type, dataset_id,
+         compiler_version, trace_id, question, status,
          plan_json, validation_json, evidence_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         source_type = excluded.source_type,
         dataset_id = excluded.dataset_id,
+        compiler_version = excluded.compiler_version,
+        trace_id = excluded.trace_id,
         status = excluded.status,
         plan_json = excluded.plan_json,
         validation_json = excluded.validation_json,
@@ -3467,6 +3577,15 @@ export class PlatformDatabase {
       sessionId ? Number(sessionId) : null,
       String(sourceType),
       datasetId ? String(datasetId) : null,
+      // Prefer the frozen contract's version; fall back to the platform compiler
+      // version so every persisted plan is replay-attributable (P0-7).
+      String(
+        compilerVersion
+        ?? plan?.compilerVersion
+        ?? plan?.queryContract?.compilerVersion
+        ?? CONTRACT_COMPILER_VERSION,
+      ),
+      traceId ? String(traceId) : null,
       String(question ?? ''),
       String(status),
       asJson(plan),
@@ -3481,6 +3600,7 @@ export class PlatformDatabase {
     const row = this.db.prepare(`
       SELECT id, user_id AS userId, theme_id AS themeId, session_id AS sessionId,
              source_type AS sourceType, dataset_id AS datasetId,
+             compiler_version AS compilerVersion, trace_id AS traceId,
              question, status, plan_json AS planJson, validation_json AS validationJson,
              evidence_json AS evidenceJson, created_at AS createdAt
       FROM query_plans
@@ -3498,6 +3618,7 @@ export class PlatformDatabase {
     const rows = this.db.prepare(`
       SELECT id, user_id AS userId, theme_id AS themeId, session_id AS sessionId,
              source_type AS sourceType, dataset_id AS datasetId,
+             compiler_version AS compilerVersion, trace_id AS traceId,
              question, status, plan_json AS planJson, validation_json AS validationJson,
              evidence_json AS evidenceJson, created_at AS createdAt
       FROM query_plans
@@ -3654,6 +3775,7 @@ export class PlatformDatabase {
     userId = null,
     sessionId = null,
     themeId = null,
+    traceId = currentTraceId(),
     callType,
     provider = 'deepseek',
     model,
@@ -3666,14 +3788,15 @@ export class PlatformDatabase {
   }) {
     const result = this.db.prepare(`
       INSERT INTO llm_call_logs
-        (user_id, session_id, theme_id, call_type, provider, model,
+        (user_id, session_id, theme_id, trace_id, call_type, provider, model,
          prompt_digest, response_digest, token_usage_json, latency_ms,
          success, error_message, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       userId ? Number(userId) : null,
       sessionId ? Number(sessionId) : null,
       themeId ? Number(themeId) : null,
+      traceId ? String(traceId) : null,
       String(callType),
       String(provider),
       String(model ?? ''),
@@ -3688,10 +3811,11 @@ export class PlatformDatabase {
     return Number(result.lastInsertRowid);
   }
 
-  listLlmLogs(limit = 200) {
+  listLlmLogs(limit = 200, { traceId = null } = {}) {
     return this.db.prepare(`
       SELECT l.id, l.user_id AS userId, u.display_name AS userName,
              l.session_id AS sessionId, l.theme_id AS themeId, t.name AS themeName,
+             l.trace_id AS traceId,
              l.call_type AS callType, l.provider, l.model,
              l.prompt_digest AS promptDigest, l.response_digest AS responseDigest,
              l.token_usage_json AS tokenUsageJson, l.latency_ms AS latencyMs,
@@ -3699,9 +3823,14 @@ export class PlatformDatabase {
       FROM llm_call_logs l
       LEFT JOIN app_users u ON u.id = l.user_id
       LEFT JOIN themes t ON t.id = l.theme_id
+      WHERE (? IS NULL OR l.trace_id = ?)
       ORDER BY l.id DESC
       LIMIT ?
-    `).all(Math.max(1, Math.min(Number(limit) || 200, 1000))).map((row) => ({
+    `).all(
+      traceId ? String(traceId) : null,
+      traceId ? String(traceId) : null,
+      Math.max(1, Math.min(Number(limit) || 200, 1000)),
+    ).map((row) => ({
       ...row,
       success: asBool(row.success),
       tokenUsage: parseJson(row.tokenUsageJson, {}),

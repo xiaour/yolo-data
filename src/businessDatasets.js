@@ -1,9 +1,30 @@
-import mysql from 'mysql2/promise';
 import { DatasourceCrypto } from './datasourceCrypto.js';
 import {
   normalizeLikePattern,
   resolveFilterScope,
 } from './querySemantics.js';
+
+// The MySQL driver is only required when a MySQL/Doris data source is actually
+// used. Loading it lazily keeps the platform runnable (and testable) in
+// "detached from database" mode without the optional dependency installed.
+let mysql = null;
+let mysqlLoadError = null;
+try {
+  mysql = (await import('mysql2/promise')).default;
+} catch (error) {
+  mysqlLoadError = error;
+}
+
+function requireMysql() {
+  if (!mysql) {
+    const error = new Error(
+      'mysql2 驱动未安装：MySQL/Doris 数据源需要先执行 npm install mysql2',
+    );
+    error.cause = mysqlLoadError;
+    throw error;
+  }
+  return mysql;
+}
 
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const FILTER_OPERATORS = new Set([
@@ -193,7 +214,7 @@ export class BusinessDatasetService {
   }
 
   createPool(source) {
-    return mysql.createPool({
+    return requireMysql().createPool({
       host: source.host,
       port: Number(source.port),
       user: source.username,

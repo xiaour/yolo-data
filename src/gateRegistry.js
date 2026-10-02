@@ -1,3 +1,5 @@
+import { incrementCounter } from './metrics.js';
+
 export const GATE_PHASES = [
   'INTENT',
   'SKILL_AUDIT',
@@ -61,6 +63,26 @@ const GATES = [
     name: '语义对象实时发现',
     description: '指标和数据集必须来自当前实时授权目录。',
     owner: 'indicatorClient.js / businessDatasets.js',
+    blocking: true,
+    skillBypassAllowed: false,
+  },
+  {
+    id: 'SEMANTIC-003',
+    phase: 'SEMANTIC_RESOLVE',
+    layer: 'SEMANTIC',
+    name: '候选裁决唯一性',
+    description: '多策略评分必须产生唯一候选，或转入结构化澄清，不得静默择优。',
+    owner: 'metricResolver.js',
+    blocking: true,
+    skillBypassAllowed: false,
+  },
+  {
+    id: 'SOURCE-002',
+    phase: 'SEMANTIC_DISCOVERY',
+    layer: 'SOURCE',
+    name: '指标目录来源必须显式标记',
+    description: '指标读取必须返回 LIVE / SNAPSHOT{freshAt} / UNAVAILABLE；UNAVAILABLE 时不得继续规划。',
+    owner: 'indicatorSource.js',
     blocking: true,
     skillBypassAllowed: false,
   },
@@ -205,6 +227,16 @@ const GATES = [
     skillBypassAllowed: false,
   },
   {
+    id: 'CODE-001',
+    phase: 'EXECUTE',
+    layer: 'CODE',
+    name: '生成式代码不得持有数据源访问能力',
+    description: '模型生成的 Python 只能读写沙箱 input/ 与 output/，不得持有数据源凭证、不得直连数据库。',
+    owner: 'codeExecution.js',
+    blocking: true,
+    skillBypassAllowed: false,
+  },
+  {
     id: 'SQL-005',
     phase: 'RESULT_VALIDATION',
     layer: 'RESULT',
@@ -223,6 +255,16 @@ const GATES = [
     owner: 'agent.js / skills.js',
     blocking: false,
     skillBypassAllowed: true,
+  },
+  {
+    id: 'RESULT-002',
+    phase: 'RESULT_ANALYST',
+    layer: 'RESULT',
+    name: '分析结论有据',
+    description: '合计、TopN、趋势、异常与业务判断必须由确定性计算产生并附证据。',
+    owner: 'resultAnalyst.js',
+    blocking: false,
+    skillBypassAllowed: false,
   },
   {
     id: 'PRESENT-001',
@@ -269,6 +311,11 @@ const ISSUE_GATE_MAP = {
   SEMANTIC_MAPPING_AMBIGUOUS: 'CONTRACT-002',
   BUSINESS_DATASET_EXECUTION_REQUIRED: 'SOURCE-001',
   RESULT_TRUNCATED: 'SQL-005',
+  CODE_DATASOURCE_ACCESS_FORBIDDEN: 'CODE-001',
+  CODE_WORKSPACE_ESCAPE: 'CODE-001',
+  INDICATOR_SOURCE_UNAVAILABLE: 'SOURCE-002',
+  SEMANTIC_ADJUDICATION_AMBIGUOUS: 'SEMANTIC-003',
+  RESULT_ANALYSIS_NOT_EVIDENCED: 'RESULT-002',
 };
 
 export function listGates({ phase = null, layer = null, blocking = null } = {}) {
@@ -315,6 +362,13 @@ export function summarizeGateIssues(issues = []) {
   const decorated = attachGateMetadata(issues);
   const errors = decorated.filter((issue) => issue.level === 'ERROR');
   const warnings = decorated.filter((issue) => issue.level === 'WARN');
+  for (const issue of errors.filter((item) => item.blocking)) {
+    incrementCounter('gate_block_total', {
+      gateId: issue.gateId ?? 'UNKNOWN',
+      phase: issue.gatePhase ?? 'UNKNOWN',
+      blocking: 'true',
+    });
+  }
   return {
     total: decorated.length,
     errors: errors.length,
@@ -327,6 +381,23 @@ export function summarizeGateIssues(issues = []) {
       ]).filter(([, count]) => count > 0),
     ),
     issues: decorated,
+  };
+}
+
+// Startup assertion: every workflow stage must own at least one gate so a newly
+// added stage cannot silently ship without a rule (P0-7).
+export function assertGateCoverage(stageCodes = GATE_PHASES) {
+  const covered = new Set(GATES.map((gate) => gate.phase));
+  const missing = [...new Set(stageCodes.map((code) => String(code).toUpperCase()))]
+    .filter((code) => !covered.has(code));
+  if (missing.length > 0) {
+    throw new Error(
+      `gate coverage assertion failed; stages without a gate: ${missing.join(', ')}`,
+    );
+  }
+  return {
+    stages: stageCodes.length,
+    gates: GATES.length,
   };
 }
 
