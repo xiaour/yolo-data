@@ -255,3 +255,148 @@ test('P0-8 HTTP contract is unchanged: errors, static fallback, NDJSON stream', 
     assert.ok(events.at(-1).messageId);
   });
 });
+
+test('dataset profiling API suggests and applies field roles without MySQL', async () => {
+  await withServer(async ({ baseUrl, application }) => {
+    const admin = { 'content-type': 'application/json', 'x-user-id': '1' };
+    const analyst = { 'content-type': 'application/json', 'x-user-id': '2' };
+    const source = application.businessDatasets.saveDataSource({
+      code: 'profiling-test',
+      name: 'Profiling test',
+      host: '127.0.0.1',
+      port: 9030,
+      databaseName: 'demo',
+      username: 'reader',
+      password: 'secret',
+    });
+    const dataset = application.database.saveBusinessDataset({
+      code: 'profiling_orders',
+      name: '订单明细',
+      datasourceId: source.id,
+      schemaName: 'demo',
+      primaryTable: 'orders',
+      config: {},
+    });
+    application.database.replaceDatasetFields(dataset.id, [
+      { fieldName: 'order_date', semanticType: 'DATE', dataType: 'date', role: 'DIMENSION', aggregator: 'NONE' },
+      { fieldName: 'sale_amt', semanticType: 'NUMBER', dataType: 'decimal(12,2)', role: 'DIMENSION', aggregator: 'NONE' },
+      { fieldName: 'region', semanticType: 'STRING', dataType: 'varchar(20)', role: 'DIMENSION', aggregator: 'NONE' },
+    ]);
+    // Simulated sample data: the profiler must work detached from MySQL.
+    application.businessDatasets.sampleForProfiling = async () => ({
+      columns: ['order_date', 'sale_amt', 'region'],
+      rows: [
+        { order_date: '2026-09-01', sale_amt: 1200.5, region: '华东' },
+        { order_date: '2026-09-02', sale_amt: 980.25, region: '华南' },
+        { order_date: '2026-09-03', sale_amt: 1530.75, region: '华东' },
+        { order_date: '2026-09-04', sale_amt: 720.4, region: '华北' },
+      ],
+    });
+    application.businessDatasets.listFieldRanges = async () => ({
+      order_date: { min: '2026-01-01', max: '2026-09-08' },
+    });
+
+    const denied = await fetch(`${baseUrl}/api/business-datasets/${dataset.id}/profile`, {
+      method: 'POST',
+      headers: analyst,
+      body: JSON.stringify({}),
+    });
+    assert.equal(denied.status, 403);
+
+    const analyzeResponse = await fetch(
+      `${baseUrl}/api/business-datasets/${dataset.id}/profile`,
+      { method: 'POST', headers: admin, body: JSON.stringify({ sampleSize: 20 }) },
+    );
+    assert.equal(analyzeResponse.status, 200);
+    const profile = await analyzeResponse.json();
+    const roleOf = (name) => profile.fields.find((item) => item.fieldName === name).suggestedRole;
+    assert.equal(roleOf('order_date'), 'TIME');
+    assert.equal(roleOf('sale_amt'), 'METRIC');
+    assert.equal(roleOf('region'), 'DIMENSION');
+    assert.equal(profile.timeCondition.field, 'order_date');
+    assert.equal(profile.timeCondition.autoRangeDays, 30);
+    assert.equal(profile.summary.changedCount, 2);
+
+    const unknownResponse = await fetch(
+      `${baseUrl}/api/business-datasets/${dataset.id}/profile`,
+      {
+        method: 'PUT',
+        headers: admin,
+        body: JSON.stringify({ fields: [{ fieldName: 'nope', role: 'METRIC', aggregator: 'SUM' }] }),
+      },
+    );
+    assert.equal(unknownResponse.status, 400);
+
+    const applyResponse = await fetch(
+      `${baseUrl}/api/business-datasets/${dataset.id}/profile`,
+      {
+        method: 'PUT',
+        headers: admin,
+        body: JSON.stringify({
+          fields: [
+            { fieldName: 'order_date', role: 'TIME', aggregator: 'NONE' },
+            { fieldName: 'sale_amt', role: 'METRIC', aggregator: 'SUM' },
+          ],
+          config: { autoLatestDateRange: true, autoRangeDays: 30 },
+        }),
+      },
+    );
+    assert.equal(applyResponse.status, 200);
+    const saved = application.database.listDatasetFields(dataset.id);
+    assert.equal(saved.find((field) => field.fieldName === 'order_date').role, 'TIME');
+    assert.equal(saved.find((field) => field.fieldName === 'sale_amt').role, 'METRIC');
+    assert.equal(saved.find((field) => field.fieldName === 'sale_amt').aggregator, 'SUM');
+    // Untouched fields keep their previous definition.
+    assert.equal(saved.find((field) => field.fieldName === 'region').role, 'DIMENSION');
+    assert.equal(
+      application.database.getBusinessDataset(dataset.id).config.autoRangeDays,
+      30,
+    );
+  });
+});
+
+test('dataset profiling degrades gracefully when the datasource is unreachable', async () => {
+  await withServer(async ({ baseUrl, application }) => {
+    const admin = { 'content-type': 'application/json', 'x-user-id': '1' };
+    const source = application.businessDatasets.saveDataSource({
+      code: 'profiling-degraded',
+      name: 'Profiling degraded',
+      host: '127.0.0.1',
+      port: 9030,
+      databaseName: 'demo',
+      username: 'reader',
+      password: 'secret',
+    });
+    const dataset = application.database.saveBusinessDataset({
+      code: 'profiling_degraded',
+      name: '订单明细降级',
+      datasourceId: source.id,
+      schemaName: 'demo',
+      primaryTable: 'orders',
+      config: {},
+    });
+    application.database.replaceDatasetFields(dataset.id, [
+      { fieldName: 'biz_date', semanticType: 'DATE', dataType: 'date', role: 'DIMENSION', aggregator: 'NONE' },
+      { fieldName: 'sale_amt', semanticType: 'NUMBER', dataType: 'decimal(12,2)', role: 'DIMENSION', aggregator: 'NONE' },
+    ]);
+    // Simulate an unreachable MySQL/Doris source without touching a real DB.
+    application.businessDatasets.sampleForProfiling = async () => {
+      throw new Error('connect ECONNREFUSED 127.0.0.1:9030');
+    };
+
+    const response = await fetch(
+      `${baseUrl}/api/business-datasets/${dataset.id}/profile`,
+      { method: 'POST', headers: admin, body: JSON.stringify({}) },
+    );
+    assert.equal(response.status, 200);
+    const profile = await response.json();
+    assert.equal(profile.degraded, true);
+    assert.match(profile.degradedReason, /ECONNREFUSED/);
+    assert.equal(profile.sampleSize, 0);
+    const roleOf = (name) => profile.fields.find((item) => item.fieldName === name).suggestedRole;
+    assert.equal(roleOf('biz_date'), 'TIME');
+    assert.equal(roleOf('sale_amt'), 'METRIC');
+    assert.equal(profile.timeCondition.field, 'biz_date');
+    assert.equal(profile.timeCondition.autoRangeDays, 30);
+  });
+});

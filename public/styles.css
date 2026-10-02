@@ -2188,6 +2188,31 @@ body.workspace-open .app-shell {
   background: #f8fcff;
 }
 
+.data-table tbody tr.profile-changed td {
+  background: #fffaf0;
+}
+
+.data-table tbody tr.profile-changed:hover td {
+  background: #fff4e2;
+}
+
+.data-table td.profile-reason {
+  white-space: normal;
+  min-width: 210px;
+  max-width: 330px;
+}
+
+.profile-degraded {
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border: 1px solid #f3d9a4;
+  border-radius: 8px;
+  background: #fffaf0;
+  color: #8a6320;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .numeric-cell {
   text-align: right !important;
   font-variant-numeric: tabular-nums;

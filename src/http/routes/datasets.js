@@ -214,6 +214,71 @@ export function registerDatasetRoutes(table) {
   });
 
   table.add({
+    id: 'businessDatasets.profile.analyze',
+    method: 'POST',
+    path: '/api/business-datasets/:id(\\d+)/profile',
+    tags: ['datasets'],
+    summary: '智能识别数据集字段口径与默认时间条件（管理员）',
+    middleware: ['auth', 'admin'],
+    adminOnly: true,
+    handler: async (ctx) => {
+      const { request, response, database, application, params, getRequestUser, readJson, sendJson } = ctx;
+      const user = getRequestUser(request, database);
+      if (user.role !== 'ADMIN') {
+        throw Object.assign(new Error('admin permission required'), { statusCode: 403 });
+      }
+      const datasetId = Number(params[0]);
+      const body = await readJson(request);
+      const profile = await application.businessDatasets.profileDataset(datasetId, {
+        sampleSize: body.sampleSize,
+      });
+      database.addAuditLog({
+        userId: user.id,
+        action: 'DATASET_PROFILE_ANALYZE',
+        detail: {
+          datasetId,
+          sampleSize: profile.sampleSize,
+          changedCount: profile.summary.changedCount,
+        },
+      });
+      sendJson(response, 200, profile);
+    },
+  });
+
+  table.add({
+    id: 'businessDatasets.profile.apply',
+    method: 'PUT',
+    path: '/api/business-datasets/:id(\\d+)/profile',
+    tags: ['datasets'],
+    summary: '应用智能识别结果（管理员）',
+    middleware: ['auth', 'admin'],
+    adminOnly: true,
+    handler: async (ctx) => {
+      const { request, response, database, application, params, getRequestUser, readJson, sendJson } = ctx;
+      const user = getRequestUser(request, database);
+      if (user.role !== 'ADMIN') {
+        throw Object.assign(new Error('admin permission required'), { statusCode: 403 });
+      }
+      const datasetId = Number(params[0]);
+      const body = await readJson(request);
+      const result = application.businessDatasets.applyDatasetProfile(datasetId, {
+        fields: Array.isArray(body.fields) ? body.fields : [],
+        config: body.config ?? null,
+      });
+      database.addAuditLog({
+        userId: user.id,
+        action: 'DATASET_PROFILE_APPLY',
+        detail: {
+          datasetId,
+          fieldCount: result.applied.fieldCount,
+          config: result.applied.config,
+        },
+      });
+      sendJson(response, 200, result);
+    },
+  });
+
+  table.add({
     id: 'datasetQueryLogs.list',
     method: 'GET',
     path: '/api/dataset-query-logs',

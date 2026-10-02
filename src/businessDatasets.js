@@ -1,5 +1,9 @@
 import { DatasourceCrypto } from './datasourceCrypto.js';
 import {
+  normalizeProfileSelection,
+  profileDataset as buildDatasetProfile,
+} from './datasetProfiler.js';
+import {
   normalizeLikePattern,
   resolveFilterScope,
 } from './querySemantics.js';
@@ -343,6 +347,154 @@ export class BusinessDatasetService {
     return {
       columns: fieldPackets.map((field) => field.name),
       rows,
+    };
+  }
+
+  // Reads all enabled fields (not just the first 20 used by sampleDataset) so
+  // the profiler can classify wide tables as well.
+  async sampleForProfiling(dataset, fields, limit = 50) {
+    const selected = fields.slice(0, 50);
+    if (selected.length === 0) {
+      return { columns: [], rows: [] };
+    }
+    const sql = `SELECT ${
+      selected.map((field) => quoteIdentifier(field.fieldName)).join(', ')
+    } FROM ${quoteIdentifier(dataset.schemaName)}.${quoteIdentifier(dataset.primaryTable)} LIMIT ?`;
+    const [rows, fieldPackets] = await this.getPoolById(dataset.datasourceId).query({
+      sql,
+      values: [Math.max(1, Math.min(Number(limit) || 50, 200))],
+      timeout: 15_000,
+    });
+    return {
+      columns: fieldPackets.map((field) => field.name),
+      rows,
+    };
+  }
+
+  // MIN/MAX per date-like column, so the suggested default window is based on
+  // the real data span instead of an arbitrary LIMIT sample.
+  async listFieldRanges(dataset, fields) {
+    const candidates = fields
+      .filter((field) => field.semanticType === 'DATE'
+        || /date|time|day|month|year|日期|时间/.test(String(field.fieldName).toLowerCase()))
+      .slice(0, 5);
+    if (candidates.length === 0) {
+      return {};
+    }
+    const select = candidates.flatMap((field, index) => [
+      `MIN(${quoteIdentifier(field.fieldName)}) AS min_${index}`,
+      `MAX(${quoteIdentifier(field.fieldName)}) AS max_${index}`,
+    ]);
+    const [rows] = await this.getPoolById(dataset.datasourceId).query({
+      sql: `SELECT ${select.join(', ')} FROM ${
+        quoteIdentifier(dataset.schemaName)
+      }.${quoteIdentifier(dataset.primaryTable)}`,
+      timeout: 15_000,
+    });
+    const ranges = {};
+    candidates.forEach((field, index) => {
+      ranges[field.fieldName] = {
+        min: rows[0]?.[`min_${index}`] ?? null,
+        max: rows[0]?.[`max_${index}`] ?? null,
+      };
+    });
+    return ranges;
+  }
+
+  // Standalone "intelligent recognition": analyze the dataset and return
+  // suggestions only. Nothing is persisted until applyDatasetProfile is called.
+  async profileDataset(datasetId, { sampleSize = 50 } = {}) {
+    const dataset = this.database.getBusinessDataset(datasetId);
+    if (!dataset) {
+      throw Object.assign(new Error('dataset not found'), { statusCode: 404 });
+    }
+    const fields = this.database.listDatasetFields(dataset.id);
+    if (fields.length === 0) {
+      throw Object.assign(
+        new Error('dataset has no fields; sync fields before profiling'),
+        { statusCode: 400 },
+      );
+    }
+    // Degraded mode: if the datasource is unreachable (or the platform runs
+    // without a database) we still return name/type-based suggestions instead
+    // of failing the whole request.
+    let sample = { columns: [], rows: [] };
+    let degraded = null;
+    try {
+      sample = await this.sampleForProfiling(dataset, fields, sampleSize);
+    } catch (error) {
+      degraded = `未能读取样本数据，已按字段名与类型降级识别：${error.message}`;
+    }
+    const ranges = degraded
+      ? {}
+      : await this.listFieldRanges(dataset, fields).catch(() => ({}));
+    return {
+      ...buildDatasetProfile({
+        datasetId: dataset.id,
+        fields,
+        rows: sample.rows ?? [],
+        ranges,
+        options: { sampleSize: sample.rows?.length ?? 0, degraded },
+      }),
+      dataset: {
+        id: dataset.id,
+        name: dataset.name,
+        primaryTable: dataset.primaryTable,
+        config: dataset.config ?? {},
+      },
+    };
+  }
+
+  // Persists the accepted subset into the config surfaces the existing
+  // pipeline already reads: dataset_fields.role/aggregator and
+  // business_datasets.config.autoLatestDateRange/autoRangeDays.
+  applyDatasetProfile(datasetId, payload = {}) {
+    const dataset = this.database.getBusinessDataset(datasetId);
+    if (!dataset) {
+      throw Object.assign(new Error('dataset not found'), { statusCode: 404 });
+    }
+    const existing = this.database.listDatasetFields(dataset.id);
+    const selected = normalizeProfileSelection(payload);
+    const existingNames = new Set(existing.map((field) => field.fieldName));
+    const unknown = selected.fields
+      .filter((field) => !existingNames.has(field.fieldName))
+      .map((field) => field.fieldName);
+    if (unknown.length > 0) {
+      throw Object.assign(
+        new Error(`unknown dataset fields: ${unknown.join(', ')}`),
+        { statusCode: 400 },
+      );
+    }
+    const patchByName = new Map(selected.fields.map((field) => [field.fieldName, field]));
+    const merged = existing.map((field) => {
+      const patch = patchByName.get(field.fieldName);
+      if (!patch) {
+        return field;
+      }
+      return {
+        ...field,
+        role: patch.role,
+        aggregator: patch.aggregator,
+        displayName: patch.displayName ?? field.displayName,
+        description: patch.description ?? field.description,
+      };
+    });
+    const fields = this.database.replaceDatasetFields(dataset.id, merged);
+    let saved = dataset;
+    const configPatch = selected.config ?? {};
+    if (Object.keys(configPatch).length > 0) {
+      saved = this.database.saveBusinessDataset({
+        ...dataset,
+        config: { ...(dataset.config ?? {}), ...configPatch },
+      }, dataset.id);
+    }
+    return {
+      dataset: saved,
+      fields,
+      applied: {
+        fieldCount: selected.fields.length,
+        config: configPatch,
+      },
     };
   }
 

@@ -26,6 +26,7 @@
   - 支持 Doris 或 MySQL 兼容数据源。
   - 平台根据字段语义生成只读查询，不向模型暴露原始 SQL。
   - 支持字段同步、抽样、默认枚举值域和数据集查询审计。
+  - 支持「智能识别」：抽样数据自动推断时间字段、常用指标与默认时间窗口，管理员确认后写入字段口径。
 - **Contract-first 查询**
   - 自然语言被编译为条件账本和查询契约。
   - 查询契约冻结后才允许执行。
@@ -245,6 +246,31 @@ node -e "import('mysql2/promise').then(m => console.log('mysql2 ok', typeof m.de
 `mysql2 驱动未安装：MySQL/Doris 数据源需要先执行 npm install mysql2`。
 
 Doris 数据源请填写 FE 的 MySQL 协议端口（默认 `9030`），而不是 HTTP 端口。
+
+#### 数据集智能识别（初始化口径与默认时间条件）
+
+为了让业务用户「裸跑」时不再反复追问口径和时间范围，`/datasets` 页面的数据集
+列表提供「智能识别」入口。它是一个**独立组件**，不依赖 Supersonic 指标平台，
+也不改动 DataAgent 主流程：
+
+- 后端：`src/datasetProfiler.js`（纯函数启发式，零依赖）+ `src/businessDatasets.js`
+  中的只读抽样封装。对数据表按前 50 个字段抽样，并对日期列取 `MIN/MAX` 计算数据跨度。
+- 前端：`public/js/components/datasetProfiler.js`，管理员在弹窗中逐项确认或修改建议。
+- 接口：
+  - `POST /api/business-datasets/:id/profile` 只做分析，**不落库**，返回每个字段的建议角色（`TIME/METRIC/DIMENSION/IDENTIFIER`）、建议聚合方式和默认时间窗口。
+  - `PUT /api/business-datasets/:id/profile` 只把管理员勾选的结果写回既有配置面：
+    `dataset_fields.role` / `dataset_fields.aggregator`，以及
+    `business_datasets.config.autoLatestDateRange` / `config.autoRangeDays`。
+- 因为写入的是既有配置面，大模型的默认口径和默认时间窗口会随之改变；建议采用保守窗口
+  （如 30–90 天），窗口过大有扫全表的风险。
+- 识别结果只是建议，弹窗默认只勾选发生变化的字段，管理员可以逐项否决。
+- 数据源不可达（或平台完全脱离数据库运行）时不会报错，而是降级为「按字段名与类型识别」：
+  返回 `degraded: true` 与 `degradedReason`，前端显示黄色提示，默认时间窗口回退到 30 天。
+
+脱离数据库时也可以用模拟数据验证：`node --test tests/datasetProfiler.test.js`
+和 `tests/http.test.js` 中的 `dataset profiling API ...` /
+`dataset profiling degrades gracefully ...` 用例都通过 monkey-patch 抽样返回值，
+不需要真实 MySQL/Doris。
 
 ## API 示例
 

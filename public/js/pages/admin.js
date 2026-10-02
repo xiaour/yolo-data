@@ -1,5 +1,6 @@
 import * as core from '../core/runtime.js';
 import { renderDataTable } from '../components/table.js';
+import { openDatasetProfiler } from '../components/datasetProfiler.js';
 
 const {
   ICONS,
@@ -190,6 +191,9 @@ async function renderDatasetsPage(root) {
   root.querySelectorAll('[data-sample-dataset]').forEach((button) => {
     button.addEventListener('click', () => sampleDataset(button.dataset.sampleDataset));
   });
+  root.querySelectorAll('[data-profile-dataset]').forEach((button) => {
+    button.addEventListener('click', () => openDatasetProfiler(button.dataset.profileDataset));
+  });
   root.querySelectorAll('[data-dataset-log-id]').forEach((row) => {
     row.addEventListener('click', () => {
       const log = logs.find((item) => String(item.id) === String(row.dataset.datasetLogId));
@@ -228,6 +232,7 @@ function renderBusinessDatasetsTable(datasets) {
               <td>${escapeHtml(formatDate(dataset.lastSyncedAt))}</td>
               <td>
                 <button class="btn btn-quiet btn-small" data-sync-dataset="${dataset.id}" type="button">同步结构</button>
+                <button class="btn btn-quiet btn-small" data-profile-dataset="${dataset.id}" type="button">智能识别</button>
                 <button class="btn btn-quiet btn-small" data-dataset-fields="${dataset.id}" type="button">字段</button>
                 <button class="btn btn-quiet btn-small" data-sample-dataset="${dataset.id}" type="button">抽样</button>
               </td>
