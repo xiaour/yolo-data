@@ -82,6 +82,38 @@ export function registerThemeRoutes(table) {
   });
 
   table.add({
+    id: 'themes.status.update',
+    method: 'PUT',
+    path: '/api/themes/:id(\\d+)/status',
+    tags: ['themes'],
+    summary: '启用或停用主题（管理员）',
+    middleware: ['auth', 'admin'],
+    adminOnly: true,
+    handler: async (ctx) => {
+      const { request, response, database, params, getRequestUser, readJson, sendJson, toPublicTheme } = ctx;
+      const themeStatusRoute = params;
+      const user = getRequestUser(request, database);
+      if (user.role !== 'ADMIN') {
+        throw Object.assign(new Error('admin permission required'), { statusCode: 403 });
+      }
+      const body = await readJson(request);
+      if (body.status !== 0 && body.status !== 1) {
+        throw Object.assign(new Error('status must be 0 or 1'), { statusCode: 400 });
+      }
+      const theme = database.setThemeStatus(Number(themeStatusRoute[0]), body.status);
+      if (!theme) {
+        throw Object.assign(new Error('theme not found'), { statusCode: 404 });
+      }
+      database.addAuditLog({
+        userId: user.id,
+        action: 'THEME_STATUS_UPDATE',
+        detail: { themeId: theme.id, name: theme.name, status: theme.status },
+      });
+      sendJson(response, 200, toPublicTheme(theme));
+    },
+  });
+
+  table.add({
     id: 'themes.delete',
     method: 'DELETE',
     path: '/api/themes/:id(\\d+)',

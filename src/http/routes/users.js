@@ -130,17 +130,20 @@ export function registerUserRoutes(table) {
       const user = getRequestUser(request, database);
       const themes = agent.getThemesForUser(user.id);
       const canManage = user.role === 'ADMIN';
-      const indicatorTypes = !supersonicAvailable()
+      const indicatorTypes = !canManage || !supersonicAvailable()
         ? []
         : await indicatorClient.listTypes().catch(() => []);
       sendJson(response, 200, {
         currentUser: user,
         users: canManage ? database.listUsers() : [user],
         themes: themes.map(toPublicTheme),
+        managedThemes: canManage ? database.listThemes().map(toPublicTheme) : [],
         skills: database.listSkills(),
         datasetOptions: database.listDatasetOptions().items,
         indicatorSource: application.resolveIndicatorSource(),
-        businessDatasets: database.listBusinessDatasets(),
+        businessDatasets: canManage
+          ? database.listBusinessDatasets({ includeDisabled: true })
+          : database.listBusinessDatasets({ userId: user.id }),
         dataSources: user.role === 'ADMIN' ? database.listDataSources() : [],
         models: user.role === 'ADMIN' ? database.listModels().map(toPublicModel) : [],
         indicatorTypes,

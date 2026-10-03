@@ -417,3 +417,34 @@ test('agent does not execute a guessed aggregate when the model only clarifies',
   assert.equal(answer.data.rows.length, 0);
   assert.match(answer.message, /请继续补充查询条件/);
 });
+
+test('data source creation generates a readable unique code without user input', async () => {
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  await application.init();
+  const payload = {
+    name: 'Doris 开发测试库',
+    dbType: 'DORIS',
+    host: 'localhost',
+    port: 9030,
+    databaseName: 'dev',
+    username: 'root',
+    password: 'secret',
+  };
+  const first = application.businessDatasets.saveDataSource({ ...payload });
+  const second = application.businessDatasets.saveDataSource({ ...payload });
+  assert.equal(first.code, 'doris');
+  assert.equal(second.code, 'doris_2');
+  assert.notEqual(first.encryptedPassword, 'secret');
+
+  const renamed = application.businessDatasets.saveDataSource(
+    { name: '重命名后的库', host: 'localhost', port: 9030, databaseName: 'dev', username: 'root' },
+    first.id,
+  );
+  assert.equal(renamed.code, first.code);
+
+  const fallback = application.businessDatasets.saveDataSource({
+    ...payload,
+    name: '销售生产库',
+  });
+  assert.match(fallback.code, /^ds_[a-z0-9]+$/);
+});

@@ -58,11 +58,11 @@
         <section class="sidebar-sessions" id="sessionSidebar" hidden></section>
 
         <div class="sidebar-foot">
-          <div class="runtime-box" id="runtimeBox">
+          <div class="runtime-box" id="runtimeBox" tabindex="0">
             <span class="runtime-dot"></span>
             <div>
-              <strong id="sourceMode">连接中</strong>
-              <small id="sourceSync">正在读取运行状态</small>
+              <strong id="runtimeTitle">连接中</strong>
+              <small id="runtimeDetail">正在读取运行状态</small>
             </div>
           </div>
         </div>
@@ -91,10 +91,6 @@
               <span class="topbar-icon-slot" data-icon="table"></span>
               <small class="topbar-count" id="workspaceCount">0</small>
             </button>
-            <span class="topbar-icon-btn runtime-icon" id="harnessStatus"
-              data-tooltip="Agent 运行时" tabindex="0" aria-label="Agent 运行时">
-              <span class="topbar-icon-slot" data-icon="bot"></span>
-            </span>
             <label class="user-switch topbar-icon-btn" data-tooltip="切换当前用户" aria-label="切换当前用户">
               <span class="topbar-icon-slot" data-icon="user"></span>
               <select id="currentUserSelect" aria-label="切换当前用户"></select>

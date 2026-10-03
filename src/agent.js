@@ -2023,6 +2023,16 @@ export class MetricAgentService {
     return result;
   }
 
+  // 停用主题必须真正退出问数链路：列表已隐藏，客户端直接带 themeId 也要拒绝。
+  requireEnabledTheme(theme) {
+    if (Number(theme?.status ?? 1) === 0) {
+      throw Object.assign(
+        new Error(`主题「${theme.name ?? theme.id}」已停用，暂不可发起问数`),
+        { statusCode: 409 },
+      );
+    }
+  }
+
   resolveContext(userId, themeId) {
     const user = this.database.getUser(userId);
     if (!user) {
@@ -2133,6 +2143,7 @@ export class MetricAgentService {
         throw new Error('themeId is required when creating a chat session');
       }
       const preflight = this.resolveContext(userId, requestedThemeId);
+      this.requireEnabledTheme(preflight.theme);
       const requestedModelId = modelId
         ? Number(modelId)
         : preflight.theme.defaultModelId
@@ -2203,6 +2214,7 @@ export class MetricAgentService {
       businessDatasets,
       primaryBusinessDatasetId,
     } = this.resolveContext(userId, session.themeId);
+    this.requireEnabledTheme(theme);
     const supersonicEnabled = this.isSupersonicEnabled();
     const activeHarness = this.harnessFactory
       ? this.harnessFactory.forTheme(

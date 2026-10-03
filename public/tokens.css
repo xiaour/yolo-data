@@ -25,6 +25,7 @@
   --ok: #16a37a;
   --warn: #c2851f;
   --bad: #d26a5c;
+  --alert: #d97a2b;
   --teal: #16a37a;
   --teal-soft: #eff8f5;
   --amber: #c2851f;
@@ -340,10 +341,20 @@ a {
 
 .runtime-box.is-warning .runtime-dot {
   background: var(--warn, #b7791f);
+  box-shadow: 0 0 0 5px rgba(194, 133, 31, 0.14);
 }
 
 .runtime-box.is-error small {
   color: var(--danger, #c53030);
+}
+
+.runtime-box.is-alert small {
+  color: var(--alert, #d97a2b);
+}
+
+.runtime-box.is-alert .runtime-dot {
+  background: var(--alert, #d97a2b);
+  box-shadow: 0 0 0 5px rgba(217, 122, 43, 0.14);
 }
 
 /* Header */
@@ -3059,6 +3070,7 @@ textarea::placeholder {
   --ok: #1ea678;
   --warn: #b97f24;
   --bad: #d26a5c;
+  --alert: #e0904a;
   --teal: #1ea678;
   --teal-soft: #ecf8f4;
   --amber: #b97f24;
@@ -3644,6 +3656,24 @@ body {
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow-s);
+}
+
+/* 卡片右上角的状态标识是真实开关，点击即启用/停用主题。 */
+.theme-status-toggle {
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  transition: filter 0.16s ease, box-shadow 0.16s ease;
+}
+
+.theme-status-toggle:hover {
+  filter: brightness(0.96);
+  box-shadow: 0 2px 8px rgba(35, 72, 104, 0.12);
+}
+
+.theme-card.is-disabled {
+  opacity: 0.72;
 }
 
 .theme-card-head,

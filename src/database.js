@@ -34,6 +34,14 @@ function asBool(value) {
   return value === 1 || value === true;
 }
 
+const USER_ROLES = new Set(['ADMIN', 'ANALYST']);
+
+// 平台只区分管理员和分析员两种角色，无法识别的角色一律按最低权限处理。
+function normalizeUserRole(value) {
+  const role = String(value ?? '').trim().toUpperCase();
+  return USER_ROLES.has(role) ? role : 'ANALYST';
+}
+
 function loadBootstrapConfig() {
   const configPath = new URL('../config/bootstrap/default.json', import.meta.url);
   try {
@@ -731,7 +739,7 @@ export class PlatformDatabase {
       insertUser.run(
         String(user.username ?? '').trim(),
         String(user.displayName ?? user.username ?? '').trim(),
-        String(user.role ?? 'ANALYST').trim().toUpperCase(),
+        normalizeUserRole(user.role),
         asJson(user.attributes ?? {}),
         timestamp,
         timestamp,
@@ -1279,7 +1287,11 @@ export class PlatformDatabase {
              attributes_json AS attributesJson, created_at AS createdAt,
              updated_at AS updatedAt
       FROM app_users ORDER BY id
-    `).all().map((row) => ({ ...row, attributes: parseJson(row.attributesJson, {}) }));
+    `).all().map((row) => ({
+      ...row,
+      role: normalizeUserRole(row.role),
+      attributes: parseJson(row.attributesJson, {}),
+    }));
   }
 
   getUser(id) {
@@ -1289,7 +1301,9 @@ export class PlatformDatabase {
              updated_at AS updatedAt
       FROM app_users WHERE id = ?
     `).get(Number(id));
-    return row ? { ...row, attributes: parseJson(row.attributesJson, {}) } : null;
+    return row
+      ? { ...row, role: normalizeUserRole(row.role), attributes: parseJson(row.attributesJson, {}) }
+      : null;
   }
 
   getUserByUsername(username) {
@@ -1299,14 +1313,16 @@ export class PlatformDatabase {
              updated_at AS updatedAt
       FROM app_users WHERE username = ?
     `).get(username);
-    return row ? { ...row, attributes: parseJson(row.attributesJson, {}) } : null;
+    return row
+      ? { ...row, role: normalizeUserRole(row.role), attributes: parseJson(row.attributesJson, {}) }
+      : null;
   }
 
   saveUser(payload, id = null) {
     const timestamp = nowIso();
     const username = String(payload.username ?? '').trim();
     const displayName = String(payload.displayName ?? '').trim();
-    const role = String(payload.role ?? 'ANALYST').trim();
+    const role = normalizeUserRole(payload.role);
     const attributesJson = asJson(payload.attributes ?? {});
     if (!username || !displayName) {
       throw new Error('username and displayName are required');
@@ -3475,6 +3491,16 @@ export class PlatformDatabase {
     this.db.prepare(`
       UPDATE themes SET system_prompt = ?, updated_at = ? WHERE id = ?
     `).run(String(systemPrompt ?? ''), nowIso(), Number(id));
+    return this.getTheme(id);
+  }
+
+  setThemeStatus(id, status) {
+    if (!this.getTheme(id)) {
+      return null;
+    }
+    this.db.prepare(`
+      UPDATE themes SET status = ?, updated_at = ? WHERE id = ?
+    `).run(Number(status) === 0 ? 0 : 1, nowIso(), Number(id));
     return this.getTheme(id);
   }
 

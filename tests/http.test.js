@@ -509,3 +509,110 @@ test('dataset fields can be disabled and become unreachable in the query flow', 
     );
   });
 });
+
+test('theme status toggle really enables and disables the agent', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const adminHeaders = { 'x-user-id': '1', 'content-type': 'application/json' };
+    const themeId = 1;
+
+    const disable = await fetch(`${baseUrl}/api/themes/${themeId}/status`, {
+      method: 'PUT',
+      headers: adminHeaders,
+      body: JSON.stringify({ status: 0 }),
+    });
+    assert.equal(disable.status, 200);
+    assert.equal((await disable.json()).status, 0);
+
+    // 停用后：管理端仍可见（便于重新启用），问数入口与直接携带 themeId 都被拒绝。
+    const bootstrap = await (
+      await fetch(`${baseUrl}/api/bootstrap`, { headers: { 'x-user-id': '1' } })
+    ).json();
+    assert.equal(bootstrap.themes.some((theme) => Number(theme.id) === themeId), false);
+    assert.equal(
+      bootstrap.managedThemes.find((theme) => Number(theme.id) === themeId)?.status,
+      0,
+    );
+    const chat = await fetch(`${baseUrl}/api/chat/query`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ themeId, question: '近 7 天销售额' }),
+    });
+    assert.equal(chat.status, 409);
+
+    const invalid = await fetch(`${baseUrl}/api/themes/${themeId}/status`, {
+      method: 'PUT',
+      headers: adminHeaders,
+      body: JSON.stringify({ status: 2 }),
+    });
+    assert.equal(invalid.status, 400);
+
+    const analyst = await fetch(`${baseUrl}/api/themes/${themeId}/status`, {
+      method: 'PUT',
+      headers: { 'x-user-id': '2', 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 1 }),
+    });
+    assert.equal(analyst.status, 403);
+
+    const enable = await fetch(`${baseUrl}/api/themes/${themeId}/status`, {
+      method: 'PUT',
+      headers: adminHeaders,
+      body: JSON.stringify({ status: 1 }),
+    });
+    assert.equal(enable.status, 200);
+    const restored = await (
+      await fetch(`${baseUrl}/api/bootstrap`, { headers: { 'x-user-id': '1' } })
+    ).json();
+    assert.equal(restored.themes.some((theme) => Number(theme.id) === themeId), true);
+  });
+});
+
+test('roles are normalized and analysts only receive their granted scope', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const adminHeaders = { 'x-user-id': '1', 'content-type': 'application/json' };
+
+    const created = await fetch(`${baseUrl}/api/users`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ username: 'sales_lead', displayName: '销售负责人', role: 'admin' }),
+    });
+    assert.equal(created.status, 200);
+    const createdUser = await created.json();
+    assert.equal(createdUser.role, 'ADMIN');
+
+    // 无法识别的角色一律按最低权限处理，避免越权。
+    const fallback = await fetch(`${baseUrl}/api/users`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ username: 'guest', displayName: '访客', role: 'superuser' }),
+    });
+    assert.equal((await fallback.json()).role, 'ANALYST');
+
+    // 停用后的用户不能再访问任何接口。
+    const disabled = await fetch(`${baseUrl}/api/users/${createdUser.id}`, {
+      method: 'PUT',
+      headers: adminHeaders,
+      body: JSON.stringify({ ...createdUser, role: 'ANALYST', status: 0 }),
+    });
+    assert.equal(disabled.status, 200);
+    const blocked = await fetch(`${baseUrl}/api/bootstrap`, {
+      headers: { 'x-user-id': String(createdUser.id) },
+    });
+    assert.equal(blocked.status, 401);
+
+    // 分析员只拿到已授权主题，并且没有管理端数据。
+    const analyst = await (
+      await fetch(`${baseUrl}/api/bootstrap`, { headers: { 'x-user-id': '2' } })
+    ).json();
+    assert.equal(analyst.currentUser.role, 'ANALYST');
+    assert.deepEqual(analyst.managedThemes, []);
+    assert.deepEqual(analyst.models, []);
+    assert.deepEqual(analyst.dataSources, []);
+    assert.deepEqual(analyst.indicatorTypes, []);
+    assert.equal(analyst.users.length, 1);
+    assert.equal(analyst.themes.length > 0, true);
+    assert.equal(analyst.themes.every((theme) => theme.canManage === false), true);
+
+    const analystUsers = await fetch(`${baseUrl}/api/users`, { headers: { 'x-user-id': '2' } });
+    assert.equal(analystUsers.status, 403);
+  });
+});

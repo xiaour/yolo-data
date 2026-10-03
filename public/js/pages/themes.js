@@ -1,4 +1,12 @@
 import * as core from '../core/runtime.js';
+import { openDatasetFields } from '../components/datasetFields.js';
+import { bindThemeStatusToggles, mountThemeStatusBadge } from '../components/themeStatus.js';
+import {
+  isAdminUser,
+  managedThemes,
+  renderThemeTable,
+  semanticPolicyRuleCount,
+} from '../components/themeCards.js';
 
 const {
   ICONS,
@@ -57,16 +65,16 @@ const {
 } = core;
 
 async function renderThemesPage(root) {
-  if (state.currentUser.role !== 'ADMIN') {
-    root.innerHTML = `<div class="section-band">${emptyState('主题配置仅对平台管理员开放', 'shield-check')}</div>`;
-    return;
-  }
+  const canManage = isAdminUser();
   root.innerHTML = `
     <div class="page-stack">
       <div class="page-toolbar">
         <div class="section-head">
-          <div><h2>主题智能体</h2><p>每个主题独立限定指标范围、分析维度和回答策略。</p></div>
-          <button class="btn btn-primary" id="addThemeBtn" type="button">${icon('plus', '新建主题')}新建主题</button>
+          <div>
+            <h2>主题智能体</h2>
+            <p>${canManage ? '每个主题独立限定指标范围、分析维度和回答策略。' : '这里列出你已授权的智能体，点击可进入问数。'}</p>
+          </div>
+          ${canManage ? `<button class="btn btn-primary" id="addThemeBtn" type="button">${icon('plus', '新建主题')}新建主题</button>` : ''}
         </div>
       </div>
       <div>
@@ -74,12 +82,25 @@ async function renderThemesPage(root) {
       </div>
     </div>
   `;
+  root.querySelectorAll('[data-theme-query]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.selectedThemeId = Number(button.dataset.themeQuery);
+      state.activeSessionId = null;
+      state.chatMessages = [];
+      state.chatStream = null;
+      navigate('/');
+    });
+  });
+  if (!canManage) {
+    return;
+  }
   document.getElementById('addThemeBtn').addEventListener('click', () => openThemeEditor(null));
   root.querySelectorAll('[data-theme-edit]').forEach((button) => {
     button.addEventListener('click', () => openThemeEditor(
-      state.themes.find((theme) => Number(theme.id) === Number(button.dataset.themeEdit)),
+      managedThemes().find((theme) => Number(theme.id) === Number(button.dataset.themeEdit)),
     ));
   });
+  bindThemeStatusToggles(root);
   root.querySelectorAll('[data-theme-delete]').forEach((button) => {
     button.addEventListener('click', async () => {
       const theme = getTheme(button.dataset.themeDelete);
@@ -96,47 +117,6 @@ async function renderThemesPage(root) {
       }
     });
   });
-}
-
-function renderThemeTable() {
-  if (!state.themes.length) {
-    return emptyState('尚未配置主题智能体', 'bot');
-  }
-  return `
-    <div class="theme-cards">
-      ${state.themes.map((theme) => `
-        <article class="theme-card">
-          <div class="theme-card-head">
-            <div>
-              <strong>${escapeHtml(theme.name)}</strong>
-              <small>${escapeHtml(theme.description || '无主题说明')}</small>
-            </div>
-            <span class="tag ${theme.status ? 'tag-teal' : 'tag-red'}">${theme.status ? '启用' : '停用'}</span>
-          </div>
-          <div class="theme-card-meta">
-            <span><small>数据范围</small><strong>${theme.indicatorIds?.length ?? 0} 指标 / ${theme.businessDatasetIds?.length ?? 0} 数据集</strong></span>
-            <span><small>业务规则</small><strong>${semanticPolicyRuleCount(theme.semanticPolicy)} 条</strong></span>
-            <span><small>模型</small><strong>${escapeHtml(theme.llmConfig?.model || '平台默认')}</strong></span>
-          </div>
-          <div class="theme-card-foot">
-            <span class="muted">${escapeHtml(formatDate(theme.updatedAt))}</span>
-            <span class="theme-card-actions">
-              <button class="btn btn-quiet btn-small" data-theme-edit="${theme.id}" type="button">编辑</button>
-              <button class="btn btn-quiet btn-small" data-theme-delete="${theme.id}" type="button">删除</button>
-            </span>
-          </div>
-        </article>
-      `).join('')}
-    </div>
-  `;
-}
-
-function semanticPolicyRuleCount(policy) {
-  if (!policy || typeof policy !== 'object') {
-    return 0;
-  }
-  return ['metrics', 'dimensions', 'filters', 'enumGroups', 'plugins']
-    .reduce((sum, key) => sum + (Array.isArray(policy[key]) ? policy[key].length : 0), 0);
 }
 
 function openThemeEditor(theme) {
@@ -617,7 +597,8 @@ async function renderThemeEditorPage(root, theme) {
           <h2>${theme ? `编辑「${escapeHtml(theme.name)}」` : '新建主题智能体'}</h2>
           <p>${theme ? '调整数据范围、模型、Skills 和专属提示词。' : '创建一个绑定指标、数据集和运行策略的业务智能体。'}</p>
         </div>
-        <span class="tag ${theme?.status === 0 ? 'tag-red' : 'tag-teal'}">${theme?.status === 0 ? '停用' : '启用'}</span>
+        <button class="tag ${theme?.status === 0 ? 'tag-red' : 'tag-teal'} theme-status-toggle" type="button"
+          id="themeStatusBadge" data-theme-status="${theme?.status === 0 ? 0 : 1}">${theme?.status === 0 ? '已停用' : '已启用'}</button>
       </header>
       <div class="theme-editor-page-body">
       <form id="themeForm" class="theme-editor-form">
@@ -742,22 +723,28 @@ async function renderThemeEditorPage(root, theme) {
             <span class="theme-config-index">05</span>
             <div>
               <h3>数据范围</h3>
-              <p>限定智能体可检索的指标语义数据集、业务数据库数据集和可用维度。</p>
+              <p>限定智能体可检索的指标语义数据集、业务数据库数据集和可用维度；点击数据集右侧「字段」可直接启用或禁用字段。</p>
             </div>
           </header>
           <div class="form-grid">
           <div class="form-field span-2">
               <label>业务数据库数据集</label>
               <div class="check-grid">
-                ${state.businessDatasets.map((dataset) => `
-                  <label class="check-item">
-                    <input type="checkbox" name="themeBusinessDataset" value="${dataset.id}"${selectedBusinessDatasetIds.has(String(dataset.id)) ? ' checked' : ''} />
-                    <span>
-                      <strong>${escapeHtml(dataset.name)}</strong>
-                      <small class="muted"> ${escapeHtml(dataset.schemaName)}.${escapeHtml(dataset.primaryTable)} · ${dataset.fieldCount} 字段</small>
-                    </span>
-                  </label>
-                `).join('') || '<div class="muted">暂未接入业务数据库数据集</div>'}
+                ${state.businessDatasets.map((dataset) => {
+                  const enabledFieldCount = dataset.enabledFieldCount ?? dataset.fieldCount;
+                  return `
+                  <div class="check-item check-item-action">
+                    <label class="check-item-body">
+                      <input type="checkbox" name="themeBusinessDataset" value="${dataset.id}"${selectedBusinessDatasetIds.has(String(dataset.id)) ? ' checked' : ''} />
+                      <span>
+                        <strong>${escapeHtml(dataset.name)}</strong>
+                        <small class="muted"> ${escapeHtml(dataset.schemaName)}.${escapeHtml(dataset.primaryTable)} · 启用 <span data-theme-dataset-field-count="${dataset.id}">${enabledFieldCount}</span>/${dataset.fieldCount} 字段</small>
+                      </span>
+                    </label>
+                    <button class="btn btn-quiet btn-small" type="button" data-theme-dataset-fields="${dataset.id}">字段</button>
+                  </div>
+                `;
+                }).join('') || '<div class="muted">暂未接入业务数据库数据集</div>'}
               </div>
             </div>
             <div class="form-field span-2">
@@ -872,6 +859,8 @@ async function renderThemeEditorPage(root, theme) {
   modal.querySelector('#themeForm').addEventListener('submit', (event) => {
     event.preventDefault();
   });
+  // 顶部状态标识是真实开关：点击即切换下面的状态字段，保存后生效。
+  mountThemeStatusBadge(modal);
   const semanticPolicyStatus = modal.querySelector('#semanticPolicyStatus');
   let semanticPolicyDraft = cloneSemanticPolicy(semanticPolicy);
   const updateSemanticPolicySummary = () => {
@@ -1066,6 +1055,26 @@ async function renderThemeEditorPage(root, theme) {
   };
   modal.querySelectorAll('[name="themeIndicator"], [name="themeBusinessDataset"]')
     .forEach((input) => input.addEventListener('change', () => scheduleSemanticValuePreview()));
+  const refreshThemeDatasetFieldCount = async (datasetId) => {
+    const node = modal.querySelector(`[data-theme-dataset-field-count="${datasetId}"]`);
+    if (!node) {
+      return;
+    }
+    try {
+      const fields = await api(`/api/business-datasets/${datasetId}/fields`);
+      node.textContent = String(fields.filter((field) => field.enabled !== false).length);
+    } catch {
+      // Keep the previous count; the field panel already surfaced the failure.
+    }
+  };
+  modal.querySelectorAll('[data-theme-dataset-fields]').forEach((button) => {
+    button.addEventListener('click', () => openDatasetFields(button.dataset.themeDatasetFields, {
+      onChange: () => {
+        refreshThemeDatasetFieldCount(button.dataset.themeDatasetFields);
+        scheduleSemanticValuePreview();
+      },
+    }));
+  });
   loadSemanticValuePreview();
   modal.querySelector('#refreshSemanticValuesBtn').addEventListener('click', async (event) => {
     if (!theme) {

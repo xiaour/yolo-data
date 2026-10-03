@@ -161,6 +161,12 @@ body.workspace-open .app-shell {
   transform: translateX(2px);
 }
 
+/* 普通分析员只保留问数与只读的智能体视图，管理面导航整组隐藏。 */
+.main-nav[data-role="ANALYST"] .nav-item:not([data-page="query"]):not([data-page="themes"]),
+.main-nav[data-role="ANALYST"] .nav-group-label:last-of-type {
+  display: none;
+}
+
 .nav-item.is-active {
   color: #165bbd;
   border-color: #d7e9ff;
@@ -2353,6 +2359,12 @@ body.workspace-open .app-shell {
   font-size: 13px;
 }
 
+.list-pane-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .user-list {
   max-height: 620px;
   overflow: auto;
@@ -2658,6 +2670,20 @@ body.workspace-open .app-shell {
   border-color: #bfd7ec;
   background: #f7fcff;
   box-shadow: 0 5px 14px rgba(48, 90, 125, 0.05);
+}
+
+.check-item-action {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.check-item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
 }
 
 .skill-source-badge {

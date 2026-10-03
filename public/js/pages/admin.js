@@ -1,6 +1,8 @@
 import * as core from '../core/runtime.js';
 import { renderDataTable } from '../components/table.js';
 import { openDatasetProfiler } from '../components/datasetProfiler.js';
+import { openDatasetFields } from '../components/datasetFields.js';
+import { openUserEditor } from '../components/userEditor.js';
 
 const {
   ICONS,
@@ -72,12 +74,18 @@ async function renderPermissionsPage(root) {
     <div class="editor-page-shell">
       <div class="two-column">
         <aside class="list-pane">
-          <div class="list-pane-head"><strong>平台用户</strong><span class="tag">${users.length}</span></div>
+          <div class="list-pane-head">
+            <strong>平台用户</strong>
+            <span class="list-pane-head-actions">
+              <span class="tag">${users.length}</span>
+              <button class="btn btn-quiet btn-small" id="addUserBtn" type="button">新增用户</button>
+            </span>
+          </div>
           <div class="user-list">
             ${users.map((user) => `
               <button class="user-item${Number(user.id) === Number(state.permissionUserId) ? ' is-active' : ''}" data-permission-user="${user.id}" type="button">
                 <span class="user-avatar">${escapeHtml(initials(user.displayName))}</span>
-                <span class="user-copy"><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.username)} · ${escapeHtml(user.role)}</small></span>
+                <span class="user-copy"><strong>${escapeHtml(user.displayName)}</strong><small>${escapeHtml(user.username)} · ${escapeHtml(user.role)}${Number(user.status) === 0 ? ' · 已停用' : ''}</small></span>
               </button>
             `).join('')}
           </div>
@@ -94,6 +102,12 @@ async function renderPermissionsPage(root) {
       renderPermissionsPage(root);
     });
   });
+  document.getElementById('addUserBtn').addEventListener('click', () => openUserEditor(null, {
+    onSaved: async () => {
+      await loadBootstrap(state.currentUser.id);
+      renderPage();
+    },
+  }));
   await loadPermissionEditor();
 }
 
@@ -186,7 +200,9 @@ async function renderDatasetsPage(root) {
     });
   });
   root.querySelectorAll('[data-dataset-fields]').forEach((button) => {
-    button.addEventListener('click', () => showDatasetFields(button.dataset.datasetFields));
+    button.addEventListener('click', () => openDatasetFields(button.dataset.datasetFields, {
+      onChange: () => renderPage(),
+    }));
   });
   root.querySelectorAll('[data-sample-dataset]').forEach((button) => {
     button.addEventListener('click', () => sampleDataset(button.dataset.sampleDataset));
@@ -295,13 +311,12 @@ function openDatasourceEditor() {
     editor: true,
     body: `
       <div class="form-grid">
-        <div class="form-field"><label for="sourceCode">数据源编码</label><input class="field" id="sourceCode" placeholder="doris_dev" /></div>
         <div class="form-field"><label for="sourceName">数据源名称</label><input class="field" id="sourceName" placeholder="Doris 开发测试库" /></div>
         <div class="form-field"><label for="sourceHost">Host</label><input class="field" id="sourceHost" /></div>
         <div class="form-field"><label for="sourcePort">Port</label><input class="field" id="sourcePort" type="number" value="9030" /></div>
         <div class="form-field"><label for="sourceDatabase">默认数据库</label><input class="field" id="sourceDatabase" /></div>
         <div class="form-field"><label for="sourceUsername">用户名</label><input class="field" id="sourceUsername" /></div>
-        <div class="form-field span-2"><label for="sourcePassword">密码</label><input class="field" id="sourcePassword" type="password" /></div>
+        <div class="form-field"><label for="sourcePassword">密码</label><input class="field" id="sourcePassword" type="password" /></div>
       </div>
     `,
     footer: `
@@ -318,7 +333,6 @@ function openDatasourceEditor() {
       await api('/api/data-sources', {
         method: 'POST',
         body: JSON.stringify({
-          code: modal.querySelector('#sourceCode').value.trim(),
           name: modal.querySelector('#sourceName').value.trim(),
           dbType: 'DORIS',
           host: modal.querySelector('#sourceHost').value.trim(),
@@ -394,62 +408,6 @@ function openDatasetCreator() {
   });
 }
 
-async function showDatasetFields(datasetId) {
-  const fields = await api(`/api/business-datasets/${datasetId}/fields`);
-  const disabledCount = fields.filter((field) => field.enabled === false).length;
-  const modal = openModal({
-    title: '数据集字段',
-    editor: true,
-    wide: true,
-    body: `
-      <div class="answer-meta">
-        <span class="meta-pill">字段 ${fields.length}</span>
-        <span class="meta-pill">启用 ${fields.length - disabledCount}</span>
-        <span class="meta-pill">禁用 ${disabledCount}</span>
-      </div>
-      <p class="muted">默认全部启用。禁用的字段仍保留配置，但不会再进入智能体的查询流程（不可作为维度、指标或时间字段）。</p>
-      <div class="data-table-wrap">
-        <table class="data-table">
-          <thead><tr><th>字段</th><th>名称</th><th>类型</th><th>语义角色</th><th>聚合</th><th>状态</th><th></th></tr></thead>
-          <tbody>
-            ${fields.map((field) => {
-              const enabled = field.enabled !== false;
-              return `
-                <tr class="${enabled ? '' : 'field-row-disabled'}">
-                  <td class="mono">${escapeHtml(field.fieldName)}</td>
-                  <td>${escapeHtml(field.displayName)}</td>
-                  <td>${escapeHtml(field.dataType)}</td>
-                  <td><span class="tag ${field.role === 'METRIC' ? 'tag-blue' : field.role === 'TIME' ? 'tag-amber' : 'tag-teal'}">${escapeHtml(field.role)}</span></td>
-                  <td>${escapeHtml(field.aggregator)}</td>
-                  <td><span class="tag ${enabled ? 'tag-teal' : 'tag-red'}">${enabled ? '启用' : '已禁用'}</span></td>
-                  <td><button class="btn btn-quiet btn-small" type="button" data-field-toggle data-field-name="${escapeAttr(field.fieldName)}" data-field-enabled="${enabled}">${enabled ? '禁用' : '启用'}</button></td>
-                </tr>
-              `;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-    `,
-  });
-  modal.querySelectorAll('[data-field-toggle]').forEach((button) => {
-    button.addEventListener('click', async () => {
-      const enabled = button.dataset.fieldEnabled !== 'true';
-      setBusy(button, true);
-      try {
-        await api(
-          `/api/business-datasets/${datasetId}/fields/${encodeURIComponent(button.dataset.fieldName)}`,
-          { method: 'PUT', body: JSON.stringify({ enabled }) },
-        );
-        toast(enabled ? '字段已启用' : '字段已禁用');
-        await showDatasetFields(datasetId);
-      } catch (error) {
-        toast(error.message, 'error');
-        setBusy(button, false);
-      }
-    });
-  });
-}
-
 async function sampleDataset(datasetId) {
   const result = await api(`/api/business-datasets/${datasetId}/sample?limit=20`);
   const columns = result.columns ?? [];
@@ -486,7 +444,10 @@ async function loadPermissionEditor() {
   editor.innerHTML = `
     <div class="section-head">
       <div><h2>${escapeHtml(user?.displayName ?? '用户权限')}</h2><p>${escapeHtml(user?.username ?? '')} · ${escapeHtml(user?.role ?? '')}</p></div>
-      <button class="btn btn-primary" id="savePermissionsBtn" type="button">${icon('saved', '保存权限')}保存权限</button>
+      <span class="list-pane-head-actions">
+        ${user ? `<button class="btn btn-quiet" id="editUserBtn" type="button">${icon('edit', '编辑用户')}编辑用户</button>` : ''}
+        <button class="btn btn-primary" id="savePermissionsBtn" type="button">${icon('saved', '保存权限')}保存权限</button>
+      </span>
     </div>
 
     <div class="form-field">
@@ -574,6 +535,12 @@ async function loadPermissionEditor() {
     bindPolicyRemoveButtons();
   });
   document.getElementById('savePermissionsBtn').addEventListener('click', savePermissions);
+  document.getElementById('editUserBtn')?.addEventListener('click', () => openUserEditor(user, {
+    onSaved: async () => {
+      await loadBootstrap(state.currentUser.id);
+      renderPage();
+    },
+  }));
   document.getElementById('permissionIndicatorSearch').addEventListener('input', (event) => {
     const keyword = event.target.value.trim().toLowerCase();
     document.querySelectorAll('#permissionIndicatorGrid [data-permission-search]').forEach((item) => {
@@ -697,7 +664,6 @@ export {
   renderDatasetQueryLogs,
   openDatasourceEditor,
   openDatasetCreator,
-  showDatasetFields,
   sampleDataset,
   loadPermissionEditor,
   renderThemeScopeSelect,

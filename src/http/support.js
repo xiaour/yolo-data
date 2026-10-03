@@ -203,6 +203,11 @@ export function getRequestUser(request, database) {
     error.statusCode = 401;
     throw error;
   }
+  if (Number(user.status ?? 1) === 0) {
+    const error = new Error('user is disabled');
+    error.statusCode = 401;
+    throw error;
+  }
   return user;
 }
 
@@ -212,7 +217,7 @@ export function parseIntParam(value, fallback) {
 }
 
 export function requireAdmin(user) {
-  if (user?.role !== 'ADMIN') {
+  if (String(user?.role ?? '').toUpperCase() !== 'ADMIN') {
     throw Object.assign(new Error('admin permission required'), { statusCode: 403 });
   }
   return user;

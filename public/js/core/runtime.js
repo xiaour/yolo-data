@@ -63,6 +63,7 @@ const state = {
   currentUser: null,
   allUsers: [],
   themes: [],
+  managedThemes: [],
   skills: [],
   datasetOptions: [],
   businessDatasets: [],
@@ -610,7 +611,22 @@ function getUserDisplay(userId) {
 }
 
 function getTheme(themeId = state.selectedThemeId) {
-  return state.themes.find((theme) => Number(theme.id) === Number(themeId));
+  const managed = state.managedThemes?.length ? state.managedThemes : state.themes;
+  return managed.find((theme) => Number(theme.id) === Number(themeId));
+}
+
+// 普通分析员只保留「开始问数」和只读的「主题智能体」，其余管理面直接不展示。
+function applyRoleVisibility() {
+  const admin = String(state.currentUser?.role ?? '').toUpperCase() === 'ADMIN';
+  document.getElementById('mainNav').dataset.role = admin ? 'ADMIN' : 'ANALYST';
+  const userSwitch = document.querySelector('.user-switch');
+  if (userSwitch) {
+    userSwitch.hidden = !admin;
+  }
+  const page = state.page === 'themeEditor' ? 'themes' : state.page;
+  if (!admin && !['query', 'themes'].includes(page)) {
+    navigate('/', { replace: true });
+  }
 }
 
 function hideThemeBreadcrumb() {
@@ -730,70 +746,69 @@ function renderRuntime(health) {
   const source = health?.source;
   const llm = health?.llm;
   // Distinguish "not configured yet" from "configured but unreachable" so the
-  // global notice does not claim a connection error when nothing is set up.
+  // merged status does not claim a connection error when nothing is set up.
   const directLlm = source?.mode === 'direct-llm';
   const unconfigured = !directLlm
     && (source?.mode === 'unconfigured' || source?.configured === false);
   const connectionError = !directLlm && !unconfigured && Boolean(source?.error);
-  const dot = document.querySelector('#runtimeBox .runtime-dot');
-  dot.classList.toggle('is-error', Boolean(source?.error));
   const indicatorSource = source?.indicatorSource;
+  const snapshot = !directLlm && indicatorSource === 'SNAPSHOT';
+  const catalogUnavailable = !directLlm && indicatorSource === 'UNAVAILABLE';
+  const indicatorReady = !directLlm && !unconfigured && !connectionError && !catalogUnavailable;
+  const indicatorDetail = directLlm ? '已停用'
+    : unconfigured ? '未配置'
+      : connectionError ? '连接异常'
+        : catalogUnavailable ? '目录不可用'
+          : snapshot ? '快照模式' : '已连接';
+  const themeCredentials = Number(llm?.themeCredentials ?? 0);
+  const llmConfigured = Boolean(llm?.configured);
+  const llmReady = llmConfigured || themeCredentials > 0;
+  const llmDetail = llmConfigured
+    ? `已配置 · ${llm.model}`
+    : themeCredentials > 0
+      ? `本地规则 · ${themeCredentials} 个主题已配置`
+      : '未配置';
+  // 三色状态：绿=指标平台与大模型都就绪，黄=仅一侧可用，橙=两侧都未就绪。
+  // 指标平台已启用却连接异常或目录不可用时，直接标记为橙色异常。
+  const indicatorBroken = !directLlm && !unconfigured && (connectionError || catalogUnavailable);
+  const level = indicatorReady && llmReady
+    ? 'ready'
+    : indicatorBroken ? 'alert' : (indicatorReady || llmReady) ? 'warning' : 'alert';
   const runtimeBox = document.getElementById('runtimeBox');
-  // The indicator catalog state only matters while the module is switched on;
-  // when it is intentionally off we must not nag about a missing catalog.
-  runtimeBox?.classList.toggle('is-warning', !directLlm && indicatorSource === 'SNAPSHOT');
-  runtimeBox?.classList.toggle('is-error', !directLlm && indicatorSource === 'UNAVAILABLE');
-  document.getElementById('sourceMode').textContent = directLlm
-    ? '大模型直连模式'
-    : unconfigured
-      ? '指标平台未配置'
-      : connectionError
-        ? '指标平台连接异常'
-        : source?.mode === 'supersonic'
-          ? '指标平台已连接'
-          : '指标平台未配置';
-  const baseSyncText = directLlm
+  runtimeBox.classList.toggle('is-ready', level === 'ready');
+  runtimeBox.classList.toggle('is-warning', level === 'warning');
+  runtimeBox.classList.toggle('is-alert', level === 'alert');
+  document.getElementById('runtimeTitle').textContent = level === 'ready'
+    ? '运行就绪'
+    : level === 'warning' ? '降级运行' : indicatorBroken ? '运行异常' : '尚未就绪';
+  document.getElementById('runtimeDetail').textContent =
+    `指标平台 ${indicatorDetail} · 大模型 ${llmDetail}`;
+  const syncText = directLlm
     ? '指标平台匹配已停用'
     : unconfigured
-      ? '尚未配置服务地址'
+      ? '尚未配置指标平台服务地址'
       : connectionError
-        ? '指标读取失败'
+        ? `指标读取失败${source?.error ? `：${source.error}` : ''}`
         : source?.lastSyncAt
-          ? `${source.lastSyncCount} 个指标 · ${formatDate(source.lastSyncAt)}`
+          ? `${source.lastSyncCount} 个指标 · 同步于 ${formatDate(source.lastSyncAt)}`
           : '尚无同步记录';
-  const sourceWarning = directLlm
-    ? ''
-    : indicatorSource === 'SNAPSHOT'
-      ? ` · 快照模式，快照时间 ${source?.indicatorSourceDetail?.freshAt ? formatDate(source.indicatorSourceDetail.freshAt) : '未知'}，可能已过期`
-      : indicatorSource === 'UNAVAILABLE'
-        ? ' · 指标目录不可用'
-        : '';
-  const sourceSyncElement = document.getElementById('sourceSync');
-  // 「未配置」只保留标题，不再显示下面这行小字。
-  sourceSyncElement.hidden = unconfigured;
-  sourceSyncElement.textContent = unconfigured ? '' : `${baseSyncText}${sourceWarning}`;
-  if (!unconfigured && sourceWarning) {
-    sourceSyncElement.setAttribute('aria-label', `${baseSyncText}${sourceWarning}`);
-  } else {
-    sourceSyncElement.removeAttribute('aria-label');
-  }
-  const harnessStatus = document.getElementById('harnessStatus');
-  const runtimeText = llm?.configured
-    ? `DeepSeek · ${llm.model}`
-    : llm?.themeCredentials > 0
-      ? `本地规则默认 · ${llm.themeCredentials} 个主题已配置模型`
-      : '本地规则运行时 · 未配置 API Key';
-  harnessStatus.classList.toggle(
-    'is-error',
-    !llm?.configured && !(llm?.themeCredentials > 0),
-  );
-  harnessStatus.dataset.tooltip = runtimeText;
-  harnessStatus.setAttribute('aria-label', runtimeText);
+  const snapshotText = snapshot
+    ? `快照时间 ${source?.indicatorSourceDetail?.freshAt ? formatDate(source.indicatorSourceDetail.freshAt) : '未知'}，可能已过期`
+    : '';
+  const tooltip = [
+    `指标平台：${indicatorDetail}`,
+    syncText,
+    snapshotText,
+    `大模型：${llmDetail}`,
+  ].filter(Boolean).join(' · ');
+  runtimeBox.setAttribute('title', tooltip);
+  runtimeBox.setAttribute('aria-label', tooltip);
 }
 
 function renderUserSelect() {
   const select = document.getElementById('currentUserSelect');
-  const users = state.allUsers.length > 0 ? state.allUsers : state.bootstrap?.users ?? [];
+  const users = (state.allUsers.length > 0 ? state.allUsers : state.bootstrap?.users ?? [])
+    .filter((user) => Number(user.status ?? 1) !== 0);
   select.innerHTML = users.map((user) => (
     `<option value="${user.id}"${Number(user.id) === Number(state.currentUser.id) ? ' selected' : ''}>${escapeHtml(user.displayName)} · ${escapeHtml(user.role)}</option>`
   )).join('');
@@ -860,6 +875,7 @@ async function loadBootstrap(userId) {
     state.workspaceArtifacts = [];
   }
   state.themes = state.bootstrap.themes;
+  state.managedThemes = state.bootstrap.managedThemes ?? state.themes;
   state.skills = state.bootstrap.skills ?? [];
   state.datasetOptions = state.bootstrap.datasetOptions ?? [];
   state.businessDatasets = state.bootstrap.businessDatasets ?? [];
@@ -878,6 +894,7 @@ async function loadBootstrap(userId) {
   }
   renderRuntime(state.bootstrap.health);
   renderUserSelect();
+  applyRoleVisibility();
 }
 
 

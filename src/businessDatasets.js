@@ -211,12 +211,25 @@ export class BusinessDatasetService {
     const encryptedPassword = payload.password
       ? this.crypto.encrypt(payload.password)
       : payload.encryptedPassword;
-    const source = this.database.saveDataSource({
-      ...payload,
-      encryptedPassword,
-    }, id);
+    const current = id ? this.database.getDataSource(id) : null;
+    const code = String(payload.code ?? '').trim() || current?.code || this.nextSourceCode(payload.name);
+    const source = this.database.saveDataSource({ ...payload, code, encryptedPassword }, id);
     this.closePool(source.code);
     return source;
+  }
+
+  nextSourceCode(name) {
+    const slug = String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40).replace(/^_+|_+$/g, '');
+    const codes = new Set(this.database.listDataSources().map((item) => item.code));
+    const base = slug || `ds_${Date.now().toString(36)}`;
+    if (!codes.has(base)) {
+      return base;
+    }
+    let suffix = 2;
+    while (codes.has(`${base}_${suffix}`)) {
+      suffix += 1;
+    }
+    return `${base}_${suffix}`;
   }
 
   async testDataSource(sourceOrId) {
