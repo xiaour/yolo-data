@@ -91,10 +91,21 @@
               <span class="topbar-icon-slot" data-icon="table"></span>
               <small class="topbar-count" id="workspaceCount">0</small>
             </button>
-            <label class="user-switch topbar-icon-btn" data-tooltip="切换当前用户" aria-label="切换当前用户">
-              <span class="topbar-icon-slot" data-icon="user"></span>
-              <select id="currentUserSelect" aria-label="切换当前用户"></select>
-            </label>
+            <div class="user-menu" id="userMenu" hidden>
+              <button class="topbar-icon-btn user-menu-trigger" id="userMenuTrigger" type="button"
+                data-tooltip="账号" aria-label="账号菜单" aria-haspopup="true" aria-expanded="false">
+                <span class="user-menu-avatar" id="userMenuAvatar">U</span>
+                <span class="user-menu-name" id="userMenuName"></span>
+              </button>
+              <div class="user-menu-panel" id="userMenuPanel" hidden>
+                <div class="user-menu-meta">
+                  <strong id="userMenuDisplay"></strong>
+                  <small id="userMenuRole"></small>
+                </div>
+                <button class="user-menu-item" type="button" data-action="password">修改密码</button>
+                <button class="user-menu-item is-danger" type="button" data-action="logout">退出登录</button>
+              </div>
+            </div>
           </div>
         </header>
 

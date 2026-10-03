@@ -29,6 +29,11 @@ export function loadConfig(env = process.env) {
     process.loadEnvFile(envFilePath);
     Object.assign(process.env, existing);
   }
+  const nodeEnv = String(env.NODE_ENV ?? '').trim().toLowerCase();
+  const explicitAuthMode = String(env.AUTH_MODE ?? '').trim().toLowerCase();
+  const authMode = explicitAuthMode === 'dev' || explicitAuthMode === 'session'
+    ? explicitAuthMode
+    : (nodeEnv === 'production' ? 'session' : 'dev');
   const dbPath = String(env.PLATFORM_DB_PATH ?? './data/platform.db').trim();
   const skillDirectories = parsePathList(
     env.AGENT_SKILL_DIRECTORIES,
@@ -76,6 +81,11 @@ export function loadConfig(env = process.env) {
       String(env.CODE_EXECUTION_ROOT ?? './data/code-runs').trim(),
     ),
     pythonBin: String(env.PYTHON_BIN ?? 'python').trim() || 'python',
+    nodeEnv,
+    authMode,
+    sessionTtlHours: Math.max(1, readInt(env.SESSION_TTL_HOURS, 12)),
+    secureCookies: String(env.SESSION_COOKIE_SECURE ?? '').toLowerCase() === 'true'
+      || nodeEnv === 'production',
     skillDirectories,
     datasourceSecretKey: String(env.DATASOURCE_SECRET_KEY ?? '').trim(),
     datasourceSecretKeyPath: path.resolve(projectRoot, 'data', '.datasource-key'),

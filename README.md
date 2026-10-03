@@ -174,13 +174,17 @@ http://localhost:8088/
 
 默认开发用户由 `config/bootstrap/default.json` 初始化：
 
-| 用户名 | 显示名称 | 角色 |
-| --- | --- | --- |
-| `admin` | 平台管理员 | `ADMIN` |
-| `east_manager` | 区域经理 | `ANALYST` |
-| `channel_analyst` | 渠道分析员 | `ANALYST` |
+| 用户名 | 显示名称 | 角色 | 默认口令 |
+| --- | --- | --- | --- |
+| `admin` | 平台管理员 | `ADMIN` | `yolo123456` |
+| `east_manager` | 区域经理 | `ANALYST` | `yolo123456` |
+| `channel_analyst` | 渠道分析员 | `ANALYST` | `yolo123456` |
 
-当前开发模式下，可以通过右上角用户切换控件切换当前用户。
+首次登录后可在右上角账号菜单修改密码。生产环境请务必修改默认口令，或用 `DEFAULT_USER_PASSWORD` 覆盖。
+
+### 登录与会话
+
+- 角色分管理员与分析员：管理员管理平台，分析员只能查看已授权智能体并用其问数。
 
 ## 配置说明
 
@@ -220,12 +224,19 @@ node -e "import('mysql2/promise').then(m => console.log('mysql2 ok', typeof m.de
 
 ## API 示例
 
+```bash
+# 先登录并保存 Cookie（开发模式也可继续用 x-user-id 直连）
+curl -s -c cookie.txt -X POST http://localhost:8088/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"yolo123456"}'
+```
+
 ### 同步问数
 
 ```bash
 curl -X POST http://localhost:8088/api/chat/query \
   -H 'Content-Type: application/json' \
-  -H 'x-user-id: 1' \
+  -b cookie.txt \
   -d '{
     "themeId": 1,
     "question": "近7天各区域销售额趋势如何？"
@@ -237,7 +248,7 @@ curl -X POST http://localhost:8088/api/chat/query \
 ```bash
 curl -N -X POST http://localhost:8088/api/chat/query/stream \
   -H 'Content-Type: application/json' \
-  -H 'x-user-id: 1' \
+  -b cookie.txt \
   -d '{
     "themeId": 1,
     "question": "8月各渠道销售额环比变化如何？"
@@ -276,7 +287,7 @@ curl http://localhost:8088/api/health
 
 当前实现适合单机验证和快速部署：
 
-- 开发模式通过 `x-user-id` 切换用户，生产环境应接入 SSO 或 OIDC。
+- 已内置账号密码登录与会话，生产环境建议进一步接入 SSO 或 OIDC。
 - SQLite 为单节点存储，多实例部署前应迁移到外部数据库。
 - 流式接口当前推送过程事件，尚未做 Token 级大模型文本流。
 - 指标检索当前使用词法和业务词打分，后续可扩展向量检索。
@@ -302,7 +313,4 @@ curl http://localhost:8088/api/health
 更详细的设计说明请查看 [docs/architecture.md](docs/architecture.md)。
 
 ## 许可证
-
-项目许可证待正式发布前确认。
-
-内置 ECharts 使用 Apache License 2.0，详见 [licenses/ECHARTS-LICENSE.txt](licenses/ECHARTS-LICENSE.txt)。
+Apache License 2.0 详见 [licenses/LICENSE.txt](licenses/ECHARTS-LICENSE.txt)。

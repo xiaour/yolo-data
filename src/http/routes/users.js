@@ -1,3 +1,5 @@
+import { deleteUserSessions, setDefaultUserPassword, setUserPassword } from '../../auth.js';
+
 export function registerUserRoutes(table) {
   table.add({
     id: 'users.list',
@@ -33,6 +35,12 @@ export function registerUserRoutes(table) {
       }
       const body = await readJson(request);
       const saved = database.saveUser(body);
+      const password = String(body.password ?? '');
+      if (password) {
+        setUserPassword(database, saved.id, password);
+      } else {
+        setDefaultUserPassword(database, saved.id);
+      }
       database.addAuditLog({
         userId: user.id,
         action: 'USER_CREATE',
@@ -59,12 +67,48 @@ export function registerUserRoutes(table) {
       }
       const body = await readJson(request);
       const saved = database.saveUser(body, Number(userRoute[0]));
+      if (Number(saved.status ?? 1) === 0) {
+        deleteUserSessions(database, saved.id);
+      }
       database.addAuditLog({
         userId: current.id,
         action: 'USER_UPDATE',
         detail: { targetUserId: saved.id, username: saved.username },
       });
       sendJson(response, 200, saved);
+    },
+  });
+
+  table.add({
+    id: 'users.resetPassword',
+    method: 'PUT',
+    path: '/api/users/:id(\\d+)/password',
+    tags: ['users'],
+    summary: '重置用户密码（管理员）',
+    middleware: ['auth', 'admin'],
+    adminOnly: true,
+    handler: async (ctx) => {
+      const { request, response, database, params, getRequestUser, readJson, sendJson } = ctx;
+      const current = getRequestUser(request, database);
+      const targetId = Number(params[0]);
+      const target = database.getUser(targetId);
+      if (!target) {
+        throw Object.assign(new Error('user not found'), { statusCode: 404 });
+      }
+      const body = await readJson(request);
+      const password = String(body.password ?? '');
+      if (password) {
+        setUserPassword(database, targetId, password);
+      } else {
+        setDefaultUserPassword(database, targetId);
+      }
+      deleteUserSessions(database, targetId);
+      database.addAuditLog({
+        userId: current.id,
+        action: 'USER_PASSWORD_RESET',
+        detail: { targetUserId: targetId, usedDefault: !password },
+      });
+      sendJson(response, 200, { ok: true, targetUserId: targetId, usedDefault: !password });
     },
   });
 

@@ -41,16 +41,39 @@ function openUserEditor(user, options = {}) {
             <option value="0"${user?.status === 0 ? ' selected' : ''}>停用</option>
           </select>
         </div>
+        ${editing ? '' : `
+        <div class="form-field">
+          <label for="userPassword">初始密码</label>
+          <input class="field" id="userPassword" type="password" autocomplete="new-password" placeholder="留空则使用平台默认口令" />
+        </div>`}
       </div>
       <p class="muted">分析员只能查看已授权的智能体并用它们问数；平台管理、模型、数据集、指标平台等入口不会展示。</p>
     `,
     footer: `
       <button class="btn" type="button" data-close-modal>取消</button>
+      ${editing ? '<button class="btn" type="button" id="resetUserPasswordBtn">重置密码</button>' : ''}
       <button class="btn btn-primary" type="button" id="saveUserBtn">保存用户</button>
     `,
   });
   modal.querySelectorAll('[data-close-modal]').forEach((button) => {
     button.addEventListener('click', closeModal);
+  });
+  modal.querySelector('#resetUserPasswordBtn')?.addEventListener('click', async (event) => {
+    if (!window.confirm(`确定将「${user.displayName}」的密码重置为平台默认口令？该用户当前登录会立即失效。`)) {
+      return;
+    }
+    setBusy(event.currentTarget, true, '重置中');
+    try {
+      await api(`/api/users/${user.id}/password`, {
+        method: 'PUT',
+        body: JSON.stringify({}),
+      });
+      toast('密码已重置为默认口令');
+    } catch (error) {
+      toast(error.message, 'error');
+    } finally {
+      setBusy(event.currentTarget, false);
+    }
   });
   modal.querySelector('#saveUserBtn').addEventListener('click', async (event) => {
     setBusy(event.currentTarget, true, '保存中');
@@ -63,6 +86,9 @@ function openUserEditor(user, options = {}) {
           role: modal.querySelector('#userRole').value,
           status: Number(modal.querySelector('#userStatus').value),
           attributes: user?.attributes ?? {},
+          ...(editing ? {} : {
+            password: modal.querySelector('#userPassword').value.trim(),
+          }),
         }),
       });
       toast(editing ? '用户已更新' : '用户已创建');

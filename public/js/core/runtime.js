@@ -1,5 +1,12 @@
 import { renderSafeMarkdown } from '../../markdown.js';
 import { visibleExecutionStages } from '../../executionDetails.js';
+import {
+  mountAuthGate,
+  notifyUnauthorized,
+  readSession,
+  renderUserSelect,
+  showLogin,
+} from '../components/authGate.js';
 
 const ICONS = {
   sparkles: '<path d="m12 3-1.9 4.6L5.5 9.5l4.6 1.9L12 16l1.9-4.6 4.6-1.9-4.6-1.9L12 3Z"/><path d="M5 16v3M3.5 17.5h3M19 3v2M18 4h2"/>',
@@ -466,9 +473,9 @@ function initials(name) {
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
-      'x-user-id': String(state.currentUser?.id ?? 1),
       ...(options.headers ?? {}),
     },
   });
@@ -480,6 +487,9 @@ async function api(path, options = {}) {
     payload = { message: text };
   }
   if (!response.ok) {
+    if (response.status === 401) {
+      notifyUnauthorized();
+    }
     throw new Error(payload?.message ?? `请求失败（${response.status}）`);
   }
   return payload;
@@ -488,13 +498,16 @@ async function api(path, options = {}) {
 async function streamApi(path, options = {}, onEvent) {
   const response = await fetch(path, {
     ...options,
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
-      'x-user-id': String(state.currentUser?.id ?? 1),
       ...(options.headers ?? {}),
     },
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      notifyUnauthorized();
+    }
     const text = await response.text();
     let payload = null;
     try {
@@ -619,10 +632,6 @@ function getTheme(themeId = state.selectedThemeId) {
 function applyRoleVisibility() {
   const admin = String(state.currentUser?.role ?? '').toUpperCase() === 'ADMIN';
   document.getElementById('mainNav').dataset.role = admin ? 'ADMIN' : 'ANALYST';
-  const userSwitch = document.querySelector('.user-switch');
-  if (userSwitch) {
-    userSwitch.hidden = !admin;
-  }
   const page = state.page === 'themeEditor' ? 'themes' : state.page;
   if (!admin && !['query', 'themes'].includes(page)) {
     navigate('/', { replace: true });
@@ -805,25 +814,6 @@ function renderRuntime(health) {
   runtimeBox.setAttribute('aria-label', tooltip);
 }
 
-function renderUserSelect() {
-  const select = document.getElementById('currentUserSelect');
-  const users = (state.allUsers.length > 0 ? state.allUsers : state.bootstrap?.users ?? [])
-    .filter((user) => Number(user.status ?? 1) !== 0);
-  select.innerHTML = users.map((user) => (
-    `<option value="${user.id}"${Number(user.id) === Number(state.currentUser.id) ? ' selected' : ''}>${escapeHtml(user.displayName)} · ${escapeHtml(user.role)}</option>`
-  )).join('');
-  const current = users.find((user) => (
-    Number(user.id) === Number(state.currentUser?.id)
-  ));
-  const userSwitch = select.closest('.user-switch');
-  if (current && userSwitch) {
-    const tooltip = `当前用户：${current.displayName} · ${current.role}；点击切换`;
-    userSwitch.dataset.initial = initials(current.displayName);
-    userSwitch.dataset.tooltip = tooltip;
-    userSwitch.setAttribute('aria-label', tooltip);
-  }
-}
-
 function setActivePage(page) {
   if (page !== 'themeEditor') {
     state.themeEditorThemeId = null;
@@ -859,9 +849,7 @@ function setActivePage(page) {
 
 async function loadBootstrap(userId) {
   const previousUserId = state.currentUser?.id;
-  state.bootstrap = await api('/api/bootstrap', {
-    headers: { 'x-user-id': String(userId ?? state.currentUser?.id ?? 1) },
-  });
+  state.bootstrap = await api('/api/bootstrap');
   state.currentUser = state.bootstrap.currentUser;
   if (previousUserId && Number(previousUserId) !== Number(state.currentUser.id)) {
     queryHooks.beforeQueryReset?.();
@@ -893,7 +881,7 @@ async function loadBootstrap(userId) {
     state.allUsers = state.bootstrap.users;
   }
   renderRuntime(state.bootstrap.health);
-  renderUserSelect();
+  renderUserSelect(state.currentUser);
   applyRoleVisibility();
 }
 
@@ -1070,14 +1058,27 @@ export async function initialize() {
         }
       }
     }).observe(document.body, { childList: true, subtree: true });
-    await loadBootstrap(1);
-    applyLocation();
+    mountAuthGate(document.getElementById('appMain'), {
+      onAuthenticated: enterWorkspace,
+      toast,
+    });
+    const session = await readSession();
+    if (!session?.authenticated) {
+      showLogin();
+      return;
+    }
+    await enterWorkspace();
   } catch (error) {
     document.getElementById('appMain').innerHTML = emptyState(
       `平台初始化失败：${error.message}`,
       'circle-alert',
     );
   }
+}
+
+async function enterWorkspace() {
+  await loadBootstrap();
+  applyLocation();
 }
 
 document.getElementById('mainNav').addEventListener('click', (event) => {
@@ -1108,16 +1109,6 @@ document.getElementById('densitySeg').addEventListener('click', (event) => {
     'density-compact',
     state.chatDensity === 'compact',
   );
-});
-
-document.getElementById('currentUserSelect').addEventListener('change', async (event) => {
-  try {
-    await loadBootstrap(Number(event.target.value));
-    renderPage();
-  } catch (error) {
-    toast(error.message, 'error');
-    renderUserSelect();
-  }
 });
 
 document.getElementById('workspaceToggle').addEventListener('click', () => {

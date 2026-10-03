@@ -26,11 +26,13 @@ import { registerThemeRoutes } from './http/routes/themes.js';
 import { registerDatasetRoutes } from './http/routes/datasets.js';
 import { registerIndicatorRoutes } from './http/routes/indicators.js';
 import { registerChatRoutes } from './http/routes/chat.js';
+import { registerAuthRoutes } from './http/routes/auth.js';
 
 // Declarative route table (P0-8). Dispatch and the generated OpenAPI document
 // both read from this single list, so they cannot drift apart.
 export function buildRouteTable() {
   const table = createRouteTable();
+  registerAuthRoutes(table);
   registerSystemRoutes(table);
   registerModelRoutes(table);
   registerUserRoutes(table);
@@ -84,7 +86,9 @@ export async function startServer(configOverride, indicatorClientOverride = null
     router,
     supersonicAvailable,
     renderMetrics,
-    getRequestUser,
+    getRequestUser: (request, targetDatabase) => (
+      getRequestUser(request, targetDatabase ?? database, config)
+    ),
     parseIntParam,
     prepareModelPayload,
     prepareThemePayload,

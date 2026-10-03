@@ -8,7 +8,7 @@ import { createMiddlewareRegistry } from '../src/http/middleware.js';
 import { createRouteTable, runRoute } from '../src/http/router.js';
 import { FakeIndicatorClient } from './fixtures/fakeIndicatorClient.js';
 
-function testConfig(directory) {
+function testConfig(directory, overrides = {}) {
   return {
     projectRoot: process.cwd(),
     port: 0,
@@ -25,13 +25,14 @@ function testConfig(directory) {
     datasourceSecretKey: '',
     datasourceSecretKeyPath: path.join(directory, '.credential-key'),
     bootstrapDatasource: { enabled: false },
+    ...overrides,
   };
 }
 
-async function withServer(run) {
+async function withServer(run, overrides = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-http-'));
   const { server, application } = await startServer(
-    testConfig(directory),
+    testConfig(directory, overrides),
     new FakeIndicatorClient(),
   );
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
@@ -41,6 +42,11 @@ async function withServer(run) {
     await new Promise((resolve) => server.close(resolve));
     application.database.close();
   }
+}
+
+function sessionCookieOf(response) {
+  const raw = response.headers.getSetCookie?.()[0] ?? '';
+  return raw.split(';')[0];
 }
 
 test('P0-8 route table round-trips params and honours numeric constraints', () => {
@@ -615,4 +621,108 @@ test('roles are normalized and analysts only receive their granted scope', async
     const analystUsers = await fetch(`${baseUrl}/api/users`, { headers: { 'x-user-id': '2' } });
     assert.equal(analystUsers.status, 403);
   });
+});
+
+test('session mode requires login and issues a revocable cookie', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const anonymous = await fetch(`${baseUrl}/api/bootstrap`);
+    assert.equal(anonymous.status, 401);
+
+    const wrong = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'not-the-password' }),
+    });
+    assert.equal(wrong.status, 401);
+
+    const login = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'yolo123456' }),
+    });
+    assert.equal(login.status, 200);
+    const cookie = sessionCookieOf(login);
+    assert.match(cookie, /^yolo_session=/);
+    assert.equal((await login.json()).user.role, 'ADMIN');
+
+    const me = await fetch(`${baseUrl}/api/auth/me`, { headers: { cookie } });
+    assert.equal((await me.json()).authenticated, true);
+
+    const scoped = await fetch(`${baseUrl}/api/bootstrap`, { headers: { cookie } });
+    assert.equal(scoped.status, 200);
+    assert.equal((await scoped.json()).currentUser.username, 'admin');
+
+    // x-user-id 在会话模式下不再具备认证能力。
+    const spoofed = await fetch(`${baseUrl}/api/bootstrap`, { headers: { 'x-user-id': '1' } });
+    assert.equal(spoofed.status, 401);
+
+    const logout = await fetch(`${baseUrl}/api/auth/logout`, { method: 'POST', headers: { cookie } });
+    assert.equal(logout.status, 200);
+    const afterLogout = await fetch(`${baseUrl}/api/bootstrap`, { headers: { cookie } });
+    assert.equal(afterLogout.status, 401);
+  }, { authMode: 'session' });
+});
+
+test('disabled accounts cannot log in and password changes rotate the session', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const adminCookie = sessionCookieOf(await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'yolo123456' }),
+    }));
+
+    const disabled = await fetch(`${baseUrl}/api/users/2`, {
+      method: 'PUT',
+      headers: { cookie: adminCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'east_manager', displayName: '华东区域经理', role: 'ANALYST', status: 0 }),
+    });
+    assert.equal(disabled.status, 200);
+    const blocked = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'east_manager', password: 'yolo123456' }),
+    });
+    assert.equal(blocked.status, 403);
+
+    const wrongCurrent = await fetch(`${baseUrl}/api/auth/password`, {
+      method: 'PUT',
+      headers: { cookie: adminCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ currentPassword: 'nope', newPassword: 'newpassword' }),
+    });
+    assert.equal(wrongCurrent.status, 400);
+
+    const changed = await fetch(`${baseUrl}/api/auth/password`, {
+      method: 'PUT',
+      headers: { cookie: adminCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ currentPassword: 'yolo123456', newPassword: 'newpassword' }),
+    });
+    assert.equal(changed.status, 200);
+    const oldPassword = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'yolo123456' }),
+    });
+    assert.equal(oldPassword.status, 401);
+    const newPassword = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'admin', password: 'newpassword' }),
+    });
+    assert.equal(newPassword.status, 200);
+
+    // 管理员重置他人密码后旧会话立即失效。
+    const analystCookie = sessionCookieOf(await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: 'channel_analyst', password: 'yolo123456' }),
+    }));
+    const reset = await fetch(`${baseUrl}/api/users/3/password`, {
+      method: 'PUT',
+      headers: { cookie: adminCookie, 'content-type': 'application/json' },
+      body: JSON.stringify({ password: 'analystpass' }),
+    });
+    assert.equal(reset.status, 200);
+    const stale = await fetch(`${baseUrl}/api/auth/me`, { headers: { cookie: analystCookie } });
+    assert.equal((await stale.json()).authenticated, false);
+  }, { authMode: 'session' });
 });

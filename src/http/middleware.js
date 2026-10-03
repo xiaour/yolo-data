@@ -81,14 +81,33 @@ export function createMiddlewareRegistry() {
 
     // Resolves the caller once and shares it with downstream middleware/handler.
     auth: () => async (ctx, next) => {
-      ctx.user = getRequestUser(ctx.request, ctx.database);
+      ctx.user = getRequestUser(ctx.request, ctx.database, ctx.config);
       return next();
     },
 
     admin: () => async (ctx, next) => {
-      ctx.user = ctx.user ?? getRequestUser(ctx.request, ctx.database);
+      ctx.user = ctx.user ?? getRequestUser(ctx.request, ctx.database, ctx.config);
       requireAdmin(ctx.user);
       return next();
+    },
+
+    // 登录接口不能用 auth 版限流（那时还没有用户），改按来源 IP 限流。
+    loginRateLimit: () => {
+      const limit = createTokenBucket({
+        capacity: readLimit('RATE_LIMIT_LOGIN_CAPACITY', 20),
+        refillPerSecond: readLimit('RATE_LIMIT_LOGIN_REFILL_PER_SECOND', 0.5),
+      });
+      return async (ctx, next) => {
+        const ip = ctx.request.socket?.remoteAddress ?? 'unknown';
+        if (!limit(`login:${ip}`)) {
+          incrementCounter('rate_limit_reject_total', { profile: 'login' });
+          throw Object.assign(
+            new Error('登录尝试过于频繁，请稍后再试'),
+            { statusCode: 429, code: 'RATE_LIMITED' },
+          );
+        }
+        return next();
+      };
     },
 
     // Hard ceiling for non-streaming requests. Never applied to NDJSON streams
@@ -122,7 +141,7 @@ export function createMiddlewareRegistry() {
     // Token bucket keyed by user + theme (P0-5 foundation).
     rateLimit: (arg) => async (ctx, next) => {
       if (!ctx.user) {
-        ctx.user = getRequestUser(ctx.request, ctx.database);
+        ctx.user = getRequestUser(ctx.request, ctx.database, ctx.config);
       }
       // themeId is only readable from the query string here: the JSON body is
       // consumed by the handler. Body-based routes therefore fall back to a

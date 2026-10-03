@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { currentTraceId } from './trace.js';
+import { ensureAuthSchema, seedDefaultPasswords } from './auth.js';
 import { CONTRACT_COMPILER_VERSION } from './contractVersion.js';
 import { normalizeSemanticPolicy } from './semanticPolicy.js';
 import {
@@ -121,6 +122,8 @@ export class PlatformDatabase {
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.migrate();
     this.seed();
+    ensureAuthSchema(this);
+    seedDefaultPasswords(this);
     this.migrateThemeSemanticValueDomains();
     this.migrateThemeSemanticValueSources();
     this.migrateSemanticValueGovernanceV1();
