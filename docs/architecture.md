@@ -230,6 +230,11 @@ flowchart LR
 | `src/semanticValues.js` | 从字段说明和主题提示词初始化枚举值域，执行精确、别名和高置信模糊映射 |
 | `src/semanticDomain.js` | 值域来源分级、字段策略、快照状态、多来源合并和权限 Scope 签名 |
 | `src/semanticPolicy.js` | 主题业务语义包规范化、别名与排除条件匹配、公式和过滤自动补全 |
+| `src/businessLexicon.js` | 平台默认词表与主题词表覆盖的读取、归并和词表转正则，模块内不含业务词 |
+| `src/themePresentationRules.js` | 解析主题提示词中的 `presentation` 声明块，生成字段级展示规则 |
+| `src/themeSemanticRules.js` | 解析主题提示词中的 `semantics` 声明块，生成业务语义包并与库内配置合并 |
+| `src/presentationFallbacks.js` | 在线元数据、主题声明和模型推断之间的展示契约兜底合并 |
+| `src/datasetProfiler.js` | 数据集字段画像组件，按词表提示提议角色、聚合方式和默认时间条件 |
 | `src/metricResolver.js` | 指标候选生成、多策略相似度评分、唯一性裁决和歧义阻断 |
 | `src/resultAnalyst.js` | 查询结果的合计、TopN、趋势、异常点和结构化结果分析 |
 | `src/analysisPluginRegistry.js` | 语义解析、结果分析、契约门禁和结果验证插件的统一注册与执行 |
@@ -419,7 +424,78 @@ AGENT_SKILL_DIRECTORIES
 语义包命中时优先于模型自由判断。复杂公式通过 `EXPRESSION` 算术树执行，平台核心不需要
 理解“毛利、成本、贡献”等业务概念。未命中语义包且没有唯一元数据依据时，平台不会回退到
 相似字段猜测，而会返回 `SEMANTIC_MAPPING_AMBIGUOUS` 或 `SEMANTIC_CATEGORY_NOT_BOUND`。
-管理员可在主题智能体编辑页的“业务语义包”区域维护该配置。
+管理员不再需要手工填写结构化表单：语义包的内容直接写在主题提示词的 ```semantics 代码块里，
+按行声明，平台在读取主题时解析并与数据库里保存的语义包合并（同名的以提示词为准）：
+
+```semantics
+指标: 毛利额, 毛利 = 含税销售额 - 含税成本额
+指标: 客户数 = 客户编码:COUNT_DISTINCT
+维度: 大区, 区域 -> 销售大区名称
+过滤: 日配业务 -> 业务类型名称 = 日配业务
+枚举组: 大福利 -> 业务类型名称 = 福利业务, 福利小店, BBC
+```
+
+每行 `<类型>: <内容>`，类型支持 指标/维度/过滤/枚举组；逗号分隔的多个名称中第一个是业务词，
+其余是别名；指标公式支持 `+ - * /` 和括号，单字段写成 `字段:聚合方式`。写错的行会在保存主题时
+返回 400 并指出具体行，不会静默丢弃。规则由提示词承载后不会写回数据库，避免同一份规则存两处。
+`src/themeSemanticRules.js` 只做通用解析，不内置任何业务词。
+
+### 3.3 业务词表
+
+代码里不写死业务词。字段名、枚举值、度量词、税口径前缀、维度同义词、维度枚举和字段画像
+提示等全部放在词表里，由两条来源合并而成：
+
+| 来源 | 位置 | 说明 |
+| --- | --- | --- |
+| 平台默认 | `platform_settings` 的 `business.lexicon`（首次启动由 `config/bootstrap/default.json` 的 `businessLexicon` 初始化） | 平台级默认词表，管理员可改 |
+| 主题覆盖 | `semanticPolicy.lexicon` | 该主题追加或覆盖的术语，优先级高于平台默认 |
+
+词表结构（键名固定，取值全部是数据）：
+
+```json
+{
+  "metricTerms": [],
+  "identifierPatterns": [],
+  "rateTerms": [],
+  "taxPrefixes": { "all": [], "excluded": [] },
+  "dimensionAliases": { "<维度字段>": [] },
+  "dimensionValues": { "<维度字段>": [] },
+  "dimensionFallback": [],
+  "enumFieldTerms": [],
+  "ignoredValues": [],
+  "profileHints": {
+    "identifier": { "wholeWord": true, "terms": [] },
+    "rate": { "terms": [] },
+    "average": { "terms": [] },
+    "stock": { "terms": [] },
+    "count": { "terms": [] },
+    "extreme": { "terms": [] },
+    "metric": { "terms": [] },
+    "time": { "terms": [] }
+  }
+}
+```
+
+`src/businessLexicon.js` 只做读取、归并和词表转正则，不内置任何业务词；查询语义、指标检索、
+字段画像、维度识别和结果表述都从这里取值。词表未命中时平台不会猜测，而是保留原始结果或
+返回澄清。
+
+### 3.4 展示规范
+
+展示口径（金额单位、精度、比率口径）同样不写在代码里。主题提示词中声明机器可读块即可：
+
+````markdown
+```presentation
+{
+  "amount": { "unit": "万元", "decimals": 0, "match": ["<业务字段命中词>"] },
+  "percent": { "decimals": 1, "match": ["<业务字段命中词>"] },
+  "fields": { "<字段名>": "amount" }
+}
+```
+````
+
+`match` 与 `fields` 里的业务词由主题给出；`src/themePresentationRules.js` 只负责通用解析与
+投影。在线指标元数据的优先级仍高于主题声明，模型推断只作为最后兜底。
 
 ## 4. 数据模型
 

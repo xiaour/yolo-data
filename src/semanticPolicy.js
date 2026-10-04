@@ -1,3 +1,5 @@
+import { normalizeLexicon } from './businessLexicon.js';
+
 const POLICY_VERSION = 1;
 const EXPRESSION_OPERATORS = new Set([
   'FIELD',
@@ -175,6 +177,7 @@ export function normalizeSemanticPolicy(value) {
       allowFuzzyMapping: source.policies?.allowFuzzyMapping === true,
     },
     plugins: Array.isArray(source.plugins) ? source.plugins : [],
+    lexicon: normalizeLexicon(source.lexicon),
   };
 }
 

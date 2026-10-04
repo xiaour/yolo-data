@@ -2,11 +2,13 @@
 
 面向企业指标语义的智能问数平台。YOLO Data 将大模型 DataAgent、实时指标体系、业务数据集、数据权限、会话记忆和工作区产物整合为一条可审计、可复现、可治理的workflow。
 
+业务可以对同一个问题进行多轮追问，当模型对口径需要用户澄清时进行反问。
+
 ## 主要解决的问题
+
 1. Text2SQL每次回答不一致，答案随机性强。
 2. 企业的数据处理流程过长，语义层不统一，业务各说各话
 3. 现有组织架构数据处理“出数>归因>决策>执行”流程过长
-
 
 ## 项目定位
 
@@ -56,11 +58,20 @@
   - 十二阶段 DataAgent Workflow。
   - 流式执行事件、工具调用、查询计划、LLM Token、反馈和知识缺口。
 
+
+## 业务规则与提示词设置
+
+提示词用于展示效果或结论能够按照业务要求自由定义；业务词、枚举映射、计算公式和默认口径应放在：
+
+- 主题提示词，参考docs/theme-prompts/sales-operation.md
+- 数据集字段说明
+- 默认值域配置
+
 ## 页面截图
 
 | 开始问数 | 数据集 |
-| --- | --- |
-| ![开始问数](docs/screenshots/query.png) | ![数据集](docs/screenshots/datasets.png) |
+| ---- | --- |
+| 开始问数 | 数据集 |
 
 ## 总体架构
 
@@ -93,14 +104,14 @@ flowchart LR
 
 ### 分层架构
 
-| 层级 | 职责 | 关键模块 |
-| --- | --- | --- |
-| 体验层 | 路由化 Web 界面、流式执行详情、ECharts | `public/js/core/runtime.js`、`public/js/pages/*` |
-| 接入层 | HTTP API、SPA 静态资源回退、NDJSON 流 | `src/server.js` |
-| 编排层 | Agent 工具循环、Harness、Skill 裁剪、结果锁 | `src/agent.js`、`src/harness.js`、`src/skills.js` |
-| 治理层 | 条件账本、查询契约、语义映射、权限、来源标记 | `src/queryContractCompiler.js`、`src/permissions.js`、`src/semanticPolicy.js` |
-| 执行层 | 指标平台查询、Doris/MySQL 数据集查询、结果稳定化 | `src/indicatorClient.js`、`src/businessDatasets.js`、`src/queryContract.js` |
-| 持久化层 | SQLite 平台数据库、加密凭证 | `src/database.js`、`src/datasourceCrypto.js` |
+| 层级   | 职责                              | 关键模块                                                                        |
+| ---- | ------------------------------- | --------------------------------------------------------------------------- |
+| 体验层  | 路由化 Web 界面、流式执行详情、ECharts       | `public/js/core/runtime.js`、`public/js/pages/*`                             |
+| 接入层  | HTTP API、SPA 静态资源回退、NDJSON 流    | `src/server.js`                                                             |
+| 编排层  | Agent 工具循环、Harness、Skill 裁剪、结果锁 | `src/agent.js`、`src/harness.js`、`src/skills.js`                             |
+| 治理层  | 条件账本、查询契约、语义映射、权限、来源标记          | `src/queryContractCompiler.js`、`src/permissions.js`、`src/semanticPolicy.js` |
+| 执行层  | 指标平台查询、Doris/MySQL 数据集查询、结果稳定化  | `src/indicatorClient.js`、`src/businessDatasets.js`、`src/queryContract.js`   |
+| 持久化层 | SQLite 平台数据库、加密凭证               | `src/database.js`、`src/datasourceCrypto.js`                                 |
 
 ### 核心 DataAgent 工作流
 
@@ -126,8 +137,6 @@ sequenceDiagram
   执行层->>工作区: 保存结果、代码运行和文件产物
   工作区-->>用户: 返回回答、图表、执行详情和产物入口
 ```
-
-
 
 ## 环境要求
 
@@ -174,10 +183,10 @@ http://localhost:8088/
 
 默认开发用户由 `config/bootstrap/default.json` 初始化：
 
-| 用户名 | 显示名称 | 角色 | 默认口令 |
-| --- | --- | --- | --- |
-| `admin` | 平台管理员 | `ADMIN` | `yolo123456` |
-| `east_manager` | 区域经理 | `ANALYST` | `yolo123456` |
+| 用户名               | 显示名称  | 角色        | 默认口令         |
+| ----------------- | ----- | --------- | ------------ |
+| `admin`           | 平台管理员 | `ADMIN`   | `yolo123456` |
+| `east_manager`    | 区域经理  | `ANALYST` | `yolo123456` |
 | `channel_analyst` | 渠道分析员 | `ANALYST` | `yolo123456` |
 
 首次登录后可在右上角账号菜单修改密码。生产环境请务必修改默认口令，或用 `DEFAULT_USER_PASSWORD` 覆盖。
@@ -212,14 +221,13 @@ node -e "import('mysql2/promise').then(m => console.log('mysql2 ok', typeof m.de
 
 #### 数据集智能识别
 
-数据集列表的「智能识别」入口会自动推断字段角色（`TIME/METRIC/DIMENSION/IDENTIFIER`）、
+数据集列表的「智能识别」入口会自动推断字段角色（`TIME/METRIC/DIMENSION/IDENTIFIER`）、  
 聚合方式与默认时间窗口，管理员逐项确认后写回既有配置面，减少问数时的口径与时间范围追问。
-
 
 #### 字段启用与禁用
 
-「字段」弹窗支持逐个字段启用/禁用，**默认全部启用**。数据集列表与「主题智能体 → 数据范围」共用同一入口，
-两边修改的是同一份配置。agent 与查询链路统一按启用读取字段，禁用字段不可作为维度/指标/时间字段或筛选条件。
+「字段」弹窗支持逐个字段启用/禁用，**默认全部启用**。数据集列表与「主题智能体 → 数据范围」共用同一入口，  
+两边修改的是同一份配置。agent 与查询链路统一按启用读取字段，禁用字段不可作为维度/指标/时间字段或筛选条件。  
 「同步结构」会保留禁用状态。
 
 ## API 示例
@@ -263,17 +271,6 @@ curl http://localhost:8088/api/health
 
 前端为无构建浏览器 ESM 应用，页面按路由动态加载，初始加载时不会同步下载所有管理页面代码。
 
-## 业务规则边界
-
-业务词、枚举映射、计算公式和默认口径应放在：
-
-- 主题提示词
-- 业务语义包
-- 数据集字段说明
-- 默认值域配置
-
-平台核心代码不应写死具体业务问题、业务枚举或业务结果。
-
 ## 安全与治理
 
 - 不向模型暴露原始 SQL。
@@ -313,4 +310,5 @@ curl http://localhost:8088/api/health
 更详细的设计说明请查看 [docs/architecture.md](docs/architecture.md)。
 
 ## 许可证
+
 Apache License 2.0 详见 [licenses/LICENSE.txt](licenses/ECHARTS-LICENSE.txt)。

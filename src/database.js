@@ -6,6 +6,7 @@ import { currentTraceId } from './trace.js';
 import { ensureAuthSchema, seedDefaultPasswords } from './auth.js';
 import { CONTRACT_COMPILER_VERSION } from './contractVersion.js';
 import { normalizeSemanticPolicy } from './semanticPolicy.js';
+import { mergeThemeSemanticPolicy } from './themeSemanticRules.js';
 import {
   mergeValueCandidates,
   normalizeValueOrigin,
@@ -1509,7 +1510,7 @@ export class PlatformDatabase {
       modelIds: parseJson(row.modelIdsJson, []).map(Number).filter(Number.isFinite),
       defaultModelId: row.defaultModelId ? Number(row.defaultModelId) : null,
       semanticValueConfig: parseJson(row.semanticValueConfigJson, {}),
-      semanticPolicy: parseJson(row.semanticPolicyJson, {}),
+      semanticPolicy: mergeThemeSemanticPolicy(row.systemPrompt, parseJson(row.semanticPolicyJson, {})),
       examples: parseJson(row.examplesJson, []),
       skillCodes: this.listThemeSkillCodes(row.id),
     }));
@@ -1544,7 +1545,7 @@ export class PlatformDatabase {
       modelIds: parseJson(row.modelIdsJson, []).map(Number).filter(Number.isFinite),
       defaultModelId: row.defaultModelId ? Number(row.defaultModelId) : null,
       semanticValueConfig: parseJson(row.semanticValueConfigJson, {}),
-      semanticPolicy: parseJson(row.semanticPolicyJson, {}),
+      semanticPolicy: mergeThemeSemanticPolicy(row.systemPrompt, parseJson(row.semanticPolicyJson, {})),
       examples: parseJson(row.examplesJson, []),
       skillCodes: this.listThemeSkillCodes(row.id),
     } : null;

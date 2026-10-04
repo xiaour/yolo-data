@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { formatPresentationCell } from './resultPresentation.js';
 import { CONTRACT_COMPILER_VERSION } from './contractVersion.js';
+import { getPlatformLexicon, lexiconPattern } from './businessLexicon.js';
 
 const DATE_DIMENSION_PATTERN =
   /(^|_)(date|time|day|week|month|quarter|year)($|_)|sdt|日期|时间|账期/i;
@@ -306,14 +307,18 @@ function findColumn(columns, key) {
   return (columns ?? []).find((column) => columnKey(column) === key) ?? null;
 }
 
-function filterSummary(filters, columns, filterLabels = {}) {
+function filterSummary(filters, columns, filterLabels = {}, lexicon = null) {
+  const identifierPattern = lexiconPattern(
+    (lexicon ?? getPlatformLexicon()).identifierPatterns,
+    { raw: true },
+  );
   return normalizeFilters(filters).map((filter) => {
     const label = filterLabels[filter.bizName]
       || columnLabel(findColumn(columns, filter.bizName))
       || filter.bizName;
-    const identifier = /(^|_)(id|code)($|_)|编号|编码|代码|客户号|单号|号$/i.test(
+    const identifier = identifierPattern?.test(
       `${filter.bizName} ${label}`,
-    );
+    ) ?? false;
     const renderValue = (item) => (
       identifier ? String(item ?? '') : formatNumber(item)
     );
@@ -346,7 +351,8 @@ function contractTimeText(contract) {
   return dateRangeText(windows[0] ?? contract?.dateInfo);
 }
 
-function metricTotals(columns, rows, contract, metricDefinitions = []) {
+function metricTotals(columns, rows, contract, metricDefinitions = [], lexicon = null) {
+  const ratePattern = lexiconPattern((lexicon ?? getPlatformLexicon()).rateTerms);
   const definitions = new Map(
     (metricDefinitions ?? []).map((definition) => [
       String(definition.key ?? definition.field ?? ''),
@@ -369,7 +375,7 @@ function metricTotals(columns, rows, contract, metricDefinitions = []) {
     const aggregation = String(
       definition.aggregation ?? definition.aggregator ?? '',
     ).toUpperCase();
-    const rate = /率|占比|比例/.test(label);
+    const rate = ratePattern?.test(label) ?? false;
     const render = (values) => {
       const numeric = values.map(Number).filter(Number.isFinite);
       if (numeric.length === 0) {
@@ -434,7 +440,8 @@ function trendFinding(columns, rows, contract) {
     change.toFixed(1)}%${incompletePeriod}`;
 }
 
-function attributionFindings(columns, rows, contract) {
+function attributionFindings(columns, rows, contract, lexicon = null) {
+  const ratePattern = lexiconPattern((lexicon ?? getPlatformLexicon()).rateTerms);
   if (contract?.analysisMode !== 'ATTRIBUTION' || rows.length < 2) {
     return [];
   }
@@ -504,7 +511,7 @@ function attributionFindings(columns, rows, contract) {
   const metricColumn = findColumn(columns, metricKey);
   const metricLabel = columnLabel(metricColumn) || metricKey;
   const dimensionLabel = columnLabel(dimensionColumn) || dimensionKey;
-  const rateMetric = /率|比例|占比|影响值/.test(metricLabel);
+  const rateMetric = ratePattern?.test(metricLabel) ?? false;
   return changes.slice(0, 5).map((item) => {
     const contribution = !rateMetric && Math.abs(totalDelta) > Number.EPSILON
       ? `，对整体变化贡献 ${(item.delta / totalDelta * 100).toFixed(1)}%`
@@ -672,20 +679,21 @@ export function buildDeterministicSummary({
   question = '',
   metricDefinitions = [],
   filterLabels = {},
+  lexicon = null,
 }) {
   const normalizedFilters = normalizeFilters(contract?.filters);
   const dimensions = (contract?.dimensions ?? [])
     .map((key) => columnLabel(findColumn(columns, key)) || key);
-  const totals = metricTotals(columns, rows, contract, metricDefinitions);
+  const totals = metricTotals(columns, rows, contract, metricDefinitions, lexicon);
   const conclusion = rows.length === 0
     ? `在当前查询条件下未返回数据；平台没有自动调整时间范围、指标或维度。`
     : `${totals.length > 0 ? `${totals.join('，')}。` : `本次查询返回 ${rows.length} 行数据。`}`;
   const findings = [
     rankingFinding(question, columns, rows, contract),
     trendFinding(columns, rows, contract),
-    ...attributionFindings(columns, rows, contract),
+    ...attributionFindings(columns, rows, contract, lexicon),
   ].filter(Boolean);
-  const filterLines = filterSummary(normalizedFilters, columns, filterLabels);
+  const filterLines = filterSummary(normalizedFilters, columns, filterLabels, lexicon);
   const scopeLines = [
     `- 指标：${subjectName || contract?.indicatorId || '-'}`,
     `- 时间：${contractTimeText(contract)}`,

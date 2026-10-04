@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 
+import { getPlatformLexicon, lexiconPattern } from './businessLexicon.js';
+
 function parseToolArguments(value) {
   if (!value) {
     return {};
@@ -644,7 +646,8 @@ function summarizeToolResult(result) {
   return truncate(JSON.stringify(result), 500);
 }
 
-function selectDimensions(question, detail) {
+function selectDimensions(question, detail, lexicon = null) {
+  const rules = lexicon ?? getPlatformLexicon();
   const available = new Set((detail.dimensions ?? []).flatMap((dimension) => [
     dimension.dimensionBizName,
     dimension.bizName,
@@ -655,24 +658,14 @@ function selectDimensions(question, detail) {
   if (/趋势|走势|变化|每天|按日|日级|近\d+天|最近\d+天/.test(question) && available.has('date')) {
     requested.push('date');
   }
-  for (const dimension of ['region', 'channel', 'category', 'warehouse', 'carrier', 'customer_type']) {
-    if (available.has(dimension) && new RegExp(
-      `${dimension}|${
-        {
-          region: '区域|大区|地区',
-          channel: '渠道',
-          category: '品类|分类',
-          warehouse: '仓库|仓',
-          carrier: '承运商|物流',
-          customer_type: '客户类型|客群',
-        }[dimension]
-      }`,
-    ).test(question)) {
+  for (const [dimension, aliases] of Object.entries(rules.dimensionAliases)) {
+    const pattern = lexiconPattern([dimension, ...aliases]);
+    if (available.has(dimension) && pattern?.test(question)) {
       requested.push(dimension);
     }
   }
   if (requested.length === 0 && /对比|排名|排行|分布|构成|各|top/i.test(question)) {
-    const fallback = ['region', 'channel', 'category', 'warehouse', 'carrier']
+    const fallback = rules.dimensionFallback
       .find((dimension) => available.has(dimension));
     if (fallback) {
       requested.push(fallback);
@@ -681,25 +674,19 @@ function selectDimensions(question, detail) {
   return [...new Set(requested)].slice(0, 2);
 }
 
-function extractQuestionFilters(question, detail) {
+function extractQuestionFilters(question, detail, lexicon = null) {
+  const rules = lexicon ?? getPlatformLexicon();
   const filters = [];
   const candidateDimensions = (detail.dimensions ?? []).map(
     (dimension) => dimension.dimensionBizName ?? dimension.bizName,
   ).filter(Boolean);
-  if (candidateDimensions.includes('region')) {
-    const region = ['华东', '华南', '华北', '西南'].find(
-      (value) => question.includes(value),
-    );
-    if (region) {
-      filters.push({ bizName: 'region', operator: 'IN', value: [region] });
+  for (const [dimension, values] of Object.entries(rules.dimensionValues)) {
+    if (!candidateDimensions.includes(dimension)) {
+      continue;
     }
-  }
-  if (candidateDimensions.includes('channel')) {
-    const channel = ['线上', '门店', '分销', '团购'].find(
-      (value) => question.includes(value),
-    );
-    if (channel) {
-      filters.push({ bizName: 'channel', operator: 'IN', value: [channel] });
+    const matched = values.find((value) => question.includes(value));
+    if (matched) {
+      filters.push({ bizName: dimension, operator: 'IN', value: [matched] });
     }
   }
   return filters;

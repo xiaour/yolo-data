@@ -16,6 +16,7 @@ import { GrowthService } from './growth.js';
 import { LlmAuditService } from './llmAudit.js';
 import { DatasourceCrypto } from './datasourceCrypto.js';
 import { BusinessDatasetService } from './businessDatasets.js';
+import { configureBusinessLexicon, getPlatformLexicon } from './businessLexicon.js';
 import { WorkspaceService } from './workspace.js';
 import { SemanticValueRegistry } from './semanticValues.js';
 import { CodeExecutionService } from './codeExecution.js';
@@ -28,6 +29,12 @@ export async function createApplication(
   indicatorClientOverride = null,
 ) {
   const database = new PlatformDatabase(config.dbPath);
+  // 业务词表以平台设置为准，首次启动时用仓库配置初始化成可维护的设置项。
+  const storedLexicon = database.getPlatformSetting('business.lexicon', null)?.value ?? null;
+  if (!storedLexicon) {
+    database.savePlatformSetting('business.lexicon', getPlatformLexicon());
+  }
+  configureBusinessLexicon(storedLexicon);
   const indicatorClient = indicatorClientOverride
     ?? (config.supersonic.baseUrl
       ? createSupersonicIndicatorClient(config.supersonic)

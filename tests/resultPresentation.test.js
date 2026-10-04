@@ -137,7 +137,7 @@ test('presentation planner always asks the model and validates the returned cont
   );
 });
 
-test('presentation planner does not project an invalid model response', async () => {
+test('presentation planner keeps online formatting when the model response is invalid', async () => {
   const contract = await new PresentationPlanner().plan({
     harness: {
       provider: 'deepseek',
@@ -171,8 +171,55 @@ test('presentation planner does not project an invalid model response', async ()
   });
 
   assert.equal(contract.source, 'RAW');
-  assert.deepEqual(contract.fields, {});
   assert.equal(contract.meta.generatedByModel, false);
+  // 模型没给出可用契约时，在线格式模板仍要生效（在线元数据优先级最高）。
+  assert.equal(contract.fields.sale_amt.unit, '万元');
+  assert.equal(contract.fields.sale_amt.displayScale, 0.0001);
+  assert.equal(contract.fields.sale_amt.basis, 'ONLINE_METADATA');
+  assert.deepEqual(contract.meta.fallbackFields, [{ field: 'sale_amt', basis: 'ONLINE_METADATA' }]);
+});
+
+test('presentation planner falls back to the theme prompt without online metadata', async () => {
+  const contract = await new PresentationPlanner().plan({
+    harness: {
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      chat: async () => ({
+        choices: [{ message: { content: '金额按万元展示。' } }],
+      }),
+    },
+    prompt: [
+      '展示规范：金额按万元、0 位小数展示，表头标明 (万元)。',
+      '```presentation',
+      '{"amount":{"unit":"万元","decimals":0,"match":["金额","销售额"]}}',
+      '```',
+    ].join('\n'),
+    question: '销售额是多少',
+    columns: [
+      { name: '销售额', bizName: 'sale_amt', showType: 'NUMBER', unit: '' },
+      { name: '订单量', bizName: 'order_count', showType: 'NUMBER', unit: '单' },
+    ],
+    rows: [{ sale_amt: 470_000, order_count: 1_200 }],
+  });
+
+  // 模型没给出可用契约时，主题提示词里的金额单位必须仍然生效，且不再回退成原始元值。
+  assert.equal(contract.fields.sale_amt.unit, '万元');
+  assert.equal(contract.fields.sale_amt.displayScale, 0.0001);
+  assert.equal(contract.fields.sale_amt.decimals, 0);
+  assert.equal(contract.fields.sale_amt.basis, 'THEME_PROMPT');
+  assert.equal(contract.fields.order_count, undefined);
+
+  const rendered = applyResultPresentation({
+    columns: [
+      { name: '销售额', bizName: 'sale_amt', showType: 'NUMBER' },
+      { name: '订单量', bizName: 'order_count', showType: 'NUMBER' },
+    ],
+    rows: [{ sale_amt: 470_000, order_count: 1_200 }],
+    contract,
+  });
+  const amount = rendered.columns.find((column) => column.bizName === 'sale_amt');
+  assert.equal(amount.name, '销售额（万元）');
+  assert.equal(formatPresentationCell(470_000, amount), '47');
   assert.equal(contract.meta.warnings[0].code, 'PRESENTATION_CONTRACT_INVALID');
 });
 
@@ -281,4 +328,71 @@ test('deterministic renderer projects amount and percentage values', () => {
   assert.equal(formatPresentationCell(0.084, rate), '8.4%');
   assert.equal(presentationValueForColumn(0.084, rate), 0.084);
   assert.equal(rate.numberFormat, '0.0%');
+});
+
+test('presentation planner reads percentage rules declared in the theme prompt', async () => {
+  const contract = await new PresentationPlanner().plan({
+    harness: {
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      chat: async () => ({ choices: [{ message: { content: '不是 JSON' } }] }),
+    },
+    prompt: [
+      '```presentation',
+      JSON.stringify({
+        percent: { decimals: 2, match: ['率', '占比'] },
+        fields: {
+          gross_margin_rate: { type: 'percent', decimals: 1, inputScale: 'points' },
+        },
+      }),
+      '```',
+    ].join('\n'),
+    question: '毛利率和退货率分别是多少',
+    columns: [
+      { name: '毛利率', bizName: 'gross_margin_rate', showType: 'NUMBER' },
+      { name: '退货率', bizName: 'return_rate', showType: 'NUMBER' },
+    ],
+    rows: [{ gross_margin_rate: 8.4, return_rate: 0.052 }],
+  });
+
+  // fields 的字段级声明优先于 match：points 表示原始值已经是百分点，不再乘 100。
+  assert.equal(contract.fields.gross_margin_rate.displayScale, 1);
+  assert.equal(contract.fields.gross_margin_rate.xlsxScale, 0.01);
+  assert.equal(contract.fields.gross_margin_rate.decimals, 1);
+  // match 命中的字段走声明里的默认口径：0.052 这类小数比率投影成 5.20%。
+  assert.equal(contract.fields.return_rate.displayScale, 100);
+  assert.equal(contract.fields.return_rate.decimals, 2);
+
+  const rendered = applyResultPresentation({
+    columns: [{ name: '毛利率', bizName: 'gross_margin_rate', showType: 'NUMBER' }],
+    rows: [{ gross_margin_rate: 8.4 }],
+    contract,
+  });
+  assert.equal(rendered.columns[0].name, '毛利率（%）');
+});
+
+test('presentation planner ignores a malformed theme presentation block', async () => {
+  const contract = await new PresentationPlanner().plan({
+    harness: null,
+    prompt: '展示规范：金额按万元、0 位小数展示。\n```presentation\n{ 不是 JSON }\n```',
+    question: '销售额是多少',
+    columns: [{ name: '销售额', bizName: 'sale_amt', showType: 'NUMBER', unit: '' }],
+    rows: [{ sale_amt: 470_000 }],
+  });
+
+  // 声明块不可解析时不做任何猜测，保持原始单位展示。
+  assert.deepEqual(contract.fields, {});
+});
+
+test('presentation planner leaves fields untouched when the theme declares nothing', async () => {
+  const contract = await new PresentationPlanner().plan({
+    harness: null,
+    prompt: '展示规范：金额按万元、0 位小数展示。',
+    question: '销售额是多少',
+    columns: [{ name: '销售额', bizName: 'sale_amt', showType: 'NUMBER', unit: '' }],
+    rows: [{ sale_amt: 470_000 }],
+  });
+
+  // 自然语言描述不再被代码当规则解析，规则只能来自声明块或在线元数据。
+  assert.deepEqual(contract.fields, {});
 });

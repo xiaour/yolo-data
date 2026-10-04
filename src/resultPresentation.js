@@ -1,4 +1,9 @@
 import { buildCacheKey, RuntimeCache } from './runtimeCache.js';
+import { buildThemeColumnRules } from './themePresentationRules.js';
+import {
+  buildOnlineTemplateRules,
+  mergeDeterministicFallbacks,
+} from './presentationFallbacks.js';
 
 const PRESENTATION_TYPES = new Set([
   'amount',
@@ -20,7 +25,7 @@ const PRESENTATION_SYSTEM_PROMPT = [
   'The JSON shape must be {"fields":{"<field>":{"type":"amount|quantity|percent|number","unit":"","displayScale":1,"xlsxScale":1,"decimals":2,"prefix":"","suffix":"","basis":"THEME_PROMPT|ONLINE_METADATA|RESULT_EVIDENCE","reason":""}}}.',
   'displayScale converts a raw value to the value shown in chat, page tables, Markdown, and CSV.',
   'xlsxScale converts a raw value to the numeric value stored in an XLSX cell.',
-  'For an amount displayed as 万元, a raw value of 470000 must use displayScale 0.0001 and xlsxScale 0.0001.',
+  'A displayScale of 0.0001 turns a raw 470000 into a displayed 47; use the scale the theme prompt declares.',
   'For a decimal fraction 0.084 displayed as 8.4%, use type percent, unit %, displayScale 100, xlsxScale 1, and decimals 1.',
   'For a value 8.4 already expressed as percentage points, use type percent, unit %, displayScale 1, xlsxScale 0.01, and decimals 1.',
   'Online structured formatting metadata is authoritative when it conflicts with a theme prompt.',
@@ -114,7 +119,10 @@ function cloneContract(contract) {
   return JSON.parse(JSON.stringify(contract));
 }
 
-function normalizeFieldRule(rule) {
+export function normalizeFieldRule(rule, {
+  source = 'MODEL_PRESENTATION_CONTRACT',
+  defaultBasis = null,
+} = {}) {
   if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
     return null;
   }
@@ -142,8 +150,8 @@ function normalizeFieldRule(rule) {
     numberFormat: canonicalNumberFormat(type, decimals),
     prefix,
     suffix,
-    source: 'MODEL_PRESENTATION_CONTRACT',
-    basis: normalizePresentationBasis(rule.basis),
+    source,
+    basis: normalizePresentationBasis(rule.basis ?? defaultBasis),
     reason: cleanText(rule.reason, 180),
   };
 }
@@ -305,6 +313,7 @@ export class PresentationPlanner {
           field: key,
           label: columnLabel(column),
           dataType: column?.type ?? '',
+          unit: column?.unit ?? '',
           dataFormatType: column?.dataFormatType ?? null,
           dataFormat: column?.dataFormat ?? null,
           rawSamples: samples,
@@ -316,14 +325,22 @@ export class PresentationPlanner {
         };
       })
       .filter((field) => field.field);
+    const deterministic = {
+      schema,
+      themeRules: buildThemeColumnRules(prompt, schema),
+      onlineTemplateRules: buildOnlineTemplateRules(onlineTemplates, schema),
+    };
     if (!harness?.chat || schema.length === 0) {
-      return emptyPresentationContract(
-        harness?.chat
-          ? []
-          : [{
-            code: 'PRESENTATION_MODEL_NOT_AVAILABLE',
-            message: '当前运行模型不支持展示契约生成，结果保持原始格式。',
-          }],
+      return mergeDeterministicFallbacks(
+        emptyPresentationContract(
+          harness?.chat
+            ? []
+            : [{
+              code: 'PRESENTATION_MODEL_NOT_AVAILABLE',
+              message: '当前运行模型不支持展示契约生成，按主题提示词/在线格式展示。',
+            }],
+        ),
+        deterministic,
       );
     }
     const cacheKey = buildCacheKey({
@@ -359,28 +376,34 @@ export class PresentationPlanner {
         question,
       });
     } catch (error) {
-      return emptyPresentationContract([{
-        code: 'PRESENTATION_MODEL_FAILED',
-        message: `展示契约生成失败，结果保持原始格式：${error.message}`,
-      }]);
+      return mergeDeterministicFallbacks(
+        emptyPresentationContract([{
+          code: 'PRESENTATION_MODEL_FAILED',
+          message: `展示契约生成失败，按主题提示词/在线格式展示：${error.message}`,
+        }]),
+        deterministic,
+      );
     }
     const planned = extractJson(
       response?.choices?.[0]?.message?.content
       ?? response?.content,
     );
     if (!planned) {
-      return emptyPresentationContract([{
-        code: 'PRESENTATION_CONTRACT_INVALID',
-        message: '模型返回的展示契约不是有效 JSON，结果保持原始格式。',
-      }]);
+      return mergeDeterministicFallbacks(
+        emptyPresentationContract([{
+          code: 'PRESENTATION_CONTRACT_INVALID',
+          message: '模型返回的展示契约不是有效 JSON，按主题提示词/在线格式展示。',
+        }]),
+        deterministic,
+      );
     }
-    const contract = normalizePresentationContract(planned, {
+    const contract = mergeDeterministicFallbacks(normalizePresentationContract(planned, {
       allowedFields: schema.map((field) => field.field),
       provider: harness.provider ?? null,
       model: harness.model ?? null,
       evidenceFieldCount: schema.length,
       generatedByModel: true,
-    });
+    }), deterministic);
     if (contract.source === 'MODEL_PRESENTATION_CONTRACT') {
       this.cache.set('presentation-contract', cacheKey, contract);
     }

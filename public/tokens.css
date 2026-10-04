@@ -2418,17 +2418,6 @@ textarea::placeholder {
   background: transparent;
 }
 
-.theme-editor-page-copy h2 {
-  color: var(--text);
-  font-size: 17px;
-  font-weight: 660;
-}
-
-.theme-editor-page-copy p {
-  color: var(--text-3);
-  font-size: 11.5px;
-}
-
 .theme-editor-page-body {
   padding: 0 0 90px;
   border: 0;
@@ -2506,81 +2495,6 @@ textarea::placeholder {
 .semantic-value-scope-hint,
 .skill-source-badge {
   color: var(--text-3);
-}
-
-.semantic-policy-editor .textarea {
-  min-height: 300px;
-  font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 11.5px;
-  line-height: 1.65;
-  tab-size: 2;
-}
-
-.semantic-policy-form {
-  display: grid;
-  gap: 14px;
-}
-
-.semantic-policy-form .theme-config-section {
-  margin: 0;
-  padding: 18px 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  box-shadow: var(--shadow-s);
-}
-
-.semantic-policy-list {
-  display: grid;
-  gap: 10px;
-}
-
-.semantic-policy-rule {
-  position: relative;
-  padding: 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-s);
-  background: var(--surface-2);
-}
-
-.semantic-policy-rule .form-grid {
-  gap: 12px 14px;
-}
-
-.semantic-policy-rule .form-field label {
-  color: var(--text-2);
-}
-
-.semantic-policy-remove {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  color: var(--text-3);
-  background: var(--surface);
-}
-
-.semantic-policy-remove:hover {
-  color: var(--red);
-  border-color: color-mix(in srgb, var(--red) 35%, var(--border-strong));
-  background: var(--red-soft);
-}
-
-.semantic-policy-summary {
-  padding: 4px 0;
-  border: 0;
-}
-
-.semantic-policy-summary .detail-row {
-  padding: 8px 0;
 }
 
 .skill-source-badge {

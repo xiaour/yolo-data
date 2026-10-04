@@ -132,5 +132,226 @@
         "线上"
       ]
     }
-  ]
+  ],
+  "businessLexicon": {
+    "version": 1,
+    "metricTerms": [
+      "销售额",
+      "业绩",
+      "数量",
+      "金额",
+      "毛利",
+      "成本",
+      "收入",
+      "均价",
+      "单价"
+    ],
+    "identifierPatterns": [
+      "(^|_)(id|code)($|_)",
+      "编号|编码|代码|客户号|单号",
+      "号$"
+    ],
+    "rateTerms": [
+      "率",
+      "占比",
+      "比例",
+      "影响值"
+    ],
+    "taxPrefixes": {
+      "all": [
+        "含税",
+        "不含税",
+        "未税"
+      ],
+      "excluded": [
+        "不含税",
+        "未税"
+      ]
+    },
+    "dimensionAliases": {
+      "region": [
+        "区域",
+        "大区",
+        "地区"
+      ],
+      "channel": [
+        "渠道"
+      ],
+      "category": [
+        "品类",
+        "分类"
+      ],
+      "warehouse": [
+        "仓库",
+        "仓"
+      ],
+      "carrier": [
+        "承运商",
+        "物流"
+      ],
+      "customer_type": [
+        "客户类型",
+        "客群"
+      ]
+    },
+    "dimensionValues": {
+      "region": [
+        "华东",
+        "华南",
+        "华北",
+        "西南"
+      ],
+      "channel": [
+        "线上",
+        "门店",
+        "分销",
+        "团购"
+      ]
+    },
+    "dimensionFallback": [
+      "region",
+      "channel",
+      "category",
+      "warehouse",
+      "carrier"
+    ],
+    "enumFieldTerms": [
+      "类型",
+      "行业",
+      "分类",
+      "状态",
+      "渠道",
+      "模式",
+      "板块",
+      "等级",
+      "级别",
+      "属性",
+      "类别",
+      "enum"
+    ],
+    "ignoredValues": [
+      "其他",
+      "其它",
+      "全部",
+      "无",
+      "未知",
+      "暂无"
+    ],
+    "profileHints": {
+      "identifier": {
+        "wholeWord": true,
+        "terms": [
+          "id",
+          "ids",
+          "code",
+          "no",
+          "num",
+          "uuid",
+          "guid",
+          "sn",
+          "key",
+          "序号",
+          "编码",
+          "编号"
+        ]
+      },
+      "rate": {
+        "terms": [
+          "rate",
+          "ratio",
+          "pct",
+          "percent",
+          "百分比",
+          "占比",
+          "同比",
+          "环比",
+          "率"
+        ]
+      },
+      "average": {
+        "terms": [
+          "price",
+          "avg",
+          "average",
+          "mean",
+          "单价",
+          "均价",
+          "平均"
+        ]
+      },
+      "stock": {
+        "terms": [
+          "stock",
+          "balance",
+          "inventory",
+          "库存",
+          "余额",
+          "结存"
+        ]
+      },
+      "count": {
+        "terms": [
+          "count",
+          "cnt",
+          "qty",
+          "quantity",
+          "num",
+          "数量",
+          "次数",
+          "笔数",
+          "件数",
+          "销量",
+          "订单数"
+        ]
+      },
+      "extreme": {
+        "terms": [
+          "min",
+          "max",
+          "最大",
+          "最小",
+          "峰值"
+        ]
+      },
+      "metric": {
+        "terms": [
+          "amt",
+          "amount",
+          "qty",
+          "quantity",
+          "count",
+          "cnt",
+          "price",
+          "revenue",
+          "sales",
+          "sale",
+          "profit",
+          "cost",
+          "fee",
+          "total",
+          "sum",
+          "金额",
+          "数量",
+          "销量",
+          "收入",
+          "利润",
+          "成本",
+          "费用",
+          "总额",
+          "合计"
+        ]
+      },
+      "time": {
+        "terms": [
+          "date",
+          "time",
+          "day",
+          "month",
+          "year",
+          "日期",
+          "时间"
+        ]
+      }
+    }
+  }
 }

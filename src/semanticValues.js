@@ -11,10 +11,15 @@ import {
   VALUE_ORIGINS,
 } from './semanticDomain.js';
 
-const ENUM_FIELD_PATTERN =
-  /类型|行业|分类|状态|渠道|模式|板块|等级|级别|属性|类别|enum/i;
+import { getPlatformLexicon, lexiconPattern } from './businessLexicon.js';
+
 const SEPARATOR_PATTERN = /[、,，;；|/]+/;
-const GENERIC_VALUES = new Set(['其他', '其它', '全部', '无', '未知', '暂无']);
+
+function enumFieldPattern(lexicon = null) {
+  return lexiconPattern((lexicon ?? getPlatformLexicon()).enumFieldTerms, {
+    flags: 'i',
+  });
+}
 
 function compact(value) {
   return String(value ?? '')
@@ -46,7 +51,7 @@ function cleanCandidate(value) {
 
 function candidateRecord(rawValue) {
   const value = cleanCandidate(rawValue);
-  if (!value || GENERIC_VALUES.has(value)) {
+  if (!value || new Set(getPlatformLexicon().ignoredValues).has(value)) {
     return null;
   }
   const original = String(rawValue ?? '').trim();
@@ -280,8 +285,12 @@ export function resolveSemanticValue(requested, domain = null) {
   };
 }
 
-export function isPotentialEnumField(field = {}) {
-  return ENUM_FIELD_PATTERN.test(
+export function isPotentialEnumField(field = {}, lexicon = null) {
+  const pattern = enumFieldPattern(lexicon);
+  if (!pattern) {
+    return false;
+  }
+  return pattern.test(
     `${field.fieldName ?? ''} ${field.displayName ?? ''} ${field.name ?? ''}`,
   );
 }

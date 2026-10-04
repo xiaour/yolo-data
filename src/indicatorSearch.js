@@ -1,3 +1,5 @@
+import { getPlatformLexicon } from './businessLexicon.js';
+
 function compactText(value) {
   return String(value ?? '')
     .toLowerCase()
@@ -31,10 +33,20 @@ function indicatorValues(indicator) {
   ].filter(Boolean).map(normalizeBusinessTerm);
 }
 
-export function scoreIndicator(indicator, question) {
+export function scoreIndicator(indicator, question, lexicon = null) {
   const text = normalizeBusinessTerm(question);
   const values = indicatorValues(indicator);
-  const noTaxRequested = /不含税|未税/.test(text);
+  const tax = (lexicon ?? getPlatformLexicon()).taxPrefixes;
+  const excludedPrefixes = tax.excluded.map((prefix) => normalizeBusinessTerm(prefix));
+  const allPrefixes = tax.all.map((prefix) => normalizeBusinessTerm(prefix));
+  const noTaxRequested = excludedPrefixes.some((prefix) => text.includes(prefix));
+  const coreOf = (value) => {
+    const prefix = allPrefixes
+      .filter((item) => value.startsWith(item))
+      .sort((left, right) => right.length - left.length)[0];
+    return prefix ? value.slice(prefix.length) : value;
+  };
+  const isExcluded = (value) => excludedPrefixes.some((prefix) => value.startsWith(prefix));
 
   let score = 0;
   for (const value of values) {
@@ -44,9 +56,9 @@ export function scoreIndicator(indicator, question) {
     if (text.includes(value)) {
       score += value.length >= 4 ? 20 : 12;
     }
-    const coreValue = value.replace(/^(含税|不含税|未税)/, '');
+    const coreValue = coreOf(value);
     if (coreValue && coreValue !== value && text.includes(coreValue)) {
-      const excludesTax = /^(不含税|未税)/.test(value);
+      const excludesTax = isExcluded(value);
       score += excludesTax
         ? (noTaxRequested ? 18 : 5)
         : (noTaxRequested ? 5 : 18);
@@ -60,12 +72,12 @@ export function scoreIndicator(indicator, question) {
   return score;
 }
 
-export function rankIndicators(indicators, question, limit = 6) {
+export function rankIndicators(indicators, question, limit = 6, lexicon = null) {
   const safeLimit = Math.max(1, Math.min(Number(limit) || 6, 20));
   return (indicators ?? [])
     .map((indicator) => ({
       indicator,
-      score: scoreIndicator(indicator, question),
+      score: scoreIndicator(indicator, question, lexicon),
     }))
     .filter((item) => item.score > 0)
     .sort((left, right) => (

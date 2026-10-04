@@ -4,11 +4,14 @@
 // MIN/MAX ranges per column), it proposes field roles/aggregations and a
 // default time condition ("裸跑" 时减少口径与时间范围的追问).
 //
-// It is deliberately isolated: dependency-free, no agent/contract imports, and
-// it only *suggests*. Callers persist the accepted subset into the config
+// It is deliberately isolated: the only dependency is the business lexicon
+// (itself configuration-driven), and it only *suggests*. Callers persist the
+// accepted subset into the config
 // surfaces the existing pipeline already reads (`dataset_fields.role`,
 // `dataset_fields.aggregator`, `business_datasets.config.autoLatestDateRange`
 // and `config.autoRangeDays`), so the main flow stays untouched.
+
+import { getPlatformLexicon, profileHintPattern } from './businessLexicon.js';
 
 export const PROFILE_ROLES = Object.freeze(['TIME', 'METRIC', 'DIMENSION', 'IDENTIFIER']);
 export const PROFILE_AGGREGATORS = Object.freeze([
@@ -19,16 +22,8 @@ const DISTINCT_CAP = 500;
 const DATE_PATTERN = /^\d{4}[-/]\d{1,2}([-/]\d{1,2})?([ T]\d{1,2}:\d{2}(:\d{2})?)?/;
 const COMPACT_DATE_PATTERN = /^\d{8}$/;
 
-const ID_HINTS = /(^|_)(id|ids|code|no|num|uuid|guid|sn|key|序号|编码|编号)($|_)/i;
-const RATE_HINTS = /(rate|ratio|pct|percent|百分比|占比|同比|环比|率)/i;
-const AVG_HINTS = /(price|avg|average|mean|单价|均价|平均)/i;
-const MAX_HINTS = /(stock|balance|inventory|库存|余额|结存)/i;
-const COUNT_HINTS = /(count|cnt|qty|quantity|num|数量|次数|笔数|件数|销量|订单数)/i;
-const MIN_MAX_HINTS = /(min|max|min_|max_|最大|最小|峰值)/i;
 // Used only when there is no usable sample: a numeric column whose name looks
 // like a business measure is still worth proposing as a METRIC.
-const METRIC_HINTS = /(amt|amount|qty|quantity|count|cnt|price|revenue|sales|sale|profit|cost|fee|total|sum|金额|数量|销量|收入|利润|成本|费用|总额|合计)/i;
-
 const NUMERIC_SEMANTICS = new Set(['NUMBER', 'NUMERIC', 'DECIMAL', 'INTEGER', 'INT', 'FLOAT', 'DOUBLE', 'BIGINT']);
 const NUMERIC_DATATYPE = /^(decimal|numeric|int|bigint|smallint|tinyint|float|double|real|number)/i;
 
@@ -151,7 +146,7 @@ function summarizeStats(stats) {
   };
 }
 
-function classifyField(field, stats, summary) {
+function classifyField(field, stats, summary, lexicon = null) {
   const name = String(field.fieldName ?? '');
   const lower = name.toLowerCase();
   const reasons = [];
@@ -172,8 +167,8 @@ function classifyField(field, stats, summary) {
     return { role: 'TIME', confidence: 0.6, reasons };
   }
 
-  if (ID_HINTS.test(lower)) {
-    reasons.push('字段名符合标识列命名（id/code/no/编号）');
+  if (profileHintPattern(lexicon ?? getPlatformLexicon(), 'identifier')?.test(lower)) {
+    reasons.push('字段名符合词表里的标识列命名');
     return { role: 'IDENTIFIER', confidence: 0.9, reasons };
   }
   if (
@@ -203,12 +198,16 @@ function classifyField(field, stats, summary) {
   // Degraded path: no usable sample (e.g. the datasource is unreachable), so we
   // fall back to field name/type. Only propose METRIC when the sample does not
   // contradict the name (empty sample or mostly numeric).
-  if (looksNumeric(field) && METRIC_HINTS.test(lower) && (summary.sampleCount < 3 || summary.numericRatio >= 0.5)) {
+  if (
+    looksNumeric(field)
+    && profileHintPattern(lexicon ?? getPlatformLexicon(), 'metric')?.test(lower)
+    && (summary.sampleCount < 3 || summary.numericRatio >= 0.5)
+  ) {
     reasons.push('字段类型为数值且名称符合度量语义，样本不足时按指标处理');
     return { role: 'METRIC', confidence: 0.55, reasons };
   }
 
-  if (/date|time|day|month|year|日期|时间/.test(lower)) {
+  if (profileHintPattern(lexicon ?? getPlatformLexicon(), 'time')?.test(lower)) {
     reasons.push('字段名包含时间语义，但样本无法确认，建议人工核对');
     return { role: 'TIME', confidence: 0.4, reasons };
   }
@@ -217,24 +216,25 @@ function classifyField(field, stats, summary) {
   return { role: 'DIMENSION', confidence: summary.sampleCount >= 3 ? 0.7 : 0.4, reasons };
 }
 
-function suggestAggregator(field, stats, summary, role) {
+function suggestAggregator(field, stats, summary, role, lexicon = null) {
   if (role !== 'METRIC') {
     return { aggregator: 'NONE', reason: '非度量字段不做聚合' };
   }
   const lower = String(field.fieldName ?? '').toLowerCase();
-  if (RATE_HINTS.test(lower)) {
+  const hint = (key) => profileHintPattern(lexicon ?? getPlatformLexicon(), key)?.test(lower);
+  if (hint('rate')) {
     return { aggregator: 'AVG', reason: '比率类指标默认取平均' };
   }
-  if (MAX_HINTS.test(lower)) {
+  if (hint('stock')) {
     return { aggregator: 'MAX', reason: '存量/库存类指标默认取最大值' };
   }
-  if (AVG_HINTS.test(lower)) {
+  if (hint('average')) {
     return { aggregator: 'AVG', reason: '单价/均值类指标默认取平均' };
   }
-  if (MIN_MAX_HINTS.test(lower)) {
+  if (hint('extreme')) {
     return { aggregator: 'MAX', reason: '极值类字段默认取最大值' };
   }
-  if (COUNT_HINTS.test(lower)) {
+  if (hint('count')) {
     return { aggregator: 'SUM', reason: '计数/数量类指标默认求和' };
   }
   if (summary.integerRatio === 1 && summary.numericMin >= 0 && summary.uniqueness < 0.98) {
@@ -284,6 +284,7 @@ export function profileDataset({
   rows = [],
   ranges = {},
   options = {},
+  lexicon = null,
 } = {}) {
   const sampleSize = rows.length;
   const proposals = [];
@@ -294,8 +295,8 @@ export function profileDataset({
     const stats = collectStats(values);
     columnStats.set(field.fieldName, stats);
     const summary = summarizeStats(stats);
-    const { role, confidence, reasons: roleReasons } = classifyField(field, stats, summary);
-    const { aggregator, reason: aggregatorReason } = suggestAggregator(field, stats, summary, role);
+    const { role, confidence, reasons: roleReasons } = classifyField(field, stats, summary, lexicon);
+    const { aggregator, reason: aggregatorReason } = suggestAggregator(field, stats, summary, role, lexicon);
     const reasons = [...roleReasons];
     if (field.role && field.role !== role) {
       reasons.push(`当前配置为 ${field.role}，按数据特征建议调整为 ${role}`);

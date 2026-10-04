@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import { readSessionToken, resolveAuthMode, resolveSession } from '../auth.js';
+import { isPromptSemanticRule, parseSemanticBlock } from '../themeSemanticRules.js';
 
 export const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -133,7 +134,31 @@ export function prepareModelPayload(body, existingModel, crypto) {
   return payload;
 }
 
+// 提示词里声明的规则由读取时解析，持久化时剔除，避免数据库里出现同一条规则的副本。
+function stripPromptSemanticRules(policy) {
+  if (!policy || typeof policy !== 'object') {
+    return policy;
+  }
+  const keep = (list) => (Array.isArray(list)
+    ? list.filter((rule) => !isPromptSemanticRule(rule))
+    : list);
+  return {
+    ...policy,
+    metrics: keep(policy.metrics),
+    dimensions: keep(policy.dimensions),
+    filters: keep(policy.filters),
+    enumGroups: keep(policy.enumGroups),
+  };
+}
+
 export function prepareThemePayload(body, existingTheme, crypto) {
+  const { issues } = parseSemanticBlock(body?.systemPrompt);
+  if (issues.length > 0) {
+    throw Object.assign(
+      new Error(`提示词里的业务口径块无法解析：${issues.join('；')}`),
+      { statusCode: 400 },
+    );
+  }
   const incoming = body?.llmConfig && typeof body.llmConfig === 'object'
     ? { ...body.llmConfig }
     : {};
@@ -158,6 +183,8 @@ export function prepareThemePayload(body, existingTheme, crypto) {
   }
   return {
     ...body,
+    // 提示词里的规则每次读取时重新解析，不写回数据库，避免同一份规则存两处。
+    semanticPolicy: stripPromptSemanticRules(body?.semanticPolicy),
     llmConfig,
   };
 }

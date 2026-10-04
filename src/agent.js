@@ -1,6 +1,7 @@
 import { suggestChart } from './chart.js';
 import { buildArtifactTitle, buildSessionFileName } from './fileName.js';
 import { rankIndicators, sortIndicators } from './indicatorSearch.js';
+import { resolveBusinessLexicon } from './businessLexicon.js';
 import {
   buildDeterministicSummary,
   buildQueryContract,
@@ -2472,7 +2473,7 @@ export class MetricAgentService {
     const searchIndicators = (keyword, limit = 6) => {
       startWorkflowStage('SEMANTIC_DISCOVERY', '检索主题指标');
       confirmationState.indicatorSearchCompleted = true;
-      const ranked = rankIndicators(allowedIndicators, keyword, limit);
+      const ranked = rankIndicators(allowedIndicators, keyword, limit, resolveBusinessLexicon(theme));
 
       const list = (
         ranked.length > 0
@@ -2669,6 +2670,7 @@ export class MetricAgentService {
             : metricVariables(indicator.metrics ?? []).bizNames.slice(0, 4),
           fallbackDimensions: requestedDimensions,
           dateField: inferredDateField,
+          lexicon: resolveBusinessLexicon(theme),
         });
       const metricNames = inferred.metrics;
       let dimensions = assertAllowedDimensions(
@@ -3156,6 +3158,7 @@ export class MetricAgentService {
         question: resolvedQuestion,
         metricDefinitions,
         filterLabels,
+        lexicon: resolveBusinessLexicon(theme),
       });
       const evidence = this.semanticCompiler.buildEvidence(effectivePlan, {
         indicator,
@@ -4031,6 +4034,7 @@ export class MetricAgentService {
           field.fieldName,
           field.displayName,
         ])),
+        lexicon: resolveBusinessLexicon(theme),
       });
       const evidence = this.semanticCompiler.buildDatasetEvidence(
         effectivePlan,
@@ -4999,7 +5003,7 @@ export class MetricAgentService {
     toolTrace.push(...(harnessResult.trace ?? []));
     const canRunDeterministicFallback = false;
     if (canRunDeterministicFallback && allowedIndicators.length > 0) {
-      const candidates = rankIndicators(allowedIndicators, resolvedQuestion, 3);
+      const candidates = rankIndicators(allowedIndicators, resolvedQuestion, 3, resolveBusinessLexicon(theme));
       for (const candidate of candidates) {
         try {
           if (!confirmationState.indicatorSearchCompleted) {
@@ -5018,6 +5022,7 @@ export class MetricAgentService {
             fallbackMetrics: [],
             fallbackDimensions: [],
             dateField: selectDateField(detail.dimensions ?? []),
+            lexicon: resolveBusinessLexicon(theme),
           });
           if (inferred.metrics.length === 0) {
             continue;

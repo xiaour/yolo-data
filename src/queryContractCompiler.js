@@ -19,6 +19,7 @@ import {
 } from './gateRegistry.js';
 import { classifyAnalysisSemantics } from './analysisSemantics.js';
 import { applySemanticPolicy } from './semanticPolicy.js';
+import { resolveBusinessLexicon } from './businessLexicon.js';
 import { resolveWithPlugins } from './analysisPluginRegistry.js';
 import { normalizeAnalysisPipeline } from './analysisPipeline.js';
 import { CONTRACT_COMPILER_VERSION } from './contractVersion.js';
@@ -420,7 +421,13 @@ function resolveFilterValue(
   };
 }
 
-function normalizeFilters(filters, available, issues, fieldType = 'DIMENSION') {
+function normalizeFilters(
+  filters,
+  available,
+  issues,
+  fieldType = 'DIMENSION',
+  lexicon = null,
+) {
   return (filters ?? []).map((filter, index) => {
     const requested = filter?.field ?? filter?.bizName;
     const resolution = resolveFieldDetailed(requested, available, fieldType);
@@ -435,6 +442,7 @@ function normalizeFilters(filters, available, issues, fieldType = 'DIMENSION') {
       field: resolved,
       operator,
       sourceText,
+      lexicon,
     });
     if (!field) {
       issues.push({
@@ -1933,6 +1941,7 @@ export class QueryContractCompiler {
       [...dimensionAvailable, ...derivedFilterFields],
       issues,
       fieldType,
+      resolveBusinessLexicon(theme),
     );
     filterFields = dedupeFilters(filterFields);
     let scopeModifiers = normalizeScopeModifiers(

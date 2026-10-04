@@ -1,7 +1,11 @@
+import { getPlatformLexicon, lexiconPattern } from './businessLexicon.js';
+
 export const FILTER_SCOPES = {
   ROW: 'ROW',
   AGGREGATE: 'AGGREGATE',
 };
+
+const AGGREGATE_COMPARISON = /(>|>=|<|<=)|超过|低于|大于|小于|高于|不低于|不超过|不少于|不多于/;
 
 function hasLikeWildcard(value) {
   return String(value ?? '').includes('%') || String(value ?? '').includes('_');
@@ -32,13 +36,17 @@ export function resolveFilterScope({
   field = null,
   operator = '',
   sourceText = '',
+  lexicon = null,
 } = {}) {
   if (String(field?.role ?? '').toUpperCase() === 'METRIC') {
     return FILTER_SCOPES.AGGREGATE;
   }
+  const metricPattern = lexiconPattern(
+    (lexicon ?? getPlatformLexicon()).metricTerms,
+  );
   if (
-    /销售额|业绩|数量|金额|毛利|成本|收入|销售额|均价|单价/.test(sourceText)
-    && /(>|>=|<|<=)|超过|低于|大于|小于|高于|不低于|不超过|不少于|不多于/.test(sourceText)
+    metricPattern?.test(sourceText)
+    && AGGREGATE_COMPARISON.test(sourceText)
   ) {
     return FILTER_SCOPES.AGGREGATE;
   }

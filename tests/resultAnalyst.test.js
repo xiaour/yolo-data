@@ -39,3 +39,26 @@ test('result analyst does not sum percentage columns', () => {
   assert.equal(facts.primaryValues[0].value, 0.2);
   assert.match(buildResultAnalysisText(facts), /毛利率 20\.00%/);
 });
+
+test('result analyst renders totals with the presentation contract', () => {
+  const facts = analyzeResultFacts({
+    columns: [
+      {
+        name: '含税销售额（万元）',
+        bizName: 'sale_amt',
+        showType: 'NUMBER',
+        presentationType: 'amount',
+        displayScale: 0.0001,
+        displayDecimals: 0,
+      },
+    ],
+    rows: [
+      { sale_amt: 173_519_927.79 },
+      { sale_amt: 1_037_903_310.75 },
+    ],
+  });
+  const text = buildResultAnalysisText(facts);
+  // 表头已经是万元，正文不能再出现原始元值。
+  assert.match(text, /含税销售额（万元）合计 121,142/);
+  assert.doesNotMatch(text, /173_?519_?927|173519927/);
+});

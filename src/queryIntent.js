@@ -1,4 +1,5 @@
 import { normalizeBusinessTerm } from './indicatorSearch.js';
+import { getPlatformLexicon, resolveBusinessLexicon } from './businessLexicon.js';
 
 const CONTEXTUAL_QUESTION_PATTERN =
   /^(那|再|换|按|这个|上述|它|还有|呢|以及|和|同上|本月|这个月|上月|上个月|本周|这周|上周|今天|今日|昨天|今年|去年|本季度|上季度|近\s*\d+|最近\s*\d+)|在.{0,12}基础上|这个表|上述表|上表|以上|保留上文|现有基础/;
@@ -335,10 +336,20 @@ export function inferDatasetQuerySpec({
   };
 }
 
-function inferIndicatorMetrics(question, metrics, fallbackMetrics) {
+function inferIndicatorMetrics(question, metrics, fallbackMetrics, lexicon = null) {
   const source = text(question);
   const matches = [];
-  const noTaxRequested = /不含税|未税/.test(source);
+  const tax = (lexicon ?? getPlatformLexicon()).taxPrefixes;
+  const excludedPrefixes = tax.excluded.map((prefix) => text(prefix));
+  const allPrefixes = tax.all.map((prefix) => text(prefix));
+  const noTaxRequested = excludedPrefixes.some((prefix) => source.includes(prefix));
+  const stripTaxPrefix = (alias) => {
+    const prefix = allPrefixes
+      .filter((item) => alias.startsWith(item))
+      .sort((left, right) => right.length - left.length)[0];
+    return prefix ? alias.slice(prefix.length) : alias;
+  };
+  const excludesTax = (alias) => excludedPrefixes.some((prefix) => alias.startsWith(prefix));
   for (const metric of metrics ?? []) {
     const aliases = [
       metric.metricName,
@@ -351,14 +362,13 @@ function inferIndicatorMetrics(question, metrics, fallbackMetrics) {
       if (!alias) {
         continue;
       }
-      const coreAlias = alias.replace(/^(含税|不含税|未税)/, '');
+      const coreAlias = stripTaxPrefix(alias);
       let score = 0;
       if (source.includes(alias)) {
         score = alias.length * 10;
       } else if (coreAlias && source.includes(coreAlias)) {
-        const excludesTax = /^(不含税|未税)/.test(alias);
         score = coreAlias.length * 10 + (
-          excludesTax === noTaxRequested ? 20 : 5
+          excludesTax(alias) === noTaxRequested ? 20 : 5
         );
       }
       bestScore = Math.max(bestScore, score);
@@ -415,8 +425,9 @@ export function inferIndicatorQuerySpec({
   fallbackMetrics = [],
   fallbackDimensions = [],
   dateField = null,
+  lexicon = null,
 }) {
-  const inferredMetrics = inferIndicatorMetrics(question, metrics, fallbackMetrics);
+  const inferredMetrics = inferIndicatorMetrics(question, metrics, fallbackMetrics, lexicon);
   const inferredDimensions = inferIndicatorDimensions(
     question,
     dimensions,

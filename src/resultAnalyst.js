@@ -1,3 +1,32 @@
+import { formatPresentationCell } from './resultPresentation.js';
+
+// 只有挂上展示契约的列才做单位/精度投影；没有规则时保持原有输出。
+function presentationOf(column) {
+  if (!column?.presentationType) {
+    return null;
+  }
+  // 只有真正挂上展示契约（带量级或精度）的列才做投影，兼容历史列结构。
+  if (column.displayScale === undefined && column.displayDecimals === undefined) {
+    return null;
+  }
+  return {
+    presentationType: column.presentationType,
+    displayScale: Number(column.displayScale) || 1,
+    displayDecimals: Number.isInteger(column.displayDecimals)
+      ? column.displayDecimals
+      : 2,
+    prefix: column.prefix ?? '',
+    suffix: column.suffix ?? '',
+  };
+}
+
+function formatValue(value, presentation) {
+  if (value === null || value === undefined) {
+    return '-';
+  }
+  return presentation ? formatPresentationCell(value, presentation) : String(value);
+}
+
 function columnKey(column) {
   return String(column?.bizName ?? column?.nameEn ?? column?.name ?? '').trim();
 }
@@ -152,6 +181,7 @@ export function analyzeResultFacts({
     metricTotals: metricColumns.filter((column) => !isRateColumn(column)).map((column) => ({
       column: columnKey(column),
       name: column.name ?? columnKey(column),
+      presentation: presentationOf(column),
       total: round(rows.reduce((sum, row) => (
         sum + (numericValue(row?.[columnKey(column)]) ?? 0)
       ), 0)),
@@ -159,6 +189,7 @@ export function analyzeResultFacts({
     primaryValues: metricColumns.map((column) => ({
       column: columnKey(column),
       name: column.name ?? columnKey(column),
+      presentation: presentationOf(column),
       value: rows.length === 1 ? numericValue(rows[0]?.[columnKey(column)]) : null,
       isRate: isRateColumn(column),
     })),
@@ -188,19 +219,21 @@ export function analyzeResultFacts({
       facts.topBottom.push({
         metric: columnKey(metric),
         name: metric.name ?? columnKey(metric),
+        presentation: presentationOf(metric),
         dimension: primaryDimension.name ?? columnKey(primaryDimension),
         ...topBottom(rows, primaryDimension, metric, topLimit),
       });
       if (isTimeLikeColumn(primaryDimension)) {
         const trendResult = trend(rows, primaryDimension, metric);
         if (trendResult) {
-          facts.trends.push(trendResult);
+          facts.trends.push({ ...trendResult, presentation: presentationOf(metric) });
         }
       }
     }
     facts.anomalies.push({
       metric: columnKey(metric),
       name: metric.name ?? columnKey(metric),
+      presentation: presentationOf(metric),
       points: anomalies(rows, metric),
     });
   }
@@ -216,21 +249,23 @@ export function buildResultAnalysisText(facts, {
   }
   lines.push(`共 ${facts.rowCount} 行，${facts.columnCount} 列。`);
   for (const total of facts.metricTotals ?? []) {
-    lines.push(`${total.name}合计 ${total.total}`);
+    lines.push(`${total.name}合计 ${formatValue(total.total, total.presentation)}`);
   }
   for (const item of facts.primaryValues ?? []) {
     if (item.value !== null && item.value !== undefined) {
       lines.push(
         item.isRate
-          ? `${item.name} ${(item.value * 100).toFixed(2)}%`
-          : `${item.name} ${item.value}`,
+          ? `${item.name} ${item.presentation
+            ? formatPresentationCell(item.value, item.presentation)
+            : `${(item.value * 100).toFixed(2)}%`}`
+          : `${item.name} ${formatValue(item.value, item.presentation)}`,
       );
     }
   }
   for (const item of facts.topBottom ?? []) {
     const topText = item.top
       .slice(0, topLimit)
-      .map((row) => `${row.label} ${row.value}`)
+      .map((row) => `${row.label} ${formatValue(row.value, item.presentation)}`)
       .join('、');
     if (topText) {
       lines.push(`${item.name} TOP${Math.min(topLimit, item.top.length)}：${topText}`);
@@ -245,11 +280,17 @@ export function buildResultAnalysisText(facts, {
     const rateText = trend.changeRate === null
       ? ''
       : `，变化率 ${(trend.changeRate * 100).toFixed(2)}%`;
-    lines.push(`${trend.metric}趋势：${trend.firstLabel} ${trend.firstValue} -> ${trend.lastLabel} ${trend.lastValue}，${direction}${rateText}`);
+    lines.push(`${trend.metric}趋势：${trend.firstLabel} ${
+      formatValue(trend.firstValue, trend.presentation)
+    } -> ${trend.lastLabel} ${
+      formatValue(trend.lastValue, trend.presentation)
+    }，${direction}${rateText}`);
   }
   for (const anomaly of facts.anomalies ?? []) {
     if (anomaly.points.length > 0) {
-      lines.push(`${anomaly.name}异常点：${anomaly.points.map((point) => point.value).join('、')}`);
+      lines.push(`${anomaly.name}异常点：${anomaly.points
+        .map((point) => formatValue(point.value, anomaly.presentation))
+        .join('、')}`);
     }
   }
   return `**结果分析**\n${lines.map((line) => `- ${line}`).join('\n')}`;
