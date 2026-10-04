@@ -58,7 +58,6 @@
   - 十二阶段 DataAgent Workflow。
   - 流式执行事件、工具调用、查询计划、LLM Token、反馈和知识缺口。
 
-
 ## 业务规则与提示词设置
 
 提示词用于展示效果或结论能够按照业务要求自由定义；业务词、枚举映射、计算公式和默认口径应放在：
@@ -71,7 +70,7 @@
 
 | 开始问数 | 数据集 |
 | ---- | --- |
-| 开始问数 | 数据集 |
+| ![开始问数](docs/screenshots/query.png) | ![数据集](docs/screenshots/datasets.png) |
 
 ## 总体架构
 
@@ -101,17 +100,6 @@ flowchart LR
   AGENT --> DB
   CONFIG --> DB
 ```
-
-### 分层架构
-
-| 层级   | 职责                              | 关键模块                                                                        |
-| ---- | ------------------------------- | --------------------------------------------------------------------------- |
-| 体验层  | 路由化 Web 界面、流式执行详情、ECharts       | `public/js/core/runtime.js`、`public/js/pages/*`                             |
-| 接入层  | HTTP API、SPA 静态资源回退、NDJSON 流    | `src/server.js`                                                             |
-| 编排层  | Agent 工具循环、Harness、Skill 裁剪、结果锁 | `src/agent.js`、`src/harness.js`、`src/skills.js`                             |
-| 治理层  | 条件账本、查询契约、语义映射、权限、来源标记          | `src/queryContractCompiler.js`、`src/permissions.js`、`src/semanticPolicy.js` |
-| 执行层  | 指标平台查询、Doris/MySQL 数据集查询、结果稳定化  | `src/indicatorClient.js`、`src/businessDatasets.js`、`src/queryContract.js`   |
-| 持久化层 | SQLite 平台数据库、加密凭证               | `src/database.js`、`src/datasourceCrypto.js`                                 |
 
 ### 核心 DataAgent 工作流
 
