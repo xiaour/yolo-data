@@ -161,9 +161,9 @@ body.workspace-open .app-shell {
   transform: translateX(2px);
 }
 
-/* 普通分析员只保留问数与只读的智能体视图，管理面导航整组隐藏。 */
-.main-nav[data-role="ANALYST"] .nav-item:not([data-page="query"]):not([data-page="themes"]),
-.main-nav[data-role="ANALYST"] .nav-group-label:last-of-type {
+/* 普通分析员只保留问数、只读的智能体视图与帮助面（使用引导 / 帮助中心），管理面导航整组隐藏。 */
+.main-nav[data-role="ANALYST"] .nav-item:not([data-page="query"]):not([data-page="themes"]):not([data-page="guide"]):not([data-page="help"]),
+.main-nav[data-role="ANALYST"] .nav-group-label[data-admin-only] {
   display: none;
 }
 

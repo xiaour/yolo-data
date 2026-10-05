@@ -5,6 +5,7 @@ import {
   notifyUnauthorized,
   readSession,
   renderUserSelect,
+  setReplayGuideHandler,
   showLogin,
 } from '../components/authGate.js';
 
@@ -49,6 +50,7 @@ const ICONS = {
   workflow: '<circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><path d="M8 5h4M14 5h4M8 7v6a4 4 0 0 0 4 4M16 7v6a4 4 0 0 1-4 4"/>',
   database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/>',
   copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  map: '<path d="m9 3-6 2v16l6-2 6 2 6-2V3l-6 2-6-2Z"/><path d="M9 3v16M15 5v16"/>', 'life-buoy': '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m5.6 5.6 3.5 3.5M14.9 14.9l3.5 3.5M18.4 5.6l-3.5 3.5M9.1 14.9l-3.5 3.5"/>',
 };
 
 const PAGE_META = {
@@ -62,6 +64,7 @@ const PAGE_META = {
   growth: ['质量运营', '跟踪用户反馈、知识缺口与 LLM 调用质量'],
   audit: ['运行审计', '跟踪指标连接、权限变更和智能问数执行记录'],
   settings: ['系统设置', '配置指标平台模块和平台运行策略'],
+  guide: ['使用引导', '按角色完成关键动作，从登录到第一次自主问数'], help: ['帮助中心', '搜索问题，或按角色浏览文档'],
 };
 
 const state = {
@@ -633,7 +636,7 @@ function applyRoleVisibility() {
   const admin = String(state.currentUser?.role ?? '').toUpperCase() === 'ADMIN';
   document.getElementById('mainNav').dataset.role = admin ? 'ADMIN' : 'ANALYST';
   const page = state.page === 'themeEditor' ? 'themes' : state.page;
-  if (!admin && !['query', 'themes'].includes(page)) {
+  if (!admin && !['query', 'themes', 'guide', 'help'].includes(page)) {
     navigate('/', { replace: true });
   }
 }
@@ -882,6 +885,7 @@ async function loadBootstrap(userId) {
   }
   renderRuntime(state.bootstrap.health);
   renderUserSelect(state.currentUser);
+  setReplayGuideHandler(() => guideTour('replay'));
   applyRoleVisibility();
 }
 
@@ -896,6 +900,7 @@ const pageModuleSpecs = {
   growth: () => import('../pages/growth.js'),
   audit: () => import('../pages/audit.js'),
   settings: () => import('../pages/settings.js'),
+  guide: () => import('../pages/guide.js'), help: () => import('../pages/help.js'),
 };
 const pageModuleCache = new Map();
 const pageRenderers = {
@@ -909,6 +914,7 @@ const pageRenderers = {
   growth: 'renderGrowthPage',
   audit: 'renderAuditPage',
   settings: 'renderSettingsPage',
+  guide: 'renderGuidePage', help: 'renderHelpPage',
 };
 const queryHooks = {};
 const routeMatchers = [
@@ -923,6 +929,7 @@ const routeMatchers = [
   { pattern: /^\/growth$/, page: 'growth' },
   { pattern: /^\/audit$/, page: 'audit' },
   { pattern: /^\/settings$/, page: 'settings' },
+  { pattern: /^\/guide$/, page: 'guide' }, { pattern: /^\/help$/, page: 'help' },
 ];
 
 export function registerQueryHooks(hooks = {}) {
@@ -1079,6 +1086,15 @@ export async function initialize() {
 async function enterWorkspace() {
   await loadBootstrap();
   applyLocation();
+  await guideTour('auto');
+}
+
+// 首登分步引导的编排（首次标记、重播、跨页跳转）都在 guide 页面模块内，运行时只做桥接。
+async function guideTour(mode) {
+  const module = await loadPageModule('guide');
+  return mode === 'replay'
+    ? module.startOnboardingTour?.({ force: true })
+    : module.autoStartOnboardingTour?.();
 }
 
 document.getElementById('mainNav').addEventListener('click', (event) => {

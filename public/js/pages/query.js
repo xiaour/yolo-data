@@ -1,5 +1,11 @@
 import * as core from '../core/runtime.js';
 import { renderDataTable } from '../components/table.js';
+import {
+  isProcessArtifact,
+  renderProcessArtifactView,
+  renderWorkspaceArtifactList,
+  workspaceArtifactFileMeta,
+} from '../components/workspaceArtifacts.js';
 
 const {
   ICONS,
@@ -386,82 +392,8 @@ function renderWorkspaceDrawer() {
     `;
     return;
   }
-  container.innerHTML = state.workspaceArtifacts.map((artifact) => {
-    const file = workspaceArtifactFileMeta(artifact);
-    const downloadable = artifact.artifactType !== 'CODE';
-    return `
-      <article class="workspace-artifact-card" data-artifact-id="${escapeAttr(artifact.id)}">
-        <span class="workspace-artifact-file-icon ${escapeAttr(file.className)}">
-          ${icon(file.iconName, file.label)}
-        </span>
-        <div class="workspace-artifact-copy">
-          <strong title="${escapeAttr(artifact.title || '问数产物')}">${escapeHtml(artifact.title || '问数产物')}</strong>
-          <small>${escapeHtml(file.label)} · ${artifact.metadata?.rowCount ?? 0} 行 · v${artifact.currentVersion}</small>
-        </div>
-        <div class="workspace-artifact-actions">
-          <button class="btn btn-quiet btn-icon workspace-action-icon" type="button"
-            data-artifact-view="${escapeAttr(artifact.id)}"
-            title="查看产物" aria-label="查看产物">
-            ${icon('eye', '查看产物')}
-          </button>
-          ${downloadable ? `
-          <button class="btn btn-quiet btn-icon workspace-action-icon is-csv" type="button"
-            data-artifact-download="${escapeAttr(artifact.id)}" data-format="xlsx"
-            title="下载 Excel 文件" aria-label="下载 Excel 文件">
-            ${icon('file-spreadsheet', '下载 Excel 文件')}
-          </button>
-          <button class="btn btn-quiet btn-icon workspace-action-icon is-csv" type="button"
-            data-artifact-download="${escapeAttr(artifact.id)}" data-format="csv"
-            title="下载 CSV 文件" aria-label="下载 CSV 文件">
-            ${icon('file-spreadsheet', '下载 CSV 文件')}
-          </button>
-          <button class="btn btn-quiet btn-icon workspace-action-icon is-json" type="button"
-            data-artifact-download="${escapeAttr(artifact.id)}" data-format="json"
-            title="下载 JSON 文件" aria-label="下载 JSON 文件">
-            ${icon('file-json', '下载 JSON 文件')}
-          </button>
-          ` : ''}
-        </div>
-      </article>
-    `;
-  }).join('');
+  container.innerHTML = renderWorkspaceArtifactList(state.workspaceArtifacts);
   bindWorkspaceActions();
-}
-
-function workspaceArtifactFileMeta(artifact) {
-  const metadata = artifact?.metadata ?? {};
-  const source = [
-    artifact?.artifactType,
-    metadata.format,
-    metadata.fileType,
-    metadata.mimeType,
-    metadata.fileName,
-  ].filter(Boolean).join(' ').toLowerCase();
-  if (source.includes('code')) {
-    return { iconName: 'file-code', label: '代码运行记录', className: 'is-code' };
-  }
-  if (source.includes('query_result')) {
-    return { iconName: 'file-spreadsheet', label: '查询数据快照', className: 'is-excel' };
-  }
-  if (source.includes('derived_result')) {
-    return { iconName: 'file-spreadsheet', label: '派生数据结果', className: 'is-excel' };
-  }
-  if (source.includes('json')) {
-    return { iconName: 'file-json', label: 'JSON 文件', className: 'is-json' };
-  }
-  if (source.includes('csv') || source.includes('tsv')) {
-    return { iconName: 'file-spreadsheet', label: 'CSV 文件', className: 'is-csv' };
-  }
-  if (source.includes('xlsx') || source.includes('xls') || source.includes('excel')) {
-    return { iconName: 'file-spreadsheet', label: 'Excel 文件', className: 'is-excel' };
-  }
-  if (source.includes('table')) {
-    return { iconName: 'file-spreadsheet', label: '表格产物', className: 'is-excel' };
-  }
-  if (source.includes('markdown') || source.includes('text') || source.includes('md')) {
-    return { iconName: 'file-text', label: '文本文件', className: 'is-text' };
-  }
-  return { iconName: 'file', label: '文件产物', className: 'is-file' };
 }
 
 function bindWorkspaceActions() {
@@ -505,6 +437,14 @@ async function openWorkspaceArtifact(artifactId) {
     const artifact = await api(`/api/artifacts/${encodeURIComponent(artifactId)}`);
     const columns = artifact.payload?.data?.columns ?? [];
     const rows = artifact.payload?.data?.rows ?? [];
+    if (isProcessArtifact(artifact)) {
+      openModal({
+        title: artifact.title || '过程文件',
+        wide: true,
+        body: renderProcessArtifactView(artifact),
+      });
+      return;
+    }
     if (artifact.artifactType === 'CODE') {
       openModal({
         title: artifact.title || '代码运行记录',
@@ -999,6 +939,16 @@ function renderExecutionReview(step) {
       </details>
     `);
   }
+  if (step?.artifactId) {
+    blocks.push(`
+      <div class="execution-review-artifact">
+        <button class="btn btn-quiet btn-small" type="button"
+          data-open-process-artifact="${escapeAttr(step.artifactId)}">
+          ${icon('file-text', '查看过程文件')}查看过程文件
+        </button>
+      </div>
+    `);
+  }
   return blocks.join('');
 }
 
@@ -1158,6 +1108,11 @@ function bindChatActions() {
   document.querySelectorAll('[data-open-artifact]').forEach((button) => {
     button.addEventListener('click', () => {
       openWorkspaceArtifactFromChat(button.dataset.openArtifact);
+    });
+  });
+  document.querySelectorAll('[data-open-process-artifact]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openWorkspaceArtifact(button.dataset.openProcessArtifact);
     });
   });
   document.querySelectorAll('[data-semantic-plan]').forEach((button) => {

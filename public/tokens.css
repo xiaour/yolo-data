@@ -17,6 +17,12 @@
   --text-3: #9aa7b4;
   --text-secondary: #64748b;
   --text-muted: #9aa7b4;
+  /* 使用引导 / 帮助中心新增的文本安全令牌：--text-3 仅 2.45:1，不能承载文本。 */
+  --ink-3: #6b7280;
+  --link: #2563eb;
+  --field-border: #808e9c;
+  --ok-soft: #eff8f5;
+  --warn-soft: #fbf7ed;
   --accent: #3b82f6;
   --accent-weak: #eef5ff;
   --primary: #22303e;
@@ -2289,6 +2295,28 @@ textarea::placeholder {
   border-radius: var(--radius-s);
   background: var(--surface);
   box-shadow: none;
+}
+
+.workspace-artifact-group {
+  display: grid;
+  gap: 8px;
+}
+
+.workspace-artifact-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.workspace-artifact-lineage {
+  color: var(--text-3);
+}
+
+.execution-review-artifact {
+  margin-top: 8px;
 }
 
 .workspace-artifact-card:hover {

@@ -14,6 +14,12 @@ function escapeHtml(value) {
 }
 
 let gate = { root: null, onAuthenticated: null, toast: null };
+// 引导页模块由 runtime 注入，避免 authGate 反向依赖 runtime 形成循环引用。
+let replayGuideHandler = null;
+
+export function setReplayGuideHandler(handler) {
+  replayGuideHandler = typeof handler === 'function' ? handler : null;
+}
 
 export function mountAuthGate(root, options = {}) {
   gate = {
@@ -222,6 +228,14 @@ export function renderUserSelect(user) {
     panel.hidden = !panel.hidden;
     trigger.setAttribute('aria-expanded', String(!panel.hidden));
   };
+  const replayItem = panel.querySelector('[data-action="tour"]');
+  if (replayItem) {
+    replayItem.onclick = () => {
+      panel.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+      replayGuideHandler?.();
+    };
+  }
   panel.querySelector('[data-action="password"]').onclick = () => {
     panel.hidden = true;
     openPasswordDialog();

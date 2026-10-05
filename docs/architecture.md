@@ -243,6 +243,7 @@ flowchart LR
 | `src/runtimeCache.js` | 指标目录、指标详情、业务枚举、展示证据和模型展示契约的 TTL 运行时缓存 |
 | `src/memory.js` | 会话、消息和模型上下文读写 |
 | `src/workspace.js` | 多类型产物、血缘、派生结果和 CSV/JSON/XLSX 导出 |
+| `src/processArtifacts.js` | 把产出可读数据表的工作环节落成过程文件（数据行、血缘与步数上限） |
 | `src/artifactCapabilities.js` | 产物粒度、指标、维度、时间范围和派生字段能力清单，以及复用或最小重查决策 |
 | `src/codeExecution.js` | 生成式 Python 代码执行、输入产物物化、文件输出回收和沙箱边界 |
 | `src/skillAdapter.js` | 标准 `SKILL.md` 扫描、YAML Frontmatter 解析、阶段识别和按需正文抽取 |
@@ -263,8 +264,11 @@ flowchart LR
 | `public/js/pages/growth.js` | 质量运营页面 |
 | `public/js/pages/audit.js` | 运行审计页面 |
 | `public/js/pages/settings.js` | 系统设置页面，可动态启停 Supersonic 指标模块 |
+| `public/js/pages/guide.js` | 使用引导页面与首登 spotlight 分步引导 |
+| `public/js/pages/help.js` | 帮助中心（搜索、分类、文章视图），内容来自 `public/docs/help/` |
 | `public/js/components/table.js` | 共享结果表格组件 |
 | `public/markdown.js` | 安全的 Markdown 渲染 |
+| `public/onboarding.css` | 使用引导 / 帮助中心样式，作用域限定在 `.onboarding-page` 与 `.onb-*` |
 
 ### 3.0.1 前端模块与路由
 
@@ -287,6 +291,8 @@ API 客户端、弹层、自定义下拉框、运行状态和路由适配器集�
 /growth         质量运营
 /audit          运行审计
 /settings       系统设置
+/guide          使用引导
+/help           帮助中心
 ```
 
 页面模块只依赖核心运行时导出的共享状态和工具函数；共享结果表格从 `components/table.js`
@@ -544,7 +550,7 @@ erDiagram
 | 值域治理 | `semantic_value_snapshots`、`semantic_value_snapshot_items`、`semantic_value_overrides`、`semantic_value_refresh_jobs`、`semantic_value_audit_logs` | 来源、版本、完整性、人工覆盖、刷新任务和审计 |
 | 数据权限 | `row_policies`、`column_policies` | 强制行过滤和列隐藏/脱敏 |
 | 会话记忆 | `chat_sessions`、`chat_messages` | 用户级多轮会话与结构化回答 |
-| 工作区 | `workspaces`、`workspace_artifacts`、`artifact_versions` | 查询产物、变换和版本 |
+| 工作区 | `workspaces`、`workspace_artifacts`、`artifact_versions` | 结果产物、每个数据环节的过程文件、变换和版本 |
 | 查询治理 | `query_plans` | 契约、计划、校验结果和执行证据 |
 | 质量闭环 | `qa_feedback`、`knowledge_gaps` | 用户反馈和知识缺口 |
 | 审计 | `audit_logs`、`llm_call_logs`、`dataset_query_logs` | 业务操作、模型调用和数据集查询审计 |
@@ -905,7 +911,9 @@ artifact-first 模式，移除重新取数工具，智能体只能基于查询�
 ```mermaid
 stateDiagram-v2
   [*] --> QUERY_RESULT
+  [*] --> PROCESS_STEP: 产出可读数据表的环节
   QUERY_RESULT --> LINKED: 绑定 assistant messageId
+  PROCESS_STEP --> LINKED: 绑定 assistant messageId
   LINKED --> VIEW: 查看查询快照
   LINKED --> EXPORT: 导出 CSV / JSON / XLSX
   LINKED --> DERIVED: 排序、汇总、筛选、改名、格式化
@@ -919,6 +927,10 @@ stateDiagram-v2
 
 - 每个会话最多对应一个工作区。
 - 每个有效查询形成独立 `QUERY_RESULT` 快照；同查询指纹复用同一快照，不同查询分别留存。
+- 只有产出可读数据表的环节形成 `PROCESS_STEP` 过程文件，内容为数据行 + 人话元信息（环节、耗时、行数、
+  上游产物），并按执行顺序编号，供用户逐步追踪核查；单次运行最多 60 份，单份最多 200 行，超出部分标记截断。
+  环节参数、目录、契约、原始 JSON 等用户无法直接读懂的技术载荷一律不落盘，只在会话过程面板中保留文字说明。
+- 过程文件只服务人工核查，不进入模型上下文，避免挤占可复用结果的召回位置。
 - 代码运行形成 `CODE` artifact，输出文件形成 `FILE` artifact，派生变换形成新的
   `DERIVED_RESULT`，不覆盖源数据。
 - Artifact 保存问题、来源、上游 artifact、查询指纹、数据 Hash、行数、列数和样例。
@@ -1133,7 +1145,7 @@ flowchart TD
 | 可视化分析 | 自动图表、查询明细、KPI、时间粒度格式 | `chart.js`、`public/js/pages/query.js` |
 | 指标体系接入 | Supersonic 服务令牌、实时目录和语义查询 | `indicatorClient.js` |
 | 业务数据集 | Doris/MySQL 注册、字段语义、抽样、只读查询、审计 | `businessDatasets.js` |
-| 工作区 | Artifact、版本、继续加工、CSV/JSON 导出、对话定位 | `workspace.js` |
+| 工作区 | 结果产物与过程文件、版本、血缘、继续加工、CSV/JSON 导出、对话定位 | `workspace.js`、`processArtifacts.js`、`public/js/components/workspaceArtifacts.js` |
 | 数据权限 | 主题、指标、数据集、行级、列级、按用户属性取值 | `permissions.js` |
 | 质量运营 | 正负反馈、纠错样例、知识缺口、缺口处置 | `feedback.js`、`growth.js` |
 | 运行审计 | 问数、同步、权限、数据集、LLM 和产物审计 | `database.js`、`llmAudit.js` |

@@ -32,6 +32,7 @@ import { parseTemporalExpression } from './timeSemantics.js';
 import { aggregateRowsByTimeGrain } from './timeAggregation.js';
 import { buildSemanticTaxonomyPrompt } from './analysisSemantics.js';
 import { buildSemanticPolicyPrompt } from './semanticPolicy.js';
+import { createProcessArtifactRecorder } from './processArtifacts.js';
 import { buildMetricResolverPrompt } from './metricResolver.js';
 import { resolveWithPlugins } from './analysisPluginRegistry.js';
 import {
@@ -2349,6 +2350,15 @@ export class MetricAgentService {
     const processSteps = [];
     const generatedCodeArtifacts = [];
     const generatedWorkspaceArtifactIds = [];
+    // 每个产生数据的工具环节都会落一份过程文件，便于用户按步骤追踪核查。
+    const recordProcessArtifact = createProcessArtifactRecorder({
+      service: this.workspace,
+      workspaceId: workspace?.id ?? null,
+      userId: user.id,
+      sessionId: session.id,
+      emit,
+      artifactIds: generatedWorkspaceArtifactIds,
+    });
     const appendProcessStep = (step) => {
       processSteps.push(step);
       emit({
@@ -4485,7 +4495,7 @@ export class MetricAgentService {
             artifacts: this.workspace.listArtifacts({
               workspaceId: workspace.id,
               userId: user.id,
-            }).map((artifact) => {
+            }).filter((artifact) => artifact.artifactType !== 'PROCESS_STEP').map((artifact) => {
               const full = this.workspace.getArtifact({
                 artifactId: artifact.id,
                 userId: user.id,
@@ -4619,6 +4629,15 @@ export class MetricAgentService {
           resultSummary: description.detail,
           review: buildToolReview(name, args, result),
         });
+        const stepArtifact = recordProcessArtifact({
+          tool: name,
+          result,
+          step: { ...step, sequence: processSteps.length },
+        });
+        if (stepArtifact) {
+          step.artifactId = stepArtifact.id;
+          step.artifactTitle = stepArtifact.title;
+        }
         for (const previous of processSteps) {
           if (
             previous.id !== step.id
@@ -4663,6 +4682,15 @@ export class MetricAgentService {
           error: error.message,
           review: buildToolReview(name, args, {}),
         });
+        const failedArtifact = recordProcessArtifact({
+          tool: name,
+          error,
+          step: { ...step, sequence: processSteps.length },
+        });
+        if (failedArtifact) {
+          step.artifactId = failedArtifact.id;
+          step.artifactTitle = failedArtifact.title;
+        }
         emit({
           type: 'process_step',
           step: { ...step },
@@ -4682,7 +4710,7 @@ export class MetricAgentService {
       ? this.workspace.listArtifacts({
         workspaceId: workspace.id,
         userId: user.id,
-      }).slice(0, 12).map((artifact) => {
+      }).filter((artifact) => artifact.artifactType !== 'PROCESS_STEP').slice(0, 12).map((artifact) => {
         const full = this.workspace.getArtifact({
           artifactId: artifact.id,
           userId: user.id,

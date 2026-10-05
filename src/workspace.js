@@ -311,6 +311,30 @@ export class WorkspaceService {
     });
   }
 
+  // 过程文件：记录 agent 单个工作环节的输入、输出和耗时，供用户追踪核查。
+  createProcessArtifact({
+    workspaceId,
+    userId,
+    sessionId,
+    messageId = null,
+    conversationId = null,
+    title,
+    metadata = {},
+    payload = {},
+  }) {
+    return this.database.createWorkspaceArtifact({
+      workspaceId,
+      userId,
+      sessionId,
+      messageId,
+      conversationId,
+      artifactType: 'PROCESS_STEP',
+      title,
+      metadata,
+      payload,
+    });
+  }
+
   createFileArtifact({
     workspaceId,
     userId,
@@ -474,6 +498,12 @@ export class WorkspaceService {
         contentType: 'application/json; charset=utf-8',
         content: JSON.stringify(artifact.payload, null, 2),
       };
+    }
+    if (
+      ['csv', 'xlsx', 'excel'].includes(normalizedFormat)
+      && (artifact.payload?.data?.columns ?? []).length === 0
+    ) {
+      throw new Error('该产物不含表格数据，请改用 JSON 格式导出');
     }
     if (normalizedFormat === 'csv') {
       const workspace = this.database.getWorkspace(artifact.workspaceId, userId);

@@ -8,6 +8,7 @@
     <link rel="icon" type="image/svg+xml" href="/yolo-mark.svg" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/tokens.css" />
+    <link rel="stylesheet" href="/onboarding.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -40,7 +41,7 @@
           <button class="nav-item" data-page="datasets" type="button">
             <span data-icon="database"></span><span>数据集</span>
           </button>
-          <div class="nav-group-label">治理</div>
+          <div class="nav-group-label" data-admin-only>治理</div>
           <button class="nav-item" data-page="permissions" type="button">
             <span data-icon="shield-check"></span><span>数据权限</span>
           </button>
@@ -52,6 +53,13 @@
           </button>
           <button class="nav-item" data-page="settings" type="button">
             <span data-icon="settings"></span><span>系统设置</span>
+          </button>
+          <div class="nav-group-label">帮助</div>
+          <button class="nav-item" data-page="guide" type="button">
+            <span data-icon="map"></span><span>使用引导</span>
+          </button>
+          <button class="nav-item" data-page="help" type="button">
+            <span data-icon="life-buoy"></span><span>帮助中心</span>
           </button>
         </nav>
 
@@ -102,6 +110,7 @@
                   <strong id="userMenuDisplay"></strong>
                   <small id="userMenuRole"></small>
                 </div>
+                <button class="user-menu-item" type="button" data-action="tour">重播使用引导</button>
                 <button class="user-menu-item" type="button" data-action="password">修改密码</button>
                 <button class="user-menu-item is-danger" type="button" data-action="logout">退出登录</button>
               </div>
