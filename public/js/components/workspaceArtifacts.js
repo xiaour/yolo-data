@@ -26,6 +26,12 @@ function isProcessArtifact(artifact) {
   return String(artifact?.artifactType ?? '') === PROCESS_ARTIFACT_TYPE;
 }
 
+// 用户上传的本地文件（原始文件与解析表）单独成组，避免和查询结果混在一起。
+function isUploadArtifact(artifact) {
+  return ['UPLOAD', 'UPLOAD_FILE']
+    .includes(String(artifact?.metadata?.source?.type ?? '').toUpperCase());
+}
+
 function processMeta(artifact) {
   const metadata = artifact?.metadata ?? {};
   const sequence = Number(metadata.sequence) > 0 ? Number(metadata.sequence) : null;
@@ -51,6 +57,12 @@ function workspaceArtifactFileMeta(artifact) {
     const kind = KIND_ICONS[String(metadata.dataKind ?? 'JSON').toUpperCase()]
       ?? KIND_ICONS.JSON;
     return { ...kind, label: metadata.dataKindLabel ?? '过程文件' };
+  }
+  if (String(metadata.source?.type ?? '').toUpperCase() === 'UPLOAD') {
+    return { iconName: 'file-spreadsheet', label: '本地上传文件', className: 'is-csv' };
+  }
+  if (String(metadata.source?.type ?? '').toUpperCase() === 'UPLOAD_FILE') {
+    return { iconName: 'file-spreadsheet', label: '本地文件解析表', className: 'is-excel' };
   }
   const source = [
     artifact?.artifactType,
@@ -137,7 +149,8 @@ function renderArtifactCard(artifact, lineage) {
 
 // 结果产物优先展示；过程文件按步骤顺序排列，并标注上游步骤便于追踪。
 function renderWorkspaceArtifactList(artifacts = []) {
-  const results = artifacts.filter((artifact) => !isProcessArtifact(artifact));
+  const uploads = artifacts.filter((artifact) => !isProcessArtifact(artifact) && isUploadArtifact(artifact));
+  const results = artifacts.filter((artifact) => !isProcessArtifact(artifact) && !isUploadArtifact(artifact));
   const processes = artifacts
     .filter(isProcessArtifact)
     .sort((left, right) => (
@@ -149,6 +162,16 @@ function renderWorkspaceArtifactList(artifacts = []) {
     return [artifact.id, `${sequence ? `步骤 ${String(sequence).padStart(2, '0')} ` : ''}${artifact.metadata?.toolTitle ?? artifact.title ?? ''}`.trim()];
   }));
   const sections = [];
+  if (uploads.length > 0) {
+    sections.push(`
+      <div class="workspace-artifact-group">
+        <div class="workspace-artifact-group-head">
+          <span>本地文件</span><span>${uploads.length}</span>
+        </div>
+        ${uploads.map((artifact) => renderArtifactCard(artifact, '')).join('')}
+      </div>
+    `);
+  }
   if (results.length > 0) {
     sections.push(`
       <div class="workspace-artifact-group">
@@ -217,6 +240,7 @@ function renderProcessArtifactView(artifact) {
 }
 
 export {
+  isUploadArtifact,
   isProcessArtifact,
   renderProcessArtifactView,
   renderWorkspaceArtifactList,

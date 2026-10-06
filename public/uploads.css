@@ -1,0 +1,121 @@
+/* 本地上传入口（问数输入框上方的附件行）。 */
+.chat-attachment-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  min-height: 26px;
+  border-radius: var(--radius-s);
+}
+
+.chat-attachment-bar.is-dragging {
+  outline: 1px dashed var(--accent, #3478f6);
+  outline-offset: 4px;
+}
+
+.attachment-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-2);
+  background: var(--surface);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.attachment-add:hover {
+  color: var(--text-1, var(--text-2));
+  border-color: var(--accent, #3478f6);
+}
+
+.attachment-add:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.attachment-add .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.attachment-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-3);
+  background: var(--surface-2, var(--surface));
+  font-size: 11px;
+}
+
+.attachment-chip > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-chip .icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+}
+
+.attachment-chip.is-error {
+  color: var(--danger, #c53030);
+  border-color: var(--danger, #c53030);
+}
+
+/* 提问气泡内回显本轮引用的本地文件。 */
+.user-bubble-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  /* .user-bubble 是 pre-wrap，附件区必须回到普通空白处理，避免缩进被渲染成空行。 */
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.user-bubble-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 240px;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 11px;
+}
+
+.user-bubble-file .icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+}
+
+.user-bubble-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

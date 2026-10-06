@@ -1,4 +1,8 @@
 import * as core from '../core/runtime.js';
+import {
+  renderDatasetQueryLogs,
+  bindDatasetQueryLogs,
+} from '../components/datasetQueryLogs.js';
 
 const {
   ICONS,
@@ -62,37 +66,77 @@ async function renderAuditPage(root) {
     return;
   }
   root.innerHTML = `<div class="loading-state"><span class="spinner"></span>正在读取审计记录</div>`;
-  const logs = await api('/api/audit?limit=200');
-  root.innerHTML = `
-    <div class="audit-grid">
-      <section class="section-band">
-        <div class="section-head">
-          <div><h2>运行审计</h2><p>记录指标连接、主题配置、权限变更和智能问数执行。</p></div>
-          <button class="btn" id="refreshAuditBtn" type="button">${icon('refresh', '刷新')}刷新</button>
-        </div>
-        <div class="data-table-wrap">
-          <table class="data-table">
-            <thead><tr><th>时间</th><th>用户</th><th>主题</th><th>操作</th><th>摘要</th></tr></thead>
-            <tbody>
-              ${logs.map((log, index) => `
-                <tr class="is-clickable${index === 0 ? ' is-selected' : ''}" data-audit-id="${log.id}">
-                  <td>${escapeHtml(formatDate(log.createdAt))}</td>
-                  <td>${escapeHtml(log.userName || '-')}</td>
-                  <td>${escapeHtml(log.themeName || '-')}</td>
-                  <td><span class="tag tag-blue">${escapeHtml(log.action)}</span></td>
-                  <td class="mono"><span class="table-cell-clamp">${escapeHtml(auditSummary(log.detail ?? {}))}</span></td>
-                </tr>
-              `).join('') || '<tr><td colspan="5">暂无审计记录</td></tr>'}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <aside class="section-band audit-detail" id="auditDetail">
-        ${renderAuditDetail(logs[0])}
-      </aside>
-    </div>
+  const [logs, queryLogs] = await Promise.all([
+    api('/api/audit?limit=200'),
+    api('/api/dataset-query-logs?limit=100'),
+  ]);
+  const tab = state.auditTab === 'datasets' ? 'datasets' : 'platform';
+  const tabs = `
+    <section class="section-band">
+      <div class="tabs" role="tablist" aria-label="运行审计分区">
+        <button class="tab${tab === 'platform' ? ' is-active' : ''}" data-audit-tab="platform" type="button">平台审计<small>${logs.length}</small></button>
+        <button class="tab${tab === 'datasets' ? ' is-active' : ''}" data-audit-tab="datasets" type="button">数据集查询<small>${queryLogs.length}</small></button>
+      </div>
+    </section>
   `;
+  if (tab === 'datasets') {
+    root.innerHTML = `
+      <div class="page-stack">
+        ${tabs}
+        <section class="section-band">
+          <div class="section-head">
+            <div><h2>数据集查询</h2><p>最近 100 次业务数据集查询，点击行查看完整 SQL。</p></div>
+            <button class="btn" id="refreshAuditBtn" type="button">${icon('refresh', '刷新')}刷新</button>
+          </div>
+          ${renderDatasetQueryLogs(queryLogs)}
+        </section>
+      </div>
+    `;
+  } else {
+    root.innerHTML = `
+      <div class="page-stack">
+        ${tabs}
+        <div class="audit-grid">
+          <section class="section-band">
+            <div class="section-head">
+              <div><h2>平台审计</h2><p>记录指标连接、主题配置、权限变更和智能问数执行。</p></div>
+              <button class="btn" id="refreshAuditBtn" type="button">${icon('refresh', '刷新')}刷新</button>
+            </div>
+            <div class="data-table-wrap">
+              <table class="data-table">
+                <thead><tr><th>时间</th><th>用户</th><th>主题</th><th>操作</th><th>摘要</th></tr></thead>
+                <tbody>
+                  ${logs.map((log, index) => `
+                    <tr class="is-clickable${index === 0 ? ' is-selected' : ''}" data-audit-id="${log.id}">
+                      <td>${escapeHtml(formatDate(log.createdAt))}</td>
+                      <td>${escapeHtml(log.userName || '-')}</td>
+                      <td>${escapeHtml(log.themeName || '-')}</td>
+                      <td><span class="tag tag-blue">${escapeHtml(log.action)}</span></td>
+                      <td class="mono"><span class="table-cell-clamp">${escapeHtml(auditSummary(log.detail ?? {}))}</span></td>
+                    </tr>
+                  `).join('') || '<tr><td colspan="5">暂无审计记录</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <aside class="section-band audit-detail" id="auditDetail">
+            ${renderAuditDetail(logs[0])}
+          </aside>
+        </div>
+      </div>
+    `;
+  }
+  root.querySelectorAll('[data-audit-tab]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.auditTab = button.dataset.auditTab;
+      renderPage();
+    });
+  });
   document.getElementById('refreshAuditBtn').addEventListener('click', renderPage);
+  if (tab === 'datasets') {
+    bindDatasetQueryLogs(root, queryLogs);
+    return;
+  }
   root.querySelectorAll('[data-audit-id]').forEach((row) => {
     row.addEventListener('click', () => {
       root.querySelectorAll('[data-audit-id]').forEach((item) => item.classList.remove('is-selected'));

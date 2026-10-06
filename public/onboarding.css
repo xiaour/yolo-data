@@ -25,6 +25,38 @@
   gap: 18px;
 }
 
+/* ---------------- 合并入口：使用引导 / 帮助中心 标签条 ---------------- */
+
+.section-tabs {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-tabs button {
+  min-height: 38px;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 0.16s, border-color 0.16s;
+}
+
+.section-tabs button:hover {
+  color: var(--text);
+}
+
+.section-tabs button[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+
 /* ---------------- 使用引导 ---------------- */
 
 .guide-hero {

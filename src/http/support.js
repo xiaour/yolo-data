@@ -198,12 +198,14 @@ export function sendError(response, error) {
   });
 }
 
-export async function readJson(request) {
+const MAX_JSON_BODY_BYTES = 2 * 1024 * 1024;
+
+export async function readJson(request, maxBytes = MAX_JSON_BODY_BYTES) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 2 * 1024 * 1024) {
+    if (size > maxBytes) {
       const error = new Error('request body is too large');
       error.statusCode = 413;
       throw error;

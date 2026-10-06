@@ -9,7 +9,7 @@
 当前 YOLO 已经形成一条完整、可审计的企业 DataAgent 主链：
 
 ```text
-主题智能体
+智能体
   -> 多轮上下文
   -> 实时指标或业务数据集发现
   -> 口径确认
@@ -139,7 +139,7 @@ flowchart TB
   subgraph EXPERIENCE["体验层"]
     QUERY["开始问数"]
     INDICATORS["指标体系"]
-    THEMES["主题智能体"]
+    THEMES["智能体"]
     DATASETS["数据集"]
     PERMISSIONS["数据权限"]
     GROWTH["质量运营"]
@@ -258,14 +258,15 @@ flowchart LR
 | `public/js/core/runtime.js` | 前端全局状态、API/NDJSON 客户端、组件 UI、动态模块加载器和 Hash 路由 |
 | `public/js/pages/query.js` | 开始问数、会话、流式执行、工作区抽屉、语义解析和 ECharts |
 | `public/js/pages/indicators.js` | 指标体系页面 |
-| `public/js/pages/models.js` | 模型管理页面，统一维护模型连接、密钥来源、运行参数和默认模型 |
-| `public/js/pages/themes.js` | 主题智能体列表和完整编辑页 |
+| `public/js/pages/models.js` | 模型管理页面，统一维护模型连接、密钥来源、运行参数和默认模型（与智能体共用入口） |
+| `public/js/pages/themes.js` | 智能体列表和完整编辑页（侧栏入口，页内含模型管理标签） |
 | `public/js/pages/admin.js` | 数据集、数据源和数据权限页面 |
 | `public/js/pages/growth.js` | 质量运营页面 |
 | `public/js/pages/audit.js` | 运行审计页面 |
 | `public/js/pages/settings.js` | 系统设置页面，可动态启停 Supersonic 指标模块 |
 | `public/js/pages/guide.js` | 使用引导页面与首登 spotlight 分步引导 |
 | `public/js/pages/help.js` | 帮助中心（搜索、分类、文章视图），内容来自 `public/docs/help/` |
+| `public/js/components/sectionTabs.js` | 侧栏合并入口（使用引导/帮助中心、智能体/模型管理）的页内标签条 |
 | `public/js/components/table.js` | 共享结果表格组件 |
 | `public/markdown.js` | 安全的 Markdown 渲染 |
 | `public/onboarding.css` | 使用引导 / 帮助中心样式，作用域限定在 `.onboarding-page` 与 `.onb-*` |
@@ -283,9 +284,9 @@ API 客户端、弹层、自定义下拉框、运行状态和路由适配器集�
 /               开始问数
 /indicators     指标体系
 /models         模型管理
-/themes         主题智能体
-/themes/new     新建主题智能体
-/themes/{id}    编辑指定主题智能体
+/themes         智能体
+/themes/new     新建智能体
+/themes/{id}    编辑指定智能体
 /datasets       数据集
 /permissions    数据权限
 /growth         质量运营
@@ -294,6 +295,14 @@ API 客户端、弹层、自定义下拉框、运行状态和路由适配器集�
 /guide          使用引导
 /help           帮助中心
 ```
+
+两组入口在侧栏各自只占一项，页内通过 `components/sectionTabs.js` 的标签条切换，
+被合并的路由仍可直接深链访问：
+
+- 「帮助中心」= `/help`（帮助中心）+ `/guide`（使用引导，标签在前）
+- 「智能体」= `/themes`（含主题编辑页）+ `/models`（模型管理，标签在后）
+
+分析员看不到模型管理标签，因此该入口对分析员只呈现智能体。
 
 页面模块只依赖核心运行时导出的共享状态和工具函数；共享结果表格从 `components/table.js`
 按需导入。页面内部仍可进一步按会话、执行详情、图表和表单拆分，但路由边界已经独立。
@@ -365,7 +374,7 @@ AGENT_SKILL_DIRECTORIES
   -> 解析 YAML Frontmatter
   -> 推断 PRE_PLAN / PLAN / POST_EXECUTE 阶段
   -> 写入 skills 表并保留来源、Hash 和正文
-  -> 管理员在主题智能体中按主题启用
+  -> 管理员在智能体中按主题启用
   -> Agent 规划前注入审计规则
   -> Agent 生成回答前执行确定性结果验证
 ```
@@ -379,7 +388,7 @@ AGENT_SKILL_DIRECTORIES
 
 ### 3.2 主题业务语义包
 
-平台核心不保存业务术语。每个主题智能体独立维护版本化 `semanticPolicy`：
+平台核心不保存业务术语。每个智能体独立维护版本化 `semanticPolicy`：
 
 ```json
 {
@@ -542,11 +551,11 @@ erDiagram
 
 | 存储域 | 主要表 | 说明 |
 | --- | --- | --- |
-| 用户与主题 | `app_users`、`themes`、`user_theme_grants` | 用户、主题智能体和主题授权 |
+| 用户与主题 | `app_users`、`themes`、`user_theme_grants` | 用户、智能体和主题授权 |
 | 指标权限 | `user_indicator_grants` | 用户显式指标白名单 |
 | Skill | `skills`、`theme_skills` | 内置能力与智能体启用关系 |
 | 数据集 | `data_sources`、`business_datasets`、`dataset_fields`、`user_dataset_grants` | 数据源、字段语义和授权 |
-| 主题默认值域 | `theme_semantic_value_domains` | 按主题智能体隔离的枚举规范值、别名、来源和初始化时间 |
+| 主题默认值域 | `theme_semantic_value_domains` | 按智能体隔离的枚举规范值、别名、来源和初始化时间 |
 | 值域治理 | `semantic_value_snapshots`、`semantic_value_snapshot_items`、`semantic_value_overrides`、`semantic_value_refresh_jobs`、`semantic_value_audit_logs` | 来源、版本、完整性、人工覆盖、刷新任务和审计 |
 | 数据权限 | `row_policies`、`column_policies` | 强制行过滤和列隐藏/脱敏 |
 | 会话记忆 | `chat_sessions`、`chat_messages` | 用户级多轮会话与结构化回答 |
@@ -769,8 +778,8 @@ flowchart LR
 
 约束：
 
-- 每个主题智能体独立保存值域配置和值域数据，其他智能体的初始化、别名和字段开关不会自动继承。
-- 管理员可在主题智能体中选择性启用字段；新发现字段默认关闭，只有显式启用并刷新后才参与默认口径检查。
+- 每个智能体独立保存值域配置和值域数据，其他智能体的初始化、别名和字段开关不会自动继承。
+- 管理员可在智能体中选择性启用字段；新发现字段默认关闭，只有显式启用并刷新后才参与默认口径检查。
 - 已上线版本的历史共享值域会在启动时执行一次性迁移，按主题指标和数据集范围归属到对应智能体。
 - 只从明确的枚举字段名、短枚举描述、引号内代码和短提示词映射句提取，避免把说明性句子误识别成枚举值。
 - 字段元数据没有值清单时，指标维度调用 Supersonic `POST /api/semantic/dimension/queryDimValue`，业务数据集字段使用受限的 `SELECT DISTINCT` 补齐。
@@ -937,6 +946,26 @@ stateDiagram-v2
 - Artifact-first 追问只使用已有快照，避免同一业务问题多次取数造成结果漂移。
 - 对话回答中出现轻量“查看本次产出”链接，点击后打开工作区并定位对应产物。
 
+### 12.1 本地上传文件（问数结合本地文件算数）
+
+- 用户在问数输入框上方上传本地文件（CSV / XLS / XLSX），形成一对产物：`FILE`（原始文件，来源标注 `UPLOAD`）与派生
+  `TABLE`（解析表，来源标注 `UPLOAD_FILE`，带 `derivedFromArtifactId` 血缘），并落一份
+  `PROCESS_STEP` 过程文件记录编码、分隔符、行数、列数与字段角色建议。
+- XLSX 由 YOLO 侧自研读取器解析（ZIP + sharedStrings + 日期样式还原），不依赖沙箱内的
+  pandas/openpyxl。ZIP 索引以 EOCD 定位的**中央目录**为准，因为 Excel 写出的工作簿普遍使用
+  data descriptor（本地头长度为 0），只读本地头会误判成空归档；条目按需解压，并对单条与
+  整体解压体积设上限防压缩炸弹。旧版二进制 `.xls` 只保存原文并提示另存为 xlsx/csv，不做内容猜测。
+- 解析只做通用格式判断（编码探测、分隔符、表头、列类型），业务字段语义仍由业务词表与
+  `datasetProfiler` 给出，代码内不写死任何业务规则。
+- 上传文件随会话工作区注入模型上下文；`execute_analysis_code` 可直接把原始文件或解析表复制为
+  `input/` 输入，因此跨来源算数不需要新增工具。
+- 提问附件：前端把待提交的文件随提问一起发送，服务端在 `src/chatAttachments.js` 里按
+  「当前用户 + 当前会话 + `FILE` 产物」三重校验后，先把附件列表写入该条用户消息的
+  `result_json`，再把产物 `message_id` 绑定到这条用户消息，因此提问气泡可以回显本轮引用了哪些
+  文件，刷新会话后依然可追溯。不在白名单内的产物 ID 会被忽略而不是报错。
+- 上传内容属于用户自有数据：仅当前会话可见、不跨用户共享，上传与拒绝都写审计；单文件与单会话
+  均有体积/数量配额，二进制与伪装容器在落库前拦截，文本导出对公式前缀做转义。
+
 ## 13. 权限架构
 
 ```mermaid
@@ -1044,7 +1073,7 @@ flowchart TD
 | --- | --- |
 | `GET /api/health` | 平台、Supersonic 和 LLM 运行状态 |
 | `GET /api/bootstrap` | 当前用户、主题、Skills 和平台配置 |
-| `GET/POST/PUT/DELETE /api/themes` | 主题智能体管理 |
+| `GET/POST/PUT/DELETE /api/themes` | 智能体管理 |
 | `PUT /api/themes/{id}/prompt` | 单智能体提示词管理 |
 | `GET /api/skills` | Skill 目录 |
 | `GET /api/users`、`/api/users/{id}/permissions` | 用户和数据权限 |
@@ -1139,7 +1168,7 @@ flowchart TD
 | 功能域 | 已实现能力 | 关键模块 |
 | --- | --- | --- |
 | 指标体系 | 实时指标目录、类型、详情、口径、维度、关联模型、搜索 | `indicatorClient.js`、`indicatorSearch.js` |
-| 主题智能体 | 提示词、模型、API Key、温度、工具轮次、Skills、指标与数据集范围 | `themes`、`skills.js`、`harness.js` |
+| 智能体 | 提示词、模型、API Key、温度、工具轮次、Skills、指标与数据集范围 | `themes`、`skills.js`、`harness.js` |
 | 模型管理 | 模型 CRUD、密钥加密、默认模型、主题多模型选择 | `database.js`、`public/js/pages/models.js`、`harness.js` |
 | 智能问数 | 多轮会话、上下文模式、NDJSON 流、查询契约、结果锁 | `agent.js`、`memory.js`、`queryContractCompiler.js` |
 | 可视化分析 | 自动图表、查询明细、KPI、时间粒度格式 | `chart.js`、`public/js/pages/query.js` |

@@ -309,9 +309,9 @@ a {
 }
 
 .runtime-box {
-  min-height: 48px;
-  padding: 10px 11px;
-  gap: 9px;
+  min-height: 32px;
+  padding: 5px 9px;
+  gap: 8px;
   border: 1px solid transparent;
   border-radius: var(--radius-s);
   background: transparent;
@@ -333,11 +333,14 @@ a {
   color: var(--text-2);
   font-size: 12px;
   font-weight: 600;
+  line-height: 1.25;
 }
 
 .runtime-box small {
+  margin-top: 1px;
   color: var(--text-3);
   font-size: 10px;
+  line-height: 1.25;
 }
 
 /* Snapshot / unavailable indicator-source warnings must stay visible (SOURCE-002). */
@@ -2666,7 +2669,7 @@ textarea::placeholder {
   }
 
   .runtime-box {
-    min-height: 42px;
+    min-height: 34px;
     justify-content: center;
     padding: 0;
   }

@@ -1,5 +1,6 @@
 // 使用引导页（常驻清单 + 首登 spotlight 分步引导）。纯新增页面模块。
 import * as core from '../core/runtime.js';
+import { HELP_TABS, bindSectionTabs, sectionTabsMarkup } from '../components/sectionTabs.js';
 
 const {
   state,
@@ -89,24 +90,25 @@ async function copyToClipboard(text) {
 const GUIDE_TASKS = {
   analyst: [
     { t: '登录并认识工作台', d: '左侧导航分三区：分析（问数）、资产（指标/模型/主题/数据集）、治理（权限/审计）。' },
-    { t: '选择一个主题智能体', d: '在「开始问数」顶部切换到已授权主题，例如「销售经营」。' },
+    { t: '选择一个智能体', d: '在「开始问数」顶部切换到已授权主题，例如「销售经营」。' },
     { t: '完成第一次提问', d: '在输入框用自然语言提问，例如：近7天各区域销售额趋势如何？' },
     { t: '看懂回答结构', d: '结论 → 查询范围 → 结果分析 → 图表 → 口径说明；先核对「查询范围」再采信数值。' },
     { t: '多轮追问', d: '直接在输入框继续问（如：那按渠道拆开呢），平台复用上一轮数据快照。' },
+    { t: '用本地文件补充计算', d: '输入框上方上传 CSV / XLS / XLSX，随提问一起提交；提问时点名文件，例如：用「回款明细.xlsx」核对本月回款额。' },
     { t: '导出工作区产物', d: '右上角「工作区产物」可下载历史查询的 CSV / JSON / XLSX。' },
   ],
   admin: [
     { t: '配置模型连接', d: '「模型管理」新增 DeepSeek 或兼容模型：Base URL、密钥（AES-256-GCM 加密保存）、温度与工具轮次。' },
     { t: '接入业务数据集', d: '「数据集」新建 MySQL / Doris 数据源并同步表结构；平台只生成只读查询，不向模型暴露原始 SQL。' },
     { t: '智能识别字段口径', d: '数据集列表「智能识别」自动推断时间 / 指标 / 维度字段与默认时间窗口，逐项确认后写回。' },
-    { t: '创建主题智能体', d: '「主题智能体」绑定指标范围、数据范围、默认模型与主题提示词（参考 docs/theme-prompts）。' },
+    { t: '创建智能体', d: '「智能体」绑定指标范围、数据范围、默认模型与主题提示词（参考 docs/theme-prompts）。' },
     { t: '配置数据权限', d: '「数据权限」按用户授权主题 / 指标 / 数据集；行级策略强制过滤，列级支持隐藏与脱敏。' },
     { t: '用运行审计验证闭环', d: '「运行审计」检查执行记录与权限变更；「质量运营」跟踪知识缺口。' },
   ],
 };
 
 const GUIDE_CONCEPTS = [
-  { icon: 'bot', t: '主题智能体', d: '一个主题 = 一个独立的业务 DataAgent。它限定了可用的指标、数据范围和回答口径，问数前先在顶部切换到你的主题。' },
+  { icon: 'bot', t: '智能体', d: '一个主题 = 一个独立的业务 DataAgent。它限定了可用的指标、数据范围和回答口径，问数前先在顶部切换到你的主题。' },
   { icon: 'compass', t: '指标口径', d: '每个指标都有确定义的时间规则、过滤条件和展示格式。平台按口径取数，而不是让模型自由生成 SQL，答案稳定可复现。' },
   { icon: 'workflow', t: '查询契约', d: '你的问题会被编译成一份「查询契约」：时间范围、维度、筛选先冻结再执行。回答中的「查询范围」就是这份契约的回显。' },
 ];
@@ -134,6 +136,8 @@ export async function renderGuidePage(root) {
 
   root.innerHTML = `
     <div class="onboarding-page guide-page">
+      ${sectionTabsMarkup(HELP_TABS, 'guide', '使用引导与帮助中心')}
+
       <div class="guide-hero">
         <div class="role-seg" role="tablist" aria-label="选择角色">
           <button data-role="analyst" role="tab" aria-selected="${initialRole === 'analyst'}" type="button">我是分析员</button>
@@ -287,6 +291,7 @@ export async function renderGuidePage(root) {
     startOnboardingTour({ force: true });
   });
 
+  bindSectionTabs(root, navigate);
   renderTasks();
 }
 
@@ -296,7 +301,7 @@ const TOUR_STEPS = [
   {
     target: '#themeBreadcrumb',
     title: '第一步：选对主题',
-    body: '每个主题智能体是独立的业务 DataAgent，限定了指标范围与回答口径。问数前先在顶部切换到你的主题。',
+    body: '每个智能体是独立的业务 DataAgent，限定了指标范围与回答口径。问数前先在顶部切换到你的主题。',
   },
   {
     target: '#questionInput',
@@ -309,9 +314,9 @@ const TOUR_STEPS = [
     body: '每次查询的表格与文件都保留在工作区，点这里随时下载 CSV / JSON / XLSX。',
   },
   {
-    target: '#mainNav [data-page="guide"]',
+    target: '#mainNav [data-page="help"]',
     title: '第四步：继续上手',
-    body: '侧边栏「使用引导」里有一份可勾选的上手清单，完成全部动作即可独立问数。',
+    body: '侧边栏「帮助中心」里第一项就是可勾选的上手清单，完成全部动作即可独立问数。',
   },
 ];
 
@@ -389,7 +394,7 @@ function mountTour(steps) {
         <button class="btn btn-primary btn-small" type="button" data-onb-next>下一步</button>
       </div>
     </div>
-    <div class="onb-toast" data-onb-toast>${pageIcon('check')}<span>引导完成，随时可在「使用引导」页继续上手清单</span></div>
+    <div class="onb-toast" data-onb-toast>${pageIcon('check')}<span>引导完成，随时可在「帮助中心 → 使用引导」继续上手清单</span></div>
   `;
   document.body.appendChild(layer);
 
@@ -457,7 +462,7 @@ function mountTour(steps) {
     document.removeEventListener('keydown', onKeydown);
     openTourState = null;
     if (announce) {
-      toast('已退出引导，可随时在「使用引导」页继续');
+      toast('已退出引导，可随时在「帮助中心 → 使用引导」继续');
     }
   }
 

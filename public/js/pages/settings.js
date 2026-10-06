@@ -11,6 +11,7 @@ const {
   emptyState,
   escapeHtml,
   formatDate,
+  navigate,
 } = core;
 
 async function renderSettingsPage(root) {
@@ -61,8 +62,23 @@ async function renderSettingsPage(root) {
           <button class="btn btn-primary" id="saveSupersonicSettingBtn" type="button">${icon('saved', '保存设置')}保存设置</button>
         </div>
       </section>
+
+      <section class="section-band">
+        <div class="section-head compact">
+          <div>
+            <h3>记忆管理</h3>
+            <p>会话记忆按「用户 × 智能体」隔离并持久沉淀。管理员可在这里查看全部用户的记忆内容、消息明细，并清理无效会话。</p>
+          </div>
+          <button class="btn" id="openMemoryBtn" type="button">${icon('library', '查看全部用户记忆')}查看全部用户记忆</button>
+        </div>
+      </section>
     </div>
   `;
+
+  document.getElementById('openMemoryBtn').addEventListener('click', () => {
+    state.memoryUserId = null;
+    navigate('/memory');
+  });
 
   document.getElementById('saveSupersonicSettingBtn').addEventListener('click', async (event) => {
     const enabled = document.getElementById('supersonicEnabled').checked;

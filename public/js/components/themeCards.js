@@ -1,4 +1,4 @@
-// 主题智能体卡片：管理员看到启用开关与编辑入口，分析员看到只读列表和「开始问数」。
+// 智能体卡片：管理员看到启用开关与编辑入口，分析员看到只读列表和「开始问数」。
 
 import * as core from '../core/runtime.js';
 
@@ -31,7 +31,7 @@ function renderThemeTable() {
   const themes = managedThemes();
   if (!themes.length) {
     return emptyState(
-      canManage ? '尚未配置主题智能体' : '暂无已授权的智能体，请联系管理员开通',
+      canManage ? '尚未配置智能体' : '暂无已授权的智能体，请联系管理员开通',
       'bot',
     );
   }

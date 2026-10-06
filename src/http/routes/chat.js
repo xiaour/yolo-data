@@ -28,6 +28,7 @@ export function registerChatRoutes(table) {
           preferredChart: body.preferredChart,
           clarificationOptionId: body.clarificationOptionId,
           modelId: body.modelId ? Number(body.modelId) : null,
+          attachmentArtifactIds: body.attachmentArtifactIds,
           signal: abortController.signal,
           onEvent: writeEvent,
         });
@@ -71,6 +72,7 @@ export function registerChatRoutes(table) {
         preferredChart: body.preferredChart === 'auto' ? 'auto' : body.preferredChart,
         clarificationOptionId: body.clarificationOptionId,
         modelId: body.modelId ? Number(body.modelId) : null,
+        attachmentArtifactIds: body.attachmentArtifactIds,
       });
       sendJson(response, 200, result);
     },

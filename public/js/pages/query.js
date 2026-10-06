@@ -1,6 +1,12 @@
 import * as core from '../core/runtime.js';
 import { renderDataTable } from '../components/table.js';
 import {
+  bindFileUpload,
+  clearLocalFileUploads,
+  fileUploadMarkup,
+  pendingUploadAttachments,
+} from '../components/fileUpload.js';
+import {
   isProcessArtifact,
   renderProcessArtifactView,
   renderWorkspaceArtifactList,
@@ -102,6 +108,7 @@ async function renderQueryPage(root) {
                 )).join('')}
               </div>
             ` : ''}
+            ${fileUploadMarkup()}
             <div class="chat-input-shell">
               <textarea class="chat-input" id="questionInput" rows="1" placeholder="继续追问，例如：那按渠道拆开呢" aria-label="问数问题"></textarea>
               <div class="chat-input-actions">
@@ -127,7 +134,7 @@ async function renderQueryPage(root) {
               </div>
             </div>
             <div class="composer-hint">
-              <span>Enter 发送，Shift + Enter 换行</span>
+              <span>Enter 发送</span>
             </div>
           </div>
         </footer>
@@ -136,6 +143,13 @@ async function renderQueryPage(root) {
   `;
 
   syncThemeBreadcrumb();
+  bindFileUpload(root, {
+    ensureSession: ensureActiveSession,
+    onUploaded: async () => {
+      await loadWorkspaceForSession();
+      refreshSessionList();
+    },
+  });
   document.getElementById('runQueryBtn').addEventListener('click', runQuestion);
   document.getElementById('stopQueryBtn').addEventListener('click', stopQuestion);
   document.getElementById('chatModelSelect')?.addEventListener('change', (event) => {
@@ -146,10 +160,12 @@ async function renderQueryPage(root) {
   });
   const input = document.getElementById('questionInput');
   input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      runQuestion();
+    // Enter 直接发送，不再保留 Shift + Enter 换行快捷键；输入法联想中的回车不触发发送。
+    if (event.key !== 'Enter' || event.isComposing) {
+      return;
     }
+    event.preventDefault();
+    runQuestion();
   });
   input.addEventListener('input', () => {
     input.style.height = 'auto';
@@ -328,6 +344,7 @@ function bindSessionList() {
 }
 
 async function loadChatSession(sessionId) {
+  clearLocalFileUploads();
   const session = state.chatSessions.find((item) => Number(item.id) === Number(sessionId));
   if (!session) {
     return;
@@ -343,6 +360,7 @@ async function loadChatSession(sessionId) {
 
 function startNewSession(render = true) {
   stopWelcomePlaceholderRotation();
+  clearLocalFileUploads();
   state.activeSessionId = null;
   state.chatMessages = [];
   state.chatStream = null;
@@ -663,11 +681,33 @@ function renderLiveExecution() {
   `;
 }
 
+// 提问气泡里显式回显本轮引用的本地文件，避免"上传了但看不出有没有带上"。
+function renderQuestionAttachments(attachments) {
+  const list = Array.isArray(attachments) ? attachments : [];
+  if (list.length === 0) {
+    return '';
+  }
+  const chips = list.map((item) => {
+    const title = item.title ?? item.name ?? '本地文件';
+    const name = item.name ?? item.title ?? '本地文件';
+    return `<span class="user-bubble-file" title="${escapeAttr(title)}">`
+      + `${icon('file-spreadsheet', '本地文件')}`
+      + `<span class="user-bubble-file-name">${escapeHtml(name)}</span>`
+      + '</span>';
+  }).join('');
+  return `<div class="user-bubble-files">${chips}</div>`;
+}
+
 function renderChatMessage(message) {
   if (message.role === 'user') {
+    const attachments = message.attachments ?? message.result?.attachments ?? [];
+    // .user-bubble 使用 white-space: pre-wrap，气泡内标签之间不能有换行和缩进，
+    // 否则会被当成真实空白渲染成空行，把气泡撑高。
+    const bubble = `<div class="user-bubble-text">${escapeHtml(message.content)}</div>`
+      + renderQuestionAttachments(attachments);
     return `
       <div class="chat-message is-user" data-user-question="${message.id}">
-        <div class="chat-bubble user-bubble">${escapeHtml(message.content)}</div>
+        <div class="chat-bubble user-bubble">${bubble}</div>
         <span class="user-avatar">${escapeHtml(initials(state.currentUser?.displayName))}</span>
       </div>
     `;
@@ -1382,10 +1422,12 @@ async function runQuestion({ clarificationOptionId = '' } = {}) {
   }
   try {
     const session = await ensureActiveSession();
+    const attachments = pendingUploadAttachments();
     state.chatMessages.push({
       id: `local-${Date.now()}`,
       role: 'user',
       content: question,
+      attachments,
       result: {},
       createdAt: new Date().toISOString(),
     });
@@ -1400,6 +1442,8 @@ async function runQuestion({ clarificationOptionId = '' } = {}) {
     };
     input.value = '';
     input.style.height = 'auto';
+    // 附件已随本轮提问提交，清空待提交区；气泡里仍会显示本轮引用的文件。
+    clearLocalFileUploads();
     refreshChatTimeline();
     scrollChatToBottom(true);
     const answer = await streamApi('/api/chat/query/stream', {
@@ -1410,6 +1454,9 @@ async function runQuestion({ clarificationOptionId = '' } = {}) {
         question,
         preferredChart: 'auto',
         modelId: state.selectedModelId ?? null,
+        ...(attachments.length > 0
+          ? { attachmentArtifactIds: attachments.map((item) => item.artifactId) }
+          : {}),
         ...(clarificationOptionId ? { clarificationOptionId } : {}),
       }),
       signal: state.chatAbortController.signal,

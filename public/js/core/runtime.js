@@ -5,7 +5,7 @@ import {
   notifyUnauthorized,
   readSession,
   renderUserSelect,
-  setReplayGuideHandler,
+  setReplayGuideHandler, setOpenMemoryHandler,
   showLogin,
 } from '../components/authGate.js';
 
@@ -50,20 +50,20 @@ const ICONS = {
   workflow: '<circle cx="6" cy="5" r="2"/><circle cx="18" cy="5" r="2"/><circle cx="12" cy="19" r="2"/><path d="M8 5h4M14 5h4M8 7v6a4 4 0 0 0 4 4M16 7v6a4 4 0 0 1-4 4"/>',
   database: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7"/>',
   copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
-  map: '<path d="m9 3-6 2v16l6-2 6 2 6-2V3l-6 2-6-2Z"/><path d="M9 3v16M15 5v16"/>', 'life-buoy': '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m5.6 5.6 3.5 3.5M14.9 14.9l3.5 3.5M18.4 5.6l-3.5 3.5M9.1 14.9l-3.5 3.5"/>',
+  'life-buoy': '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="m5.6 5.6 3.5 3.5M14.9 14.9l3.5 3.5M18.4 5.6l-3.5 3.5M9.1 14.9l-3.5 3.5"/>',
 };
 
 const PAGE_META = {
   query: ['开始问数', '面向业务主题的自然语言指标查询'],
   indicators: ['指标体系', '实时读取指标类型、口径和指标详情'],
   models: ['模型管理', '统一管理模型连接、运行参数和平台默认模型'],
-  themes: ['主题智能体', '按业务主题限定指标范围、维度和回答策略'],
-  themeEditor: ['编辑主题智能体', '配置主题的数据范围、运行模型、Skills 和独立提示词'],
+  themes: ['智能体', '按业务主题限定指标范围、维度和回答策略'],
+  themeEditor: ['编辑智能体', '配置主题的数据范围、运行模型、Skills 和独立提示词'],
   datasets: ['数据集', '管理 Doris 数据源、业务数据集和字段语义'],
   permissions: ['数据权限', '配置用户可见主题、指标、行级过滤和列级脱敏'],
   growth: ['质量运营', '跟踪用户反馈、知识缺口与 LLM 调用质量'],
-  audit: ['运行审计', '跟踪指标连接、权限变更和智能问数执行记录'],
-  settings: ['系统设置', '配置指标平台模块和平台运行策略'],
+  audit: ['运行审计', '跟踪指标连接、权限变更、智能问数执行和数据集查询记录'],
+  settings: ['系统设置', '配置指标平台模块和平台运行策略'], memory: ['记忆管理', '查看与清理用户沉淀的会话记忆'],
   guide: ['使用引导', '按角色完成关键动作，从登录到第一次自主问数'], help: ['帮助中心', '搜索问题，或按角色浏览文档'],
 };
 
@@ -80,6 +80,8 @@ const state = {
   dataSources: [],
   models: [],
   datasetTab: 'datasets',
+  auditTab: 'platform',
+  memoryUserId: null,
   selectedThemeId: null,
   selectedModelId: null,
   indicators: [],
@@ -631,7 +633,7 @@ function getTheme(themeId = state.selectedThemeId) {
   return managed.find((theme) => Number(theme.id) === Number(themeId));
 }
 
-// 普通分析员只保留「开始问数」和只读的「主题智能体」，其余管理面直接不展示。
+// 普通分析员只保留「开始问数」和只读的「智能体」，其余管理面直接不展示。
 function applyRoleVisibility() {
   const admin = String(state.currentUser?.role ?? '').toUpperCase() === 'ADMIN';
   document.getElementById('mainNav').dataset.role = admin ? 'ADMIN' : 'ANALYST';
@@ -840,7 +842,9 @@ function setActivePage(page) {
       );
     });
   }
-  const activeNavPage = page === 'themeEditor' ? 'themes' : page;
+  // 合并入口的导航高亮：/guide 归「帮助中心」，/models 与主题编辑页归「智能体」。
+  const navPageMap = { themeEditor: 'themes', models: 'themes', guide: 'help' };
+  const activeNavPage = navPageMap[page] ?? page;
   document.querySelectorAll('.nav-item').forEach((item) => {
     item.classList.toggle('is-active', item.dataset.page === activeNavPage);
   });
@@ -885,7 +889,7 @@ async function loadBootstrap(userId) {
   }
   renderRuntime(state.bootstrap.health);
   renderUserSelect(state.currentUser);
-  setReplayGuideHandler(() => guideTour('replay'));
+  setReplayGuideHandler(() => guideTour('replay')); setOpenMemoryHandler(() => navigate('/memory'));
   applyRoleVisibility();
 }
 
@@ -899,7 +903,7 @@ const pageModuleSpecs = {
   permissions: () => import('../pages/admin.js'),
   growth: () => import('../pages/growth.js'),
   audit: () => import('../pages/audit.js'),
-  settings: () => import('../pages/settings.js'),
+  settings: () => import('../pages/settings.js'), memory: () => import('../pages/memory.js'),
   guide: () => import('../pages/guide.js'), help: () => import('../pages/help.js'),
 };
 const pageModuleCache = new Map();
@@ -913,7 +917,7 @@ const pageRenderers = {
   permissions: 'renderPermissionsPage',
   growth: 'renderGrowthPage',
   audit: 'renderAuditPage',
-  settings: 'renderSettingsPage',
+  settings: 'renderSettingsPage', memory: 'renderMemoryPage',
   guide: 'renderGuidePage', help: 'renderHelpPage',
 };
 const queryHooks = {};
@@ -928,7 +932,7 @@ const routeMatchers = [
   { pattern: /^\/permissions$/, page: 'permissions' },
   { pattern: /^\/growth$/, page: 'growth' },
   { pattern: /^\/audit$/, page: 'audit' },
-  { pattern: /^\/settings$/, page: 'settings' },
+  { pattern: /^\/settings$/, page: 'settings' }, { pattern: /^\/memory$/, page: 'memory' },
   { pattern: /^\/guide$/, page: 'guide' }, { pattern: /^\/help$/, page: 'help' },
 ];
 

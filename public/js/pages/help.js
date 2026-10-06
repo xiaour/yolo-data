@@ -1,10 +1,12 @@
 // 帮助中心页面模块：搜索 + 分类卡 + 文章视图（内容来自 public/docs/help/*.md）。
 import * as core from '../core/runtime.js';
+import { HELP_TABS, bindSectionTabs, sectionTabsMarkup } from '../components/sectionTabs.js';
 
 const {
   ICONS,
   escapeHtml,
   toast,
+  navigate,
   renderSafeMarkdown,
 } = core;
 
@@ -28,16 +30,18 @@ const HELP_CATS = [
   { id: 'quick', name: '快速上手', icon: 'compass', desc: '第一次使用，从这里开始' },
   { id: 'skill', name: '问数技巧', icon: 'sparkles', desc: '把问题问清楚，答案更稳定' },
   { id: 'admin', name: '管理员配置', icon: 'settings', desc: '模型、数据集、主题与权限' },
-  { id: 'concept', name: '核心概念', icon: 'book', desc: '主题智能体 / 指标口径 / 查询契约' },
+  { id: 'concept', name: '核心概念', icon: 'book', desc: '智能体 / 指标口径 / 查询契约' },
   { id: 'faq', name: '常见问题', icon: 'life-buoy', desc: '排错与口径差异排查' },
+  { id: 'file', name: '本地文件', icon: 'file', desc: '上传表格，与问数结果一起算' },
 ];
 
 const HELP_ARTICLES = [
   { id: 'quick-start', cat: 'quick', title: '快速上手（分析员）', file: '01-quick-start.md', kw: '登录 角色 工作台 主题 提问 追问 导出 第一次' },
   { id: 'query-skills', cat: 'skill', title: '问数技巧与提问模板', file: '02-query-skills.md', kw: '对象 指标 时间 同比 环比 TOP 排名 占比 模板 反问' },
   { id: 'admin-guide', cat: 'admin', title: '管理员配置指南', file: '03-admin-guide.md', kw: '模型 数据集 智能识别 Doris MySQL 字段 主题 权限 审计 上线检查' },
-  { id: 'core-concepts', cat: 'concept', title: '核心概念速查', file: '04-core-concepts.md', kw: '主题智能体 指标口径 查询契约 T-1 工作区产物 会话记忆' },
+  { id: 'core-concepts', cat: 'concept', title: '核心概念速查', file: '04-core-concepts.md', kw: '智能体 指标口径 查询契约 T-1 工作区产物 会话记忆' },
   { id: 'faq', cat: 'faq', title: '常见问题与排错', file: '05-faq.md', kw: '数字对不上 含税 未税 未配置 导出 CSV XLSX 密码 会话失效' },
+  { id: 'local-file', cat: 'file', title: '结合本地文件算数', file: '06-local-file.md', kw: '上传 本地文件 附件 CSV XLS XLSX Excel 对账 合并 预算 编码 截断 行数 配额' },
 ];
 
 let docsPromise = null;
@@ -127,6 +131,8 @@ export async function renderHelpPage(root) {
   ensureDocs();
   root.innerHTML = `
     <div class="onboarding-page help-page">
+      ${sectionTabsMarkup(HELP_TABS, 'help', '使用引导与帮助中心')}
+
       <div class="help-search-wrap">
         <span class="help-search-icon">${pageIcon('search')}</span>
         <input class="help-search" id="helpSearch" type="search" autocomplete="off"
@@ -210,6 +216,7 @@ export async function renderHelpPage(root) {
     renderResults(searchInput.value);
   });
 
+  bindSectionTabs(root, navigate);
   page.addEventListener('click', (event) => {
     const button = event.target.closest('[data-article]');
     if (button) {
@@ -227,6 +234,8 @@ export async function renderHelpArticle(root, articleId) {
 
   root.innerHTML = `
     <div class="onboarding-page help-article-page">
+      ${sectionTabsMarkup(HELP_TABS, 'help', '使用引导与帮助中心')}
+
       <div class="article-layout">
         <aside class="article-toc">
           <div class="toc-label">本页目录</div>
@@ -290,6 +299,13 @@ export async function renderHelpArticle(root, articleId) {
     });
   });
 
+  bindSectionTabs(root, navigate, {
+    onActiveTab: (tabId) => {
+      if (tabId === 'help') {
+        renderHelpPage(root);
+      }
+    },
+  });
   root.querySelector('[data-help-home]').addEventListener('click', () => renderHelpPage(root));
   root.querySelectorAll('[data-article-nav]').forEach((button) => {
     button.addEventListener('click', () => renderHelpArticle(root, button.dataset.articleNav));

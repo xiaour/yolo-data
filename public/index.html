@@ -9,6 +9,8 @@
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/tokens.css" />
     <link rel="stylesheet" href="/onboarding.css" />
+    <link rel="stylesheet" href="/uploads.css" />
+    <link rel="stylesheet" href="/memory.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -32,11 +34,8 @@
           <button class="nav-item" data-page="indicators" type="button">
             <span data-icon="library"></span><span>指标体系</span>
           </button>
-          <button class="nav-item" data-page="models" type="button">
-            <span data-icon="brain-circuit"></span><span>模型管理</span>
-          </button>
           <button class="nav-item" data-page="themes" type="button">
-            <span data-icon="bot"></span><span>主题智能体</span>
+            <span data-icon="bot"></span><span>智能体</span>
           </button>
           <button class="nav-item" data-page="datasets" type="button">
             <span data-icon="database"></span><span>数据集</span>
@@ -55,9 +54,6 @@
             <span data-icon="settings"></span><span>系统设置</span>
           </button>
           <div class="nav-group-label">帮助</div>
-          <button class="nav-item" data-page="guide" type="button">
-            <span data-icon="map"></span><span>使用引导</span>
-          </button>
           <button class="nav-item" data-page="help" type="button">
             <span data-icon="life-buoy"></span><span>帮助中心</span>
           </button>
@@ -111,6 +107,7 @@
                   <small id="userMenuRole"></small>
                 </div>
                 <button class="user-menu-item" type="button" data-action="tour">重播使用引导</button>
+                <button class="user-menu-item" type="button" data-action="memory">我的记忆</button>
                 <button class="user-menu-item" type="button" data-action="password">修改密码</button>
                 <button class="user-menu-item is-danger" type="button" data-action="logout">退出登录</button>
               </div>

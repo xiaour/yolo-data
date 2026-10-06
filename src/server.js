@@ -26,6 +26,8 @@ import { registerThemeRoutes } from './http/routes/themes.js';
 import { registerDatasetRoutes } from './http/routes/datasets.js';
 import { registerIndicatorRoutes } from './http/routes/indicators.js';
 import { registerChatRoutes } from './http/routes/chat.js';
+import { registerUploadRoutes } from './http/routes/uploads.js';
+import { registerMemoryRoutes } from './http/routes/memory.js';
 import { registerAuthRoutes } from './http/routes/auth.js';
 
 // Declarative route table (P0-8). Dispatch and the generated OpenAPI document
@@ -40,6 +42,8 @@ export function buildRouteTable() {
   registerDatasetRoutes(table);
   registerIndicatorRoutes(table);
   registerChatRoutes(table);
+  registerUploadRoutes(table);
+  registerMemoryRoutes(table);
   return table;
 }
 
@@ -83,6 +87,7 @@ export async function startServer(configOverride, indicatorClientOverride = null
     indicatorClient,
     agent,
     workspace,
+    uploads: application.uploads,
     router,
     supersonicAvailable,
     renderMetrics,

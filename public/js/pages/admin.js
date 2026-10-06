@@ -26,7 +26,6 @@ const {
   formatPresentationText,
   formatPresentationCell,
   presentationChartValue,
-  formatDurationSeconds,
   formatDate,
   formatTemporalValue,
   isTemporalColumn,
@@ -117,14 +116,13 @@ async function renderDatasetsPage(root) {
     return;
   }
   root.innerHTML = `<div class="loading-state"><span class="spinner"></span>正在读取数据源和数据集</div>`;
-  const [sources, datasets, logs] = await Promise.all([
+  const [sources, datasets] = await Promise.all([
     api('/api/data-sources'),
     api('/api/business-datasets'),
-    api('/api/dataset-query-logs?limit=100'),
   ]);
   state.dataSources = sources;
   state.businessDatasets = datasets;
-  if (!['datasets', 'sources', 'audit'].includes(state.datasetTab)) {
+  if (!['datasets', 'sources'].includes(state.datasetTab)) {
     state.datasetTab = 'datasets';
   }
   const tabContent = state.datasetTab === 'datasets'
@@ -135,27 +133,19 @@ async function renderDatasetsPage(root) {
       </div>
       ${renderBusinessDatasetsTable(datasets)}
     `
-    : state.datasetTab === 'sources'
-      ? `
-        <div class="dataset-tab-head">
-          <div><h2>数据源</h2><p>密码使用 AES-GCM 加密保存，连接默认只读。</p></div>
-          <button class="btn btn-primary" id="addDatasourceBtn" type="button">新增数据源</button>
-        </div>
-        ${renderDatasetSourcesTable(sources)}
-      `
-      : `
-        <div class="dataset-tab-head">
-          <div><h2>查询审计</h2><p>最近 100 次业务数据集查询，点击行查看完整 SQL。</p></div>
-        </div>
-        ${renderDatasetQueryLogs(logs)}
-      `;
+    : `
+      <div class="dataset-tab-head">
+        <div><h2>数据源</h2><p>密码使用 AES-GCM 加密保存，连接默认只读。</p></div>
+        <button class="btn btn-primary" id="addDatasourceBtn" type="button">新增数据源</button>
+      </div>
+      ${renderDatasetSourcesTable(sources)}
+    `;
   root.innerHTML = `
     <div class="page-stack">
       <section class="section-band">
         <div class="tabs" role="tablist" aria-label="数据集管理分区">
           <button class="tab${state.datasetTab === 'datasets' ? ' is-active' : ''}" data-dataset-tab="datasets" type="button">业务数据集<small>${datasets.length}</small></button>
           <button class="tab${state.datasetTab === 'sources' ? ' is-active' : ''}" data-dataset-tab="sources" type="button">数据源<small>${sources.length}</small></button>
-          <button class="tab${state.datasetTab === 'audit' ? ' is-active' : ''}" data-dataset-tab="audit" type="button">查询审计<small>${logs.length}</small></button>
         </div>
         <div class="dataset-tab-body">${tabContent}</div>
       </section>
@@ -210,27 +200,6 @@ async function renderDatasetsPage(root) {
   root.querySelectorAll('[data-profile-dataset]').forEach((button) => {
     button.addEventListener('click', () => openDatasetProfiler(button.dataset.profileDataset));
   });
-  root.querySelectorAll('[data-dataset-log-id]').forEach((row) => {
-    row.addEventListener('click', () => {
-      const log = logs.find((item) => String(item.id) === String(row.dataset.datasetLogId));
-      if (!log) {
-        return;
-      }
-      openModal({
-        title: 'SQL 查询详情',
-        editor: true,
-        body: `
-          <div class="answer-meta">
-            <span class="meta-pill">${escapeHtml(log.userName || '-')}</span>
-            <span class="meta-pill">${escapeHtml(log.datasetName || '-')}</span>
-            <span class="meta-pill">${log.rowCount} 行</span>
-            <span class="meta-pill">${formatDurationSeconds(log.latencyMs)}</span>
-          </div>
-          <pre class="sql-review">${escapeHtml(log.sqlText || log.errorMessage || '-')}</pre>
-        `,
-      });
-    });
-  });
 }
 
 function renderBusinessDatasetsTable(datasets) {
@@ -276,29 +245,6 @@ function renderDatasetSourcesTable(sources) {
               <td><button class="btn btn-small" data-test-source="${source.id}" type="button">测试连接</button></td>
             </tr>
           `).join('') || '<tr><td colspan="6">暂无数据源</td></tr>'}
-        </tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderDatasetQueryLogs(logs) {
-  return `
-    <div class="data-table-wrap">
-      <table class="data-table">
-        <thead><tr><th>时间</th><th>用户</th><th>数据集</th><th>行数</th><th>耗时</th><th>状态</th><th>SQL</th></tr></thead>
-        <tbody>
-          ${logs.map((log) => `
-            <tr class="is-clickable" data-dataset-log-id="${log.id}">
-              <td>${escapeHtml(formatDate(log.createdAt))}</td>
-              <td>${escapeHtml(log.userName || '-')}</td>
-              <td>${escapeHtml(log.datasetName || '-')}</td>
-              <td>${log.rowCount}</td>
-              <td>${formatDurationSeconds(log.latencyMs)}</td>
-              <td><span class="tag ${log.success ? 'tag-teal' : 'tag-red'}">${log.success ? '成功' : '失败'}</span></td>
-              <td class="mono"><span class="table-cell-clamp">${escapeHtml(log.sqlText || log.errorMessage || '-')}</span></td>
-            </tr>
-          `).join('') || '<tr><td colspan="7">暂无查询记录</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -661,7 +607,6 @@ export {
   renderDatasetsPage,
   renderBusinessDatasetsTable,
   renderDatasetSourcesTable,
-  renderDatasetQueryLogs,
   openDatasourceEditor,
   openDatasetCreator,
   sampleDataset,

@@ -1,9 +1,11 @@
 import * as core from '../core/runtime.js';
+import { ASSET_TABS, bindSectionTabs, sectionTabsMarkup } from '../components/sectionTabs.js';
 
 const {
   state,
   icon,
   api,
+  navigate,
   toast,
   openModal,
   closeModal,
@@ -129,7 +131,13 @@ function openModelEditor(model = null) {
 
 async function renderModelsPage(root) {
   if (state.currentUser?.role !== 'ADMIN') {
-    root.innerHTML = `<div class="section-band">${emptyState('模型管理仅对平台管理员开放', 'brain-circuit')}</div>`;
+    root.innerHTML = `
+      <div class="page-stack">
+        ${sectionTabsMarkup(ASSET_TABS, 'models', '智能体与模型管理')}
+        <div class="section-band">${emptyState('模型管理仅对平台管理员开放', 'brain-circuit')}</div>
+      </div>
+    `;
+    bindSectionTabs(root, navigate);
     return;
   }
   root.innerHTML = '<div class="loading-state"><span class="spinner"></span>正在读取模型配置</div>';
@@ -137,11 +145,12 @@ async function renderModelsPage(root) {
   state.models = models;
   root.innerHTML = `
     <div class="page-stack">
+      ${sectionTabsMarkup(ASSET_TABS, 'models', '智能体与模型管理')}
       <div class="page-toolbar">
         <div class="section-head">
           <div>
             <h2>模型管理</h2>
-            <p>统一维护模型服务、密钥来源、运行参数和默认模型；主题智能体从模型库中选择可用模型。</p>
+            <p>统一维护模型服务、密钥来源、运行参数和默认模型；智能体从模型库中选择可用模型。</p>
           </div>
           <button class="btn btn-primary" id="addModelBtn" type="button">${icon('plus', '新增模型')}新增模型</button>
         </div>
@@ -187,6 +196,7 @@ async function renderModelsPage(root) {
     </div>
   `;
 
+  bindSectionTabs(root, navigate);
   document.getElementById('addModelBtn').addEventListener('click', () => openModelEditor());
   root.querySelectorAll('[data-edit-model]').forEach((button) => {
     button.addEventListener('click', () => {

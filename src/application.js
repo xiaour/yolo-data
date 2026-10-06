@@ -20,6 +20,7 @@ import { configureBusinessLexicon, getPlatformLexicon } from './businessLexicon.
 import { WorkspaceService } from './workspace.js';
 import { SemanticValueRegistry } from './semanticValues.js';
 import { CodeExecutionService } from './codeExecution.js';
+import { UploadService } from './uploads.js';
 import { describeIndicatorSource } from './indicatorSource.js';
 import { assertGateCoverage } from './gateRegistry.js';
 import { STAGE_DEFINITIONS } from './workflow.js';
@@ -77,6 +78,7 @@ export async function createApplication(
     workspace,
     config,
   });
+  const uploads = new UploadService({ database, workspace, config });
   const semanticValues = new SemanticValueRegistry(database);
   const agent = new MetricAgentService({
     database,
@@ -374,6 +376,7 @@ export async function createApplication(
     businessDatasets,
     workspace,
     codeExecution,
+    uploads,
     harnessFactory,
     agent,
     runtime,

@@ -32,12 +32,13 @@ export class SessionMemoryStore {
     return this.database.deleteChatSession(sessionId, userId);
   }
 
-  appendUserMessage(sessionId, userId, content) {
+  appendUserMessage(sessionId, userId, content, result = {}) {
     return this.database.appendChatMessage({
       sessionId,
       userId,
       role: 'user',
       content,
+      result,
     });
   }
 

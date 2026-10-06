@@ -1,6 +1,7 @@
 import * as core from '../core/runtime.js';
 import { openDatasetFields } from '../components/datasetFields.js';
 import { bindThemeStatusToggles, mountThemeStatusBadge } from '../components/themeStatus.js';
+import { ASSET_TABS, bindSectionTabs, sectionTabsMarkup } from '../components/sectionTabs.js';
 import {
   isAdminUser,
   managedThemes,
@@ -67,13 +68,14 @@ async function renderThemesPage(root) {
   const canManage = isAdminUser();
   root.innerHTML = `
     <div class="page-stack">
+      ${canManage ? sectionTabsMarkup(ASSET_TABS, 'themes', '智能体与模型管理') : ''}
       <div class="page-toolbar">
         <div class="section-head">
           <div>
-            <h2>主题智能体</h2>
-            <p>${canManage ? '每个主题独立限定指标范围、分析维度和回答策略。' : '这里列出你已授权的智能体，点击可进入问数。'}</p>
+            <h2>智能体</h2>
+            <p>${canManage ? '每个智能体独立限定指标范围、分析维度和策略。' : '这里列出你已授权的智能体，点击可进入问数。'}</p>
           </div>
-          ${canManage ? `<button class="btn btn-primary" id="addThemeBtn" type="button">${icon('plus', '新建主题')}新建主题</button>` : ''}
+          ${canManage ? `<button class="btn btn-primary" id="addThemeBtn" type="button">${icon('plus', '新建智能体')}新建智能体</button>` : ''}
         </div>
       </div>
       <div>
@@ -81,6 +83,7 @@ async function renderThemesPage(root) {
       </div>
     </div>
   `;
+  bindSectionTabs(root, navigate);
   root.querySelectorAll('[data-theme-query]').forEach((button) => {
     button.addEventListener('click', () => {
       state.selectedThemeId = Number(button.dataset.themeQuery);
@@ -152,15 +155,16 @@ async function renderThemeEditorPage(root, theme) {
   const semanticValueConfig = theme?.semanticValueConfig ?? {};
   document.getElementById('pageTitle').textContent = theme
     ? `编辑「${theme.name}」`
-    : '新建主题智能体';
+    : '新建智能体';
   document.getElementById('pageSubtitle').textContent = theme
     ? '调整数据范围、运行模型、Skills 和独立提示词'
     : '创建绑定指标、数据集和运行策略的业务智能体';
   root.innerHTML = `
     <div class="theme-editor-page">
+      ${isAdminUser() ? sectionTabsMarkup(ASSET_TABS, 'themes', '智能体与模型管理') : ''}
       <header class="theme-editor-page-head">
         <button class="btn btn-quiet" type="button" data-theme-editor-back>
-          ${icon('arrow-left', '返回主题列表')}返回主题列表
+          ${icon('arrow-left', '返回智能体列表')}返回智能体列表
         </button>
         ${theme ? `
         <button class="tag ${theme.status === 0 ? 'tag-red' : 'tag-teal'} theme-status-toggle" type="button"
@@ -327,7 +331,7 @@ async function renderThemeEditorPage(root, theme) {
               <div class="check-grid">
                 ${allIndicators.length === 0
                   ? `<div class="muted">${indicatorSource === 'UNAVAILABLE'
-                    ? '未接入指标平台，且本地无指标快照，暂无可选指标；主题智能体仍可正常编辑和保存。'
+                    ? '未接入指标平台，且本地无指标快照，暂无可选指标；智能体仍可正常编辑和保存。'
                     : '暂无可选指标。'}</div>`
                   : allIndicators.map((indicator) => `
                   <label class="check-item">
@@ -381,6 +385,13 @@ async function renderThemeEditorPage(root, theme) {
       </footer>
     </div>
   `;
+  bindSectionTabs(root, navigate, {
+    onActiveTab: (tabId) => {
+      if (tabId === 'themes') {
+        navigate('/themes');
+      }
+    },
+  });
   const modal = root.querySelector('.theme-editor-page');
   modal.querySelectorAll('[data-theme-editor-back]').forEach((button) => (
     button.addEventListener('click', () => navigate('/themes'))

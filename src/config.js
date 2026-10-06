@@ -81,6 +81,19 @@ export function loadConfig(env = process.env) {
       String(env.CODE_EXECUTION_ROOT ?? './data/code-runs').trim(),
     ),
     pythonBin: String(env.PYTHON_BIN ?? 'python').trim() || 'python',
+    uploads: {
+      maxBytes: Math.max(1, readInt(env.UPLOAD_MAX_BYTES, 8 * 1024 * 1024)),
+      maxFilesPerSession: Math.max(1, readInt(env.UPLOAD_MAX_FILES_PER_SESSION, 20)),
+      maxTotalBytesPerSession: Math.max(1, readInt(
+        env.UPLOAD_MAX_TOTAL_BYTES_PER_SESSION,
+        40 * 1024 * 1024,
+      )),
+      maxTableRows: Math.max(1, readInt(env.UPLOAD_MAX_TABLE_ROWS, 50_000)),
+      allowedExtensions: parsePathList(
+        env.UPLOAD_ALLOWED_EXTENSIONS,
+        ['csv', 'xls', 'xlsx'],
+      ),
+    },
     nodeEnv,
     authMode,
     sessionTtlHours: Math.max(1, readInt(env.SESSION_TTL_HOURS, 12)),

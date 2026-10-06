@@ -33,6 +33,7 @@ import { aggregateRowsByTimeGrain } from './timeAggregation.js';
 import { buildSemanticTaxonomyPrompt } from './analysisSemantics.js';
 import { buildSemanticPolicyPrompt } from './semanticPolicy.js';
 import { createProcessArtifactRecorder } from './processArtifacts.js';
+import { appendUserQuestionWithAttachments } from './chatAttachments.js';
 import { buildMetricResolverPrompt } from './metricResolver.js';
 import { resolveWithPlugins } from './analysisPluginRegistry.js';
 import {
@@ -63,6 +64,7 @@ import {
   PresentationPlanner,
 } from './resultPresentation.js';
 import { analyzeWithPlugins } from './analysisPluginRegistry.js';
+import { LOCAL_FILE_GUIDANCE } from './localFileGuidance.js';
 import { buildResultAnalysisText } from './resultAnalyst.js';
 import {
   applyColumnPolicies,
@@ -1579,7 +1581,8 @@ ${supersonicEnabled
 38. ${supersonicEnabled
     ? '只要当前主题存在可访问业务数据集，就必须使用业务数据集执行最终数据查询；优先使用主数据集。禁止使用指标平台指标查询返回最终数据。只有主题没有绑定任何业务数据集时，才允许把指标查询作为取数来源。'
     : '指标平台指标查询在本轮不可用。只要存在可访问业务数据集，就必须使用业务数据集执行最终数据查询；没有数据集时不得伪造取数结果。'}
-39. 问题出现“分别、各自、分开、各是”等拆分语义，并且多个值属于同一分类字段时，必须把该字段放入 dimensionFields 执行 GROUP BY；可同时保留过滤限定枚举范围，禁止只生成 IN 过滤而不生成拆解维度。`;
+39. 问题出现“分别、各自、分开、各是”等拆分语义，并且多个值属于同一分类字段时，必须把该字段放入 dimensionFields 执行 GROUP BY；可同时保留过滤限定枚举范围，禁止只生成 IN 过滤而不生成拆解维度。
+${LOCAL_FILE_GUIDANCE}`;
 }
 
 export class MetricAgentService {
@@ -1634,7 +1637,7 @@ export class MetricAgentService {
       && requestedModelId
       && !modelIds.includes(requestedModelId)
     ) {
-      throw new Error('所选模型不在当前主题智能体的可用模型列表中');
+      throw new Error('所选模型不在当前智能体的可用模型列表中');
     }
     const modelId = requestedModelId;
     const model = modelId ? this.database?.getModel?.(modelId) : null;
@@ -2107,6 +2110,7 @@ export class MetricAgentService {
     preferredChart = 'auto',
     clarificationOptionId = '',
     modelId = null,
+    attachmentArtifactIds = [],
     signal = null,
     onEvent = null,
   }, runTraceId = currentTraceId()) {
@@ -2156,7 +2160,7 @@ export class MetricAgentService {
         && (preflight.theme.modelIds ?? []).length > 0
         && !(preflight.theme.modelIds ?? []).map(Number).includes(requestedModelId)
       ) {
-        throw new Error('所选模型不在当前主题智能体的可用模型列表中');
+        throw new Error('所选模型不在当前智能体的可用模型列表中');
       }
       session = this.createSession({
         userId,
@@ -2333,7 +2337,7 @@ export class MetricAgentService {
       theme,
       onEvent: emit,
     });
-    this.memory.appendUserMessage(session.id, user.id, normalizedQuestion);
+    appendUserQuestionWithAttachments({ memory: this.memory, workspace: this.workspace, session, user, question: normalizedQuestion, artifactIds: attachmentArtifactIds });
     const answerStartedAt = Date.now();
     let lastQueryResult = null;
     let lastChart = null;

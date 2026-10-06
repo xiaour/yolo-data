@@ -201,7 +201,9 @@ const ARTIFACT_OPERATION_LABELS = {
 };
 
 function csvEscape(value) {
-  const text = value === null || value === undefined ? '' : String(value);
+  const raw = value === null || value === undefined ? '' : String(value);
+  // 上传文件等外部内容会进入导出；文本以公式字符开头时加前导单引号，避免表格软件按公式执行。
+  const text = typeof value === 'string' && /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
   return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 
@@ -349,6 +351,7 @@ export class WorkspaceService {
     runId = null,
     inputArtifactIds = [],
     size = 0,
+    source = null,
   }) {
     return this.database.createWorkspaceArtifact({
       workspaceId,
@@ -362,6 +365,7 @@ export class WorkspaceService {
         mimeType,
         size,
         purpose,
+        source,
         runId,
         inputArtifactIds,
         parentArtifactIds: inputArtifactIds,
@@ -373,6 +377,11 @@ export class WorkspaceService {
         mimeType,
       },
     });
+  }
+
+  // 通用表格产物写入：用于本地上传解析等非查询来源的表格数据。
+  createTableArtifact({ artifactType = 'TABLE', ...params }) {
+    return this.database.createWorkspaceArtifact({ artifactType, ...params });
   }
 
   createCodeArtifact({
