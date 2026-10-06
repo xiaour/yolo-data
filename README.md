@@ -168,9 +168,6 @@ npm run dev            # 启动，默认 http://localhost:8088/
 ```text
 http://localhost:8088/
 ```
-
-默认开发用户由 `config/bootstrap/default.json` 初始化：
-
 | 用户名               | 显示名称  | 角色        | 默认口令         |
 | ----------------- | ----- | --------- | ------------ |
 | `admin`           | 平台管理员 | `ADMIN`   | `yolo123456` |
@@ -220,23 +217,6 @@ node -e "import('mysql2/promise').then(m => console.log('mysql2 ok', typeof m.de
 
 ## API 示例
 
-```bash
-# 先登录并保存 Cookie（开发模式也可继续用 x-user-id 直连）
-curl -s -c cookie.txt -X POST http://localhost:8088/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"yolo123456"}'
-```
-
-### 同步问数
-
-```bash
-curl -X POST http://localhost:8088/api/chat/query \
-  -H 'Content-Type: application/json' \
-  -b cookie.txt \
-  -d '{
-    "themeId": 1,
-    "question": "近7天各区域销售额趋势如何？"
-  }'
 ```
 
 ### 流式问数
