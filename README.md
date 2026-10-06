@@ -70,7 +70,7 @@
 
 | 开始问数 | 数据集 |
 | ---- | --- |
-| ![开始问数](docs/screenshots/query.png) | ![数据集](docs/screenshots/datasets.png) |
+| ![开始问数](docs/screenshots/query.png) | ![智能体](docs/screenshots/agent.png) |
 
 ## 总体架构
 
