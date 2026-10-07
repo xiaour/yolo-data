@@ -35,6 +35,7 @@ import { buildSemanticPolicyPrompt } from './semanticPolicy.js';
 import { createProcessArtifactRecorder } from './processArtifacts.js';
 import { appendUserQuestionWithAttachments } from './chatAttachments.js';
 import { buildMetricResolverPrompt } from './metricResolver.js';
+import { USER_MEMORY_TOOLS, createUserMemoryToolHandler } from './userMemoryTools.js';
 import { resolveWithPlugins } from './analysisPluginRegistry.js';
 import {
   buildSemanticFastPathDraft,
@@ -139,6 +140,7 @@ export function buildStructuredClarification({
 }
 
 const TOOL_DEFINITIONS = [
+  ...USER_MEMORY_TOOLS,
   {
     type: 'function',
     function: {
@@ -1601,12 +1603,14 @@ export class MetricAgentService {
     workspace,
     codeExecution,
     semanticValues,
+    userMemories,
   }) {
     this.database = database;
     this.indicatorClient = indicatorClient;
     this.harness = harness;
     this.harnessFactory = harnessFactory;
     this.memory = memory;
+    this.userMemories = userMemories;
     this.skillRegistry = skillRegistry;
     this.semanticCompiler = semanticCompiler;
     this.queryContractCompiler = queryContractCompiler ?? new QueryContractCompiler();
@@ -4429,6 +4433,13 @@ export class MetricAgentService {
       });
     };
 
+    // 长期记忆检索是只读旁路：常驻上下文只放摘要，正文由这个处理器按需读取。
+    const handleUserMemoryTool = createUserMemoryToolHandler({
+      store: this.userMemories,
+      user,
+      themeId: theme?.id ?? null,
+    });
+
     const executeRawTool = async (name, args) => {
       if (name === 'compile_query_contract') {
         return compileQueryContract(args);
@@ -4454,6 +4465,8 @@ export class MetricAgentService {
         throw sourceError;
       }
       switch (name) {
+        case 'search_user_memory':
+          return handleUserMemoryTool(name, args);
         case 'search_indicators':
           return searchIndicators(args.keyword ?? '', args.limit);
         case 'get_indicator':

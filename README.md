@@ -47,7 +47,7 @@
   - 行级策略强制覆盖模型同字段条件。
   - 列级策略支持隐藏和脱敏。
 - **多轮会话与工作区**
-  - 会话记忆按用户和主题隔离。
+  - 会话记忆与长期记忆均按用户和主题隔离；长期记忆沉淀成按「用户 × 智能体」的 Markdown 手册，注入摘要、按需检索正文，并自动合并笔记、压缩超长正文。
   - 查询结果、代码执行结果、CSV、JSON、XLSX 输出均保留为工作区产物。
   - 追问优先复用已有数据快照，避免重复取数造成结果漂移。
 - **Skills**
@@ -83,7 +83,7 @@ flowchart LR
   API --> AGENT["DataAgent 编排器"]
   API --> CONFIG["主题、模型、数据集和权限配置"]
 
-  AGENT --> MEMORY["会话记忆"]
+  AGENT --> MEMORY["会话与长期记忆"]
   AGENT --> SKILL["Skill Registry"]
   AGENT --> POLICY["权限引擎"]
   AGENT --> CONTRACT["查询契约编译器"]

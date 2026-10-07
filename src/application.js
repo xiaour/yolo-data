@@ -8,6 +8,9 @@ import {
 } from './indicatorClient.js';
 import { MetricAgentService } from './agent.js';
 import { SessionMemoryStore } from './memory.js';
+import { UserMemoryStore } from './userMemory.js';
+import { UserMemoryDistiller } from './userMemoryDistiller.js';
+import { startMemoryMaintenance } from './userMemoryMaintenance.js';
 import { SkillRegistry } from './skills.js';
 import { SemanticCompiler } from './semanticCompiler.js';
 import { QueryContractCompiler } from './queryContractCompiler.js';
@@ -62,8 +65,10 @@ export async function createApplication(
     (entry) => llmAudit.record(entry),
     datasourceCrypto,
   );
+  const userMemories = new UserMemoryStore(database);
   const memory = new SessionMemoryStore(database, {
     contextLimit: config.chatMemoryMessageLimit,
+    userMemories,
   });
   const skillRegistry = new SkillRegistry(database, {
     skillDirectories: config.skillDirectories ?? [],
@@ -95,6 +100,37 @@ export async function createApplication(
     workspace,
     codeExecution,
     semanticValues,
+    userMemories,
+  });
+  // 长期记忆沉淀依赖主题可用模型：有 key 时用模型提炼并压缩，否则只沉淀用户显式要求记住的内容。
+  const userMemoryConfig = config.userMemory ?? {};
+  const userMemoryDistiller = new UserMemoryDistiller({
+    store: userMemories,
+    resolveHarness: (themeId) => harnessFactory.forTheme(
+      agent.resolveThemeModel(database.getTheme(themeId)) ?? {},
+    ),
+    autoConsolidateAt: userMemoryConfig.autoConsolidateAt,
+    compactRatio: userMemoryConfig.compactRatio,
+  });
+  memory.attachDistiller(userMemoryDistiller);
+  // 后台巡检：周期性把待合并笔记并进文档、压缩过长正文；间隔为 0 时保持关闭。
+  const memoryMaintenance = startMemoryMaintenance({
+    distiller: userMemoryDistiller,
+    intervalMs: userMemoryConfig.maintenanceIntervalMs ?? 0,
+    startupDelayMs: userMemoryConfig.maintenanceStartupDelayMs ?? 60_000,
+    batchSize: userMemoryConfig.maintenanceBatchSize ?? 20,
+    onError: (error, target) => {
+      try {
+        database.addAuditLog({
+          userId: target?.userId ?? null,
+          themeId: target?.themeId ?? null,
+          action: 'USER_MEMORY_MAINTENANCE_FAILED',
+          detail: { scopeKey: target?.scopeKey ?? null, message: error.message },
+        });
+      } catch {
+        // 审计写入失败不影响后台巡检
+      }
+    },
   });
   const runtime = {
     sourceMode: getSupersonicEnabled()
@@ -334,6 +370,7 @@ export async function createApplication(
           .length,
         sync: runtime.skillSync,
       },
+      memory: memoryMaintenance.stats(),
       counts: {
         users: database.countRows('app_users'),
         themes: database.countRows('themes'),
@@ -366,6 +403,9 @@ export async function createApplication(
     indicatorClient,
     harness,
     memory,
+    userMemories,
+    userMemoryDistiller,
+    memoryMaintenance,
     skillRegistry,
     semanticCompiler,
     queryContractCompiler,

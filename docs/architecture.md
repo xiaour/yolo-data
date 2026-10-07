@@ -113,7 +113,7 @@ flowchart LR
   API --> AGENT["DataAgent Orchestrator"]
   API --> CONFIG["平台配置与运维接口"]
 
-  AGENT --> MEMORY["会话记忆"]
+  AGENT --> MEMORY["会话与长期记忆"]
   AGENT --> SKILL["Skill Registry"]
   AGENT --> POLICY["权限引擎"]
   AGENT --> CONTRACT["查询契约与门禁"]
@@ -241,7 +241,11 @@ flowchart LR
 | `src/analysisSemantics.js` | 领域无关的数据分析条件分类，如时间、排名、趋势、拆解和归因 |
 | `src/fastQueryPath.js` | 主题语义包唯一命中时的确定性快车道判定与契约草稿生成 |
 | `src/runtimeCache.js` | 指标目录、指标详情、业务枚举、展示证据和模型展示契约的 TTL 运行时缓存 |
-| `src/memory.js` | 会话、消息和模型上下文读写 |
+| `src/memory.js` | 会话、消息和模型上下文读写，并在上下文中注入用户长期记忆 |
+| `src/userMemory.js` | 长期记忆文档、追加式笔记与版本快照的存储层（作用域、去重、启用状态、回滚） |
+| `src/userMemoryDistiller.js` | 长期记忆写入侧：会话结束后的旁路抽取、整体重写式合并与超长正文压缩，无模型时退化为只追加 |
+| `src/userMemoryMaintenance.js` | 长期记忆后台巡检调度：周期性找出待合并/待压缩的作用域并调用 distiller 自动整理 |
+| `src/userMemoryTools.js` | `search_user_memory` 工具定义与处理器：常驻摘要、按需检索正文 |
 | `src/workspace.js` | 多类型产物、血缘、派生结果和 CSV/JSON/XLSX 导出 |
 | `src/processArtifacts.js` | 把产出可读数据表的工作环节落成过程文件（数据行、血缘与步数上限） |
 | `src/artifactCapabilities.js` | 产物粒度、指标、维度、时间范围和派生字段能力清单，以及复用或最小重查决策 |
@@ -558,7 +562,8 @@ erDiagram
 | 主题默认值域 | `theme_semantic_value_domains` | 按智能体隔离的枚举规范值、别名、来源和初始化时间 |
 | 值域治理 | `semantic_value_snapshots`、`semantic_value_snapshot_items`、`semantic_value_overrides`、`semantic_value_refresh_jobs`、`semantic_value_audit_logs` | 来源、版本、完整性、人工覆盖、刷新任务和审计 |
 | 数据权限 | `row_policies`、`column_policies` | 强制行过滤和列隐藏/脱敏 |
-| 会话记忆 | `chat_sessions`、`chat_messages` | 用户级多轮会话与结构化回答 |
+| 会话记忆 | `chat_sessions`、`chat_messages` | 用户级多轮会话与结构化回答（短期上下文） |
+| 长期记忆 | `user_memory_documents`、`user_memory_notes`、`user_memory_versions` | 按「用户 × 作用域」一份 Markdown 手册、追加式笔记与可回滚版本；摘要注入上下文，正文按需检索 |
 | 工作区 | `workspaces`、`workspace_artifacts`、`artifact_versions` | 结果产物、每个数据环节的过程文件、变换和版本 |
 | 查询治理 | `query_plans` | 契约、计划、校验结果和执行证据 |
 | 质量闭环 | `qa_feedback`、`knowledge_gaps` | 用户反馈和知识缺口 |

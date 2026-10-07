@@ -1,72 +1,308 @@
-/* 记忆管理页：概要、记忆列表与消息明细。 */
-.memory-summary {
-  margin-top: 14px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
+/* 记忆管理页样式：记忆文档、笔记时间线与版本列表。
+   只负责展示，不表达任何业务口径；颜色沿用 tokens.css 的设计令牌。 */
 
 .memory-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.memory-summary {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.memory-maintenance {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-3);
+}
+
+.memory-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 12px;
+}
+
+.memory-filters label {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.memory-filters .select,
+.memory-filters .field {
+  min-width: 140px;
+}
+
+.memory-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-weak);
+  color: var(--link);
+  font-size: 12px;
+  line-height: 18px;
   white-space: nowrap;
 }
 
-.memory-actions .btn-small {
-  min-height: 24px;
-  padding: 0 10px;
-  font-size: 12px;
+.memory-tag.is-quiet {
+  background: var(--surface-2);
+  color: var(--ink-3);
 }
 
-.memory-thread {
+.memory-tag.is-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+/* 记忆文档 */
+
+.memory-doc-list {
+  display: grid;
+  gap: 14px;
+}
+
+.memory-doc {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-s);
+  padding: 16px 18px;
+}
+
+.memory-doc.is-paused {
+  border-style: dashed;
+  background: var(--surface-2);
+}
+
+.memory-doc-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.memory-doc-titles {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-height: 60vh;
-  overflow-y: auto;
-  padding-right: 4px;
+  gap: 6px;
+  min-width: 0;
 }
 
-.memory-turn {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-s, 8px);
-  padding: 10px 12px;
-  background: var(--surface);
+.memory-doc-titles h4 {
+  margin: 0;
+  font-size: 15px;
 }
 
-.memory-turn.is-user {
-  background: var(--surface-2, var(--surface));
-}
-
-.memory-turn-head {
+.memory-doc-tags {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 6px;
-  color: var(--text-3);
-  font-size: 11px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
-.memory-turn-head strong {
-  color: var(--text);
-  font-size: 12px;
+.memory-doc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
 }
 
-.memory-turn-body {
-  color: var(--text);
+.memory-doc-actions .btn {
+  white-space: nowrap;
+}
+
+.memory-doc-summary {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent-weak);
+  border-radius: var(--radius-s);
+  background: var(--surface-2);
+  color: var(--text-2);
   font-size: 13px;
   line-height: 1.7;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.memory-empty {
-  margin: 0;
+.memory-doc-summary strong {
+  margin-right: 8px;
+  color: var(--text);
+}
+
+.memory-doc-summary.is-empty {
+  border-left-color: var(--border);
+  color: var(--text-3);
+}
+
+.memory-doc-body {
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+.memory-doc-body summary {
+  cursor: pointer;
+  color: var(--link);
+  font-size: 13px;
+}
+
+.memory-doc-markdown {
+  margin-top: 8px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface-2);
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.memory-doc-markdown h2,
+.memory-doc-markdown h3 {
+  margin: 10px 0 6px;
+  font-size: 14px;
+}
+
+.memory-doc-markdown p,
+.memory-doc-markdown li {
+  margin: 4px 0;
+}
+
+.memory-doc-markdown ul {
+  padding-left: 18px;
+}
+
+.memory-doc-empty {
+  margin: 12px 0 0;
   color: var(--text-3);
   font-size: 13px;
 }
 
-@media (max-width: 960px) {
-  .memory-summary {
-    grid-template-columns: 1fr;
+.memory-doc-meta {
+  margin: 12px 0 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.memory-doc-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* 笔记时间线 */
+
+.memory-note-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-note {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+}
+
+.memory-note-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.memory-note-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.memory-note-content {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.memory-note-meta {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.memory-note-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.memory-note-actions .btn {
+  white-space: nowrap;
+}
+
+/* 版本列表 */
+
+.memory-version-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.memory-version {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+}
+
+.memory-version strong {
+  margin-right: 8px;
+}
+
+.distill-result {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.distill-result p {
+  margin: 0;
+}
+
+.distill-result ul {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+@media (max-width: 760px) {
+  .memory-doc-actions,
+  .memory-note-actions,
+  .memory-actions {
+    justify-content: flex-start;
+  }
+
+  .memory-note {
+    flex-direction: column;
   }
 }

@@ -67,7 +67,7 @@ async function renderSettingsPage(root) {
         <div class="section-head compact">
           <div>
             <h3>记忆管理</h3>
-            <p>会话记忆按「用户 × 智能体」隔离并持久沉淀。管理员可在这里查看全部用户的记忆内容、消息明细，并清理无效会话。</p>
+            <p>长期记忆按「用户 × 智能体」隔离沉淀，问数时注入上下文补全默认口径。管理员可在这里查看全部用户的记忆并清理无效条目。</p>
           </div>
           <button class="btn" id="openMemoryBtn" type="button">${icon('library', '查看全部用户记忆')}查看全部用户记忆</button>
         </div>
@@ -77,7 +77,7 @@ async function renderSettingsPage(root) {
 
   document.getElementById('openMemoryBtn').addEventListener('click', () => {
     state.memoryUserId = null;
-    navigate('/memory');
+    navigate('/memory/all');
   });
 
   document.getElementById('saveSupersonicSettingBtn').addEventListener('click', async (event) => {

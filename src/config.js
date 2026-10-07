@@ -76,6 +76,15 @@ export function loadConfig(env = process.env) {
       maxToolRounds: readInt(env.DEEPSEEK_MAX_TOOL_ROUNDS, 12),
     },
     chatMemoryMessageLimit: readInt(env.CHAT_MEMORY_MESSAGE_LIMIT, 20),
+    // 长期记忆的自动整理：攒够多少条笔记自动合并、正文到预算多少比例自动压缩、
+    // 后台巡检间隔（0 表示关闭巡检，只保留每轮问答后的顺带整理）。
+    userMemory: {
+      autoConsolidateAt: Math.max(1, readInt(env.USER_MEMORY_AUTO_CONSOLIDATE_AT, 8)),
+      compactRatio: Math.min(1, Math.max(0.2, Number(env.USER_MEMORY_COMPACT_RATIO ?? 0.8) || 0.8)),
+      maintenanceIntervalMs: Math.max(0, readInt(env.USER_MEMORY_MAINTENANCE_INTERVAL_MS, 900_000)),
+      maintenanceStartupDelayMs: Math.max(0, readInt(env.USER_MEMORY_MAINTENANCE_STARTUP_DELAY_MS, 60_000)),
+      maintenanceBatchSize: Math.max(1, readInt(env.USER_MEMORY_MAINTENANCE_BATCH_SIZE, 20)),
+    },
     codeExecutionRoot: path.resolve(
       projectRoot,
       String(env.CODE_EXECUTION_ROOT ?? './data/code-runs').trim(),

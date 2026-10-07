@@ -63,7 +63,7 @@ const PAGE_META = {
   permissions: ['数据权限', '配置用户可见主题、指标、行级过滤和列级脱敏'],
   growth: ['质量运营', '跟踪用户反馈、知识缺口与 LLM 调用质量'],
   audit: ['运行审计', '跟踪指标连接、权限变更、智能问数执行和数据集查询记录'],
-  settings: ['系统设置', '配置指标平台模块和平台运行策略'], memory: ['记忆管理', '查看与清理用户沉淀的会话记忆'],
+  settings: ['系统设置', '配置指标平台模块和平台运行策略'], memory: ['记忆管理', '查看与维护用户沉淀的长期记忆'],
   guide: ['使用引导', '按角色完成关键动作，从登录到第一次自主问数'], help: ['帮助中心', '搜索问题，或按角色浏览文档'],
 };
 
@@ -82,6 +82,7 @@ const state = {
   datasetTab: 'datasets',
   auditTab: 'platform',
   memoryUserId: null,
+  memoryScope: 'self',
   selectedThemeId: null,
   selectedModelId: null,
   indicators: [],
@@ -848,7 +849,10 @@ function setActivePage(page) {
   document.querySelectorAll('.nav-item').forEach((item) => {
     item.classList.toggle('is-active', item.dataset.page === activeNavPage);
   });
-  const [title, subtitle] = PAGE_META[page] ?? PAGE_META.themes;
+  const meta = page === 'memory' && state.memoryScope !== 'all'
+    ? ['我的记忆', '查看与维护你自己的长期记忆']
+    : PAGE_META[page] ?? PAGE_META.themes;
+  const [title, subtitle] = meta;
   document.getElementById('pageTitle').textContent = title;
   document.getElementById('pageSubtitle').textContent = subtitle;
   renderPage();
@@ -889,7 +893,11 @@ async function loadBootstrap(userId) {
   }
   renderRuntime(state.bootstrap.health);
   renderUserSelect(state.currentUser);
-  setReplayGuideHandler(() => guideTour('replay')); setOpenMemoryHandler(() => navigate('/memory'));
+  setReplayGuideHandler(() => guideTour('replay'));
+  setOpenMemoryHandler(() => {
+    state.memoryUserId = null;
+    navigate('/memory');
+  });
   applyRoleVisibility();
 }
 
@@ -932,7 +940,9 @@ const routeMatchers = [
   { pattern: /^\/permissions$/, page: 'permissions' },
   { pattern: /^\/growth$/, page: 'growth' },
   { pattern: /^\/audit$/, page: 'audit' },
-  { pattern: /^\/settings$/, page: 'settings' }, { pattern: /^\/memory$/, page: 'memory' },
+  { pattern: /^\/settings$/, page: 'settings' },
+  { pattern: /^\/memory$/, page: 'memory', memoryScope: 'self' },
+  { pattern: /^\/memory\/all$/, page: 'memory', memoryScope: 'all' },
   { pattern: /^\/guide$/, page: 'guide' }, { pattern: /^\/help$/, page: 'help' },
 ];
 
@@ -985,6 +995,9 @@ function routeFromPath(pathname = window.location.pathname) {
       continue;
     }
     const route = { page: matcher.page };
+    if (matcher.memoryScope) {
+      route.memoryScope = matcher.memoryScope;
+    }
     if (matcher.themeId === null) {
       route.themeId = null;
     } else if (matcher.page === 'themeEditor') {
@@ -1005,6 +1018,13 @@ function applyLocation() {
   const route = routeFromPath(window.location.pathname);
   if (route.page === 'themeEditor') {
     state.themeEditorThemeId = route.themeId ?? null;
+  }
+  if (route.page === 'memory') {
+    // 「我的记忆」只看本人，「记忆管理」（系统设置进入）才允许管理员查看全部用户。
+    state.memoryScope = route.memoryScope === 'all' ? 'all' : 'self';
+    if (state.memoryScope !== 'all') {
+      state.memoryUserId = null;
+    }
   }
   setActivePage(route.page);
 }

@@ -660,3 +660,42 @@ test('agent returns structured clarification options with a recommended path', a
     ['use-recommended', 'cancel'],
   );
 });
+
+test('agent wires the long-term memory tool into the tool loop', async () => {
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  await application.init();
+  const user = application.database.getUserByUsername('east_manager');
+  const theme = application.database.listThemes().find((item) => item.name === '经营总览');
+  const document = application.userMemories.ensureDocument(user.id, theme.id);
+  application.userMemories.saveConsolidated(document.id, {
+    summary: '默认按含税口径看销售额',
+    content: '## 口径偏好\n- 默认按含税口径看销售额',
+  });
+
+  let capturedTools = [];
+  let memoryLookup = null;
+  application.agent.harnessFactory = {
+    forTheme: () => ({
+      mode: 'test-memory-agent',
+      model: 'test-model',
+      capabilities: {},
+      run: async ({ tools, executeTool }) => {
+        capturedTools = tools.map((tool) => tool.function?.name ?? tool.name);
+        memoryLookup = await executeTool('search_user_memory', { query: '含税' })
+          .catch((error) => ({ error: error.message }));
+        return { content: '已按你的历史偏好核对口径。', trace: [] };
+      },
+    }),
+  };
+
+  await application.agent.answer({
+    userId: user.id,
+    themeId: theme.id,
+    question: '近7天华东销售额趋势',
+  });
+
+  assert.equal(capturedTools.includes('search_user_memory'), true);
+  assert.equal(memoryLookup?.available, true);
+  assert.equal(memoryLookup.results.length, 1);
+  assert.match(memoryLookup.results[0].excerpt, /含税口径/);
+});

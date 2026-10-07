@@ -1,7 +1,7 @@
 {
   "public/js/components/datasetProfiler.js": 181,
   "public/js/components/table.js": 94,
-  "public/js/core/runtime.js": 1151,
+  "public/js/core/runtime.js": 1216,
   "public/js/pages/admin.js": 679,
   "public/js/pages/audit.js": 139,
   "public/js/pages/growth.js": 190,
@@ -13,7 +13,7 @@
   "scripts/check-architecture.mjs": 168,
   "scripts/run-eval.mjs": 175,
   "scripts/setup.mjs": 92,
-  "src/agent.js": 5479,
+  "src/agent.js": 5541,
   "src/analysisPipeline.js": 463,
   "src/analysisPluginRegistry.js": 127,
   "src/analysisSemantics.js": 210,
