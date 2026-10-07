@@ -13,7 +13,10 @@ const baselinePath = path.join(projectRoot, 'config', 'size-baseline.json');
 const SCAN_ROOTS = ['src', 'public/js', 'scripts'];
 const SIZE_WARN = 800;
 const SIZE_NEW_LIMIT = 800;
-const GROWTH_TOLERANCE = 50;
+// 已登记文件的基线只降不升：容忍度恒为 0。否则这条规则的实际语义只是
+// 「记录当前大小」——随手抬高基线就把红灯改绿了。
+// 确需上调时必须显式承认：npm run lint:baseline -- --allow-growth=<file>
+const GROWTH_TOLERANCE = 0;
 const EXTENSIONS = new Set(['.js', '.mjs', '.css']);
 
 function listFiles(relativeRoot) {
@@ -106,7 +109,8 @@ function checkSize(files, baseline) {
         level: 'error',
         file,
         rule: 'SIZE-GROWTH',
-        message: `grew from ${baselineLines} to ${lines} lines (> +${GROWTH_TOLERANCE}); split instead of growing.`,
+        message: `grew from ${baselineLines} to ${lines} lines; 已登记文件的基线只降不升，`
+          + `请先拆分，或显式运行 npm run lint:baseline -- --allow-growth=${file}`,
       });
     } else if (lines > SIZE_WARN) {
       issues.push({
@@ -148,8 +152,33 @@ const isCli = process.argv[1]
 if (isCli) {
   const { report, issues } = runChecks();
   if (process.argv.includes('--baseline')) {
+    // 只允许「下降」自动生效；上调必须点名文件，避免顺手把红灯改绿。
+    const allowed = new Set(
+      process.argv
+        .filter((arg) => arg.startsWith('--allow-growth='))
+        .flatMap((arg) => arg.slice('--allow-growth='.length).split(','))
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+    const previous = readBaseline() ?? {};
+    const raised = report.filter((entry) => (
+      previous[entry.file] !== undefined && entry.lines > previous[entry.file]
+    ));
+    const blocked = raised.filter((entry) => !allowed.has(entry.file));
+    if (blocked.length > 0) {
+      console.error('拒绝抬高体积基线（已登记文件只降不升）：');
+      for (const entry of blocked) {
+        console.error(`  ${entry.file}: ${previous[entry.file]} -> ${entry.lines}`);
+      }
+      console.error('\n请先拆分这些文件；确需上调时点名承认：');
+      console.error('  npm run lint:baseline -- --allow-growth=<file>[,<file>]');
+      process.exit(2);
+    }
     fs.mkdirSync(path.dirname(baselinePath), { recursive: true });
     fs.writeFileSync(baselinePath, `${JSON.stringify(toBaseline(report), null, 2)}\n`, 'utf8');
+    for (const entry of raised) {
+      console.log(`  ! 已承认上调 ${entry.file}: ${previous[entry.file]} -> ${entry.lines}`);
+    }
     console.log(`Wrote size baseline with ${report.length} files -> ${path.relative(projectRoot, baselinePath)}`);
     process.exit(0);
   }

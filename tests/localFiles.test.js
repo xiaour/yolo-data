@@ -10,7 +10,8 @@ import { WorkspaceService } from '../src/workspace.js';
 import { UploadService } from '../src/uploads.js';
 import { CodeExecutionService } from '../src/codeExecution.js';
 import { parseTabularContent, detectDelimiter, decodeBuffer } from '../src/fileParsing.js';
-import { readXlsxSheet } from '../src/xlsxReader.js';
+import { openZipArchive, readXlsxSheet } from '../src/xlsxReader.js';
+import { loadConfig } from '../src/config.js';
 import { SessionMemoryStore } from '../src/memory.js';
 import {
   resolveQuestionAttachments,
@@ -182,6 +183,49 @@ test('xlsx written with data descriptors is parsed', () => {
   assert.equal(sheet.sheetName, '订单');
   assert.equal(sheet.totalRows, 2);
   assert.deepEqual(sheet.rows, [['客户', '金额'], ['甲', '12.5']]);
+});
+
+// 单条目归档（无 EOCD）用于直接验证解压上限，不依赖真实工作簿结构。
+function buildStreamingZip(name, method, payload, declaredUncompressedSize) {
+  const nameBuffer = Buffer.from(name, 'utf8');
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0);
+  local.writeUInt16LE(20, 4);
+  local.writeUInt16LE(method, 8);
+  local.writeUInt32LE(payload.length, 18);
+  local.writeUInt32LE(declaredUncompressedSize, 22);
+  local.writeUInt16LE(nameBuffer.length, 26);
+  return Buffer.concat([local, nameBuffer, payload]);
+}
+
+const TINY_LIMITS = { maxEntryBytes: 4096, maxTotalBytes: 8192, maxEntries: 16 };
+
+test('xlsx reader refuses an archive whose declared uncompressed size blows the budget', () => {
+  const oversized = buildStreamingZip('a.xml', 0, Buffer.alloc(9000, 0x41), 9000);
+  assert.throws(
+    () => openZipArchive(oversized, TINY_LIMITS),
+    (error) => error.statusCode === 400 && /体积过大/.test(error.message),
+  );
+});
+
+test('xlsx reader caps inflate output even when the declared size lies', () => {
+  // 解压炸弹：2MB 重复字节压成 ~2KB，但中央目录谎报只有 64 字节。
+  // 声明值校验会被绕过，只有 inflate 时带上限才拦得住。
+  const bomb = buildStreamingZip('a.xml', 8, zlib.deflateRawSync(Buffer.alloc(2 * 1024 * 1024, 0x41)), 64);
+  const archive = openZipArchive(bomb, TINY_LIMITS);
+  assert.ok(archive);
+  assert.throws(
+    () => archive.get('a.xml'),
+    (error) => error.statusCode === 400 && /体积过大/.test(error.message),
+  );
+});
+
+test('xlsx reader keeps tolerating a damaged entry instead of failing the parse', () => {
+  // 数据损坏（非 ERR_BUFFER_TOO_LARGE）仍然沿用旧的容错语义：返回空条目。
+  const damaged = buildStreamingZip('a.xml', 8, Buffer.from('not-a-deflate-stream'), 20);
+  const archive = openZipArchive(damaged, TINY_LIMITS);
+  assert.ok(archive);
+  assert.equal(archive.get('a.xml').length, 0);
 });
 
 test('xlsx files are parsed without pandas or other dependencies', () => {
@@ -373,7 +417,7 @@ test('upload enforces the per-session quota', () => {
 });
 
 test('uploaded table is materialized into the analysis sandbox input', async (context) => {
-  const pythonBin = process.env.PYTHON_BIN ?? 'python3';
+  const pythonBin = loadConfig().pythonBin;
   // 没有可用解释器时跳过：本用例验证的是沙箱输入物化，不是 Python 安装状态。
   const available = spawnSync(pythonBin, ['-c', 'print(1)'], { encoding: 'utf8' }).status === 0;
   if (!available) {
@@ -425,6 +469,62 @@ print('total', int(total))
       format: 'csv',
     });
     assert.match(exported.content, /350/);
+  } finally {
+    harness.database.close();
+  }
+});
+
+// 受限执行环境是威慑而非安全边界（见 docs/architecture.md），但已覆盖的越界读路径
+// 不能再退化：builtins.open / os.open / pathlib 三条路都必须被拦住。
+test('analysis code cannot read files outside its run directory', async (context) => {
+  const pythonBin = loadConfig().pythonBin;
+  const available = spawnSync(pythonBin, ['-c', 'print(1)'], { encoding: 'utf8' }).status === 0;
+  if (!available) {
+    context.skip(`未找到可用的 Python 解释器（${pythonBin}），跳过越界读路径校验`);
+    return;
+  }
+  const harness = createHarness();
+  const codeExecution = new CodeExecutionService({
+    database: harness.database,
+    workspace: harness.workspace,
+    config: { codeExecutionRoot: path.join(harness.directory, 'code-runs'), pythonBin },
+  });
+  try {
+    const work = harness.workspace.ensureForSession({
+      userId: harness.user.id,
+      themeId: harness.theme.id,
+      sessionId: harness.session.id,
+      name: '越界读路径校验',
+    });
+    const run = await codeExecution.run({
+      userId: harness.user.id,
+      workspaceId: work.id,
+      sessionId: harness.session.id,
+      purpose: '校验越界读路径被拦截',
+      code: `
+import os
+import pathlib
+
+target = os.sep.join(['', 'etc', 'hosts'])
+
+def probe(label, action):
+    try:
+        action()
+    except PermissionError:
+        print(label, 'BLOCKED')
+    else:
+        print(label, 'LEAKED')
+
+probe('builtins.open', lambda: open(target).read())
+probe('pathlib.read_text', lambda: pathlib.Path(target).read_text())
+probe('os.open', lambda: os.open(target, os.O_RDONLY))
+`,
+    });
+    assert.equal(run.success, true, run.stderr);
+    assert.match(run.stdout, /builtins\.open BLOCKED/);
+    assert.match(run.stdout, /pathlib\.read_text BLOCKED/);
+    assert.match(run.stdout, /os\.open BLOCKED/);
+    assert.doesNotMatch(run.stdout, /LEAKED/);
   } finally {
     harness.database.close();
   }

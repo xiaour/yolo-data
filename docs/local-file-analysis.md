@@ -28,6 +28,7 @@
 
 1. **沙箱在本机当前完全不可用（已实测）**
    - 默认 `pythonBin = 'python'`（`src/config.js`），本机只有 `python3` → `spawn python ENOENT`。
+     （已修：`src/config.js` 改为按平台兜底 `python3`/`python`，`npm run setup` 会探测可用解释器并写回 `.env`。）
    - 设 `PYTHON_BIN=python3` 后沙箱可用，但 `pandas`、`openpyxl` **均未安装**（实测输出 `pandas MISSING openpyxl MISSING`）。
    - 影响：依赖 `pandas` 的图形化与旧版二进制 `.xls` 解析无法在当前环境验证；纯标准库（`csv`/`json`/`decimal`/`statistics`）仍可完成精确算数。
    - 最终结论（用户确认后）：上传入口只暴露 `csv/xls/xlsx`，**xlsx 由 YOLO 侧自研读取器解析（`src/xlsxReader.js`，只依赖 node:zlib），不依赖 `pandas`/`openpyxl`**；旧版二进制 `.xls` 仅保存原始文件并提示转换。
@@ -36,9 +37,10 @@
    - 处理原则：文件来源必须**显式标注来源**（如"来源：上传文件 `回款.xlsx`"），展示格式走 5.2 节"动态加工值"的继承/角色默认规则，**禁止**把文件口径表述为指标平台口径。
 3. **与数据权限体系的冲突**（行级过滤、列级脱敏只作用于指标/数据集查询）
    - 上传文件天然绕过权限体系。定位为"**用户自有数据**"：仅本会话可用、不进入知识库/反馈沉淀、不跨用户共享；每次使用记录文件指纹与使用者审计。
-4. **架构守卫的体积约束**（`config/size-baseline.json`，`GROWTH_TOLERANCE = 50`，新文件上限 800 行）
-   - `src/agent.js` 基线 5479 行、`src/database.js` 3930 行、`public/js/pages/query.js` 1882 行。
-   - 结论：新逻辑必须落在**新模块**里，大文件只允许"薄接入"（每个文件 ≤ 50 行增量），否则 `npm run lint` 直接 error。
+4. **架构守卫的体积约束**（`config/size-baseline.json`，`GROWTH_TOLERANCE = 0`，新文件上限 800 行）
+   - 已登记文件的基线**只降不升**：任何增长都是 error，`npm run lint:baseline` 也会拒绝静默抬高。
+   - 结论：新逻辑必须落在**新模块**里；确需在已登记文件里增长时，必须显式承认
+     `npm run lint:baseline -- --allow-growth=<file>`，让这次上调留在命令与提交记录里。
 5. **请求体上限 2MB 且无 multipart 解析器**（`src/http/support.js` `readJson` 硬编码 2MB；仓库除 `mysql2` 外无依赖）
    - 建议 P0：上传走 **base64 JSON**，仅对上传路由放宽上限（原始文件 ≤ 8MB）。需你确认是否接受。
    - 代价：base64 内联进 SQLite 会让 `artifact_versions.payload_json` 膨胀；P1 可改磁盘存储 + 指纹去重（见 §6）。

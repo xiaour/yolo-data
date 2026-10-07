@@ -80,11 +80,65 @@ async function verifyMysqlDriver() {
   }
 }
 
+// Python 沙箱是代码执行与本地文件分析的运行时依赖。这里做三件事：
+// 选出一个真正能跑的解释器、把它写回 .env 的 PYTHON_BIN、缺 pandas/openpyxl 时告警。
+function readEnvValue(envPath, key) {
+  if (!fs.existsSync(envPath)) {
+    return null;
+  }
+  const match = fs.readFileSync(envPath, 'utf8')
+    .split('\n')
+    .map((line) => line.match(new RegExp(`^\\s*${key}\\s*=\\s*(.*)$`)))
+    .find(Boolean);
+  return match ? match[1].trim() : null;
+}
+
+function writeEnvValue(envPath, key, value) {
+  const text = fs.readFileSync(envPath, 'utf8');
+  const line = `${key}=${value}`;
+  const pattern = new RegExp(`^\\s*${key}\\s*=.*$`, 'm');
+  const next = pattern.test(text)
+    ? text.replace(pattern, line)
+    : `${text.replace(/\n*$/, '\n')}${line}\n`;
+  fs.writeFileSync(envPath, next, 'utf8');
+}
+
+function canRunPython(bin) {
+  const result = spawnSync(bin, ['-c', 'print(1)'], { encoding: 'utf8', stdio: 'ignore' });
+  return result.status === 0;
+}
+
+function resolvePythonRuntime() {
+  const envPath = path.join(projectRoot, '.env');
+  const configured = process.env.PYTHON_BIN || readEnvValue(envPath, 'PYTHON_BIN');
+  const candidates = [...new Set([configured, 'python3', 'python'].filter(Boolean))];
+  const usable = candidates.find(canRunPython);
+  if (!usable) {
+    warn('未找到可用的 Python 解释器：代码执行与本地文件分析不可用（其余功能不受影响）');
+    return;
+  }
+  ok(`Python 解释器可用（${usable}）`);
+  if (configured !== usable && fs.existsSync(envPath)) {
+    writeEnvValue(envPath, 'PYTHON_BIN', usable);
+    warn(`.env 的 PYTHON_BIN 已从「${configured ?? '未设置'}」修正为「${usable}」`);
+  }
+  const dependencies = spawnSync(usable, ['-c', 'import pandas, openpyxl'], {
+    encoding: 'utf8',
+    stdio: 'ignore',
+  });
+  if (dependencies.status !== 0) {
+    warn(`缺少 pandas/openpyxl：.xlsx 相关的代码执行会失败，可运行 ${usable} -m pip install pandas openpyxl`);
+  } else {
+    ok('pandas / openpyxl 可用（Excel 代码执行就绪）');
+  }
+}
+
 console.log('\nYOLO Data 环境初始化\n');
 assertNodeVersion();
 installDependencies();
 ensureEnvFile();
 await verifyMysqlDriver();
+resolvePythonRuntime();
 
 console.log('\n完成。下一步：');
 console.log('  1. 编辑 .env 配置 DEEPSEEK_API_KEY / SUPERSONIC_* / Doris 连接');

@@ -5,19 +5,22 @@ import path from 'node:path';
 import test from 'node:test';
 import { PlatformDatabase } from '../src/database.js';
 import { WorkspaceService } from '../src/workspace.js';
-import { CodeExecutionService, validateCode } from '../src/codeExecution.js';
+import { CodeExecutionService, probePythonRuntime, validateCode } from '../src/codeExecution.js';
+import { loadConfig } from '../src/config.js';
 
 function createHarness() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-code-'));
   const database = new PlatformDatabase(path.join(directory, 'test.db'));
   const workspace = new WorkspaceService(database);
+  // 解释器不能硬编码：CI runner 只有 python3，macOS 也只有 python3。
+  const pythonBin = loadConfig().pythonBin;
   const codeExecution = new CodeExecutionService({
     database,
     workspace,
     config: {
       projectRoot: directory,
       codeExecutionRoot: path.join(directory, 'code-runs'),
-      pythonBin: 'python',
+      pythonBin,
     },
   });
   const user = database.getUserByUsername('admin');
@@ -33,12 +36,18 @@ function createHarness() {
     sessionId: session.id,
     name: '代码执行测试',
   });
-  return { directory, database, workspace, codeExecution, user, theme, session, work };
+  return { directory, database, workspace, codeExecution, user, theme, session, work, pythonBin };
 }
 
-test('analysis code reads workspace artifacts and writes downloadable outputs', async () => {
+test('analysis code reads workspace artifacts and writes downloadable outputs', async (context) => {
   const harness = createHarness();
   try {
+    // 用例依赖 pandas/openpyxl；本地没装时跳过，避免把「环境没装」报成「代码坏了」。
+    const python = probePythonRuntime(harness.pythonBin);
+    if (!python.available || !python.hasAnalysisDependencies) {
+      context.skip(python.message ?? 'Python 环境不可用，跳过代码执行用例');
+      return;
+    }
     const source = harness.database.createWorkspaceArtifact({
       workspaceId: harness.work.id,
       userId: harness.user.id,

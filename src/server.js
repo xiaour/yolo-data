@@ -2,6 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApplication } from './application.js';
+import { probePythonRuntime } from './codeExecution.js';
 import { createTraceId, currentTraceId, normalizeTraceId, runWithTrace } from './trace.js';
 import { renderMetrics } from './metrics.js';
 import { createRouteTable, runRoute } from './http/router.js';
@@ -131,6 +132,13 @@ export async function startServer(configOverride, indicatorClientOverride = null
           params: matched.params,
           traceId: currentTraceId(),
         };
+        // 鉴权单一事实源：`auth`/`admin` 中间件解析出来的 ctx.user 就是唯一答案。
+        // 路由里的 getRequestUser(request, database) 直接复用它，不再做第二次解析
+        // （第二次解析既多一次会话查询，也给了它与中间件结论不一致的机会）；
+        // 只有没挂 auth 的公开路由才回落到真实解析，并带上本请求的 config。
+        ctx.getRequestUser = (scopedRequest, scopedDatabase) => (
+          ctx.user ?? baseContext.getRequestUser(scopedRequest, scopedDatabase)
+        );
         await runRoute(ctx, matched.route, middleware);
         return;
       }
@@ -175,6 +183,18 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       console.log(`YOLO Data running at ${url}`);
       console.log(`Indicator source: ${health.source.mode}${health.source.error ? ` (${health.source.error})` : ''}`);
       console.log(`Agent runtime: ${health.llm.mode}`);
+      const python = probePythonRuntime(application.config.pythonBin);
+      if (python.message) {
+        console.warn(`Python runtime: ${python.message}`);
+      } else {
+        console.log(`Python runtime: ${python.pythonBin} ${python.version ?? ''}`.trim());
+      }
+      if (application.config.authMode === 'dev') {
+        console.warn(
+          'Auth mode: dev —— 未启用登录会话校验（x-user-id 直连，缺省落到管理员）。'
+          + ' 生产部署请设置 NODE_ENV=production 或 AUTH_MODE=session。',
+        );
+      }
     })
     .catch((error) => {
       console.error(error);

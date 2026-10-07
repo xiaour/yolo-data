@@ -130,7 +130,7 @@ sequenceDiagram
 
 - Node.js `>= 22.5`
 - npm 或 pnpm
-- 可选：Python 3，用于高级数据处理和文件生成
+- 可选：Python 3，用于高级数据处理和文件生成（`.xlsx` 生成需要该解释器装有 `pandas` + `openpyxl`）
 - 可选外部服务：
   - 指标平台
   - Doris 或 MySQL 兼容业务数据库
@@ -162,6 +162,8 @@ npm run dev            # 启动，默认 http://localhost:8088/
 ```
 
 `npm run setup` 是幂等的：已存在的 `.env` 不会被覆盖，重复执行只会补装依赖并复检驱动。
+它同时会探测可用的 Python 解释器（`PYTHON_BIN` → `python3` → `python`），把选中的解释器写回 `.env`，
+并在缺少 `pandas` / `openpyxl` 时给出提示。
 
 打开：
 
@@ -233,6 +235,8 @@ curl -N -X POST http://localhost:8088/api/chat/query/stream \
 
 ## 安全与治理
 
+- 默认姿态是开发模式：未设置 `NODE_ENV=production` / `AUTH_MODE=session` 时不强制登录会话，
+  `x-user-id` 可直连且缺省落到管理员账号，启动日志会打印醒目告警。对外部署前必须先打开会话鉴权。
 - 不向模型暴露原始 SQL。
 - 数据集查询使用平台自有只读查询构建器。
 - 行级权限在执行层强制生效，列级权限在浏览器返回前执行。
@@ -245,6 +249,7 @@ curl -N -X POST http://localhost:8088/api/chat/query/stream \
 
 - 已内置账号密码登录与会话，生产环境建议进一步接入 SSO 或 OIDC。
 - SQLite 为单节点存储，多实例部署前应迁移到外部数据库。
+- 代码执行是**受限执行环境**而非安全边界：它防误操作，不防恶意代码；多租户场景需替换为独立容器化的执行服务。
 
 ## 后续规划
 
@@ -261,6 +266,8 @@ curl -N -X POST http://localhost:8088/api/chat/query/stream \
 
 - 业务特定映射不要写入平台核心代码。
 - 保持 Contract-first【契约先行】 执行和权限强制。
+- 体积棘轮只降不升：`config/size-baseline.json` 里已登记的文件不允许增长；确需增长时用
+  `npm run lint:baseline -- --allow-growth=<file>` 显式承认，不要静默抬高基线。
 - 新工作流或回归修复应补充对应测试。
 - 不要从本仓库修改外部指标平台项目。
 

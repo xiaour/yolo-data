@@ -61,9 +61,26 @@ const ZIP_CENTRAL_SIGNATURE = 0x02014b50;
 const ZIP_EOCD_SIGNATURE = 0x06054b50;
 const ZIP64_EXTRA_TAG = 0x0001;
 const ZIP64_MARKER = 0xffffffff;
-// 单条与整体解压上限，避免被压缩炸弹拖垮进程。
-const MAX_ENTRY_BYTES = 192 * 1024 * 1024;
-const MAX_TOTAL_BYTES = 384 * 1024 * 1024;
+// 单条、整体与条目数上限，避免被压缩炸弹拖垮进程。deflate 的最大压缩比约 1032:1，
+// 因此只有「解压时就带上限」才算真正的防护：先在中央目录上做一次声明值校验，
+// 再让每次 inflate 都带上剩余预算。
+const DEFAULT_LIMITS = {
+  maxEntryBytes: 192 * 1024 * 1024,
+  maxTotalBytes: 384 * 1024 * 1024,
+  maxEntries: 512,
+};
+function tooLargeError() {
+  return Object.assign(new Error('xlsx 解压后体积过大，已停止解析'), { statusCode: 400 });
+}
+
+// 只有「超出解压预算」这一种错误才应该中止解析；数据本身损坏仍沿用既有的容错语义。
+function isOverBudgetError(error) {
+  if (!error) {
+    return false;
+  }
+  return error.code === 'ERR_BUFFER_TOO_LARGE'
+    || /maxOutputLength|larger than the maximum/i.test(String(error.message ?? ''));
+}
 
 // Excel 写出的工作簿普遍带 data descriptor（本地头里的压缩长度为 0），
 // 因此必须用 EOCD -> 中央目录作为权威索引，本地头只用来定位数据起点。
@@ -176,30 +193,44 @@ function parseStreamingDirectory(buffer) {
   return index.size > 0 ? index : null;
 }
 
-function readEntryData(buffer, entry) {
+function readEntryData(buffer, entry, budget) {
   const offset = entry.localOffset;
-  if (offset + 30 > buffer.length || buffer.readUInt32LE(offset) !== ZIP_LOCAL_SIGNATURE) {
+  if (!Number.isFinite(offset) || offset < 0 || offset + 30 > buffer.length
+    || buffer.readUInt32LE(offset) !== ZIP_LOCAL_SIGNATURE) {
     return Buffer.alloc(0);
   }
   // 本地头的名称/扩展字段长度可能与中央目录不同，数据起点必须按本地头计算。
   const start = offset + 30 + buffer.readUInt16LE(offset + 26) + buffer.readUInt16LE(offset + 28);
   const size = entry.compressedSize;
-  if (size <= 0 || start + size > buffer.length) {
+  // ZIP64 的 64 位长度可能溢出成非有限值；`start + size > buffer.length` 对 NaN/Infinity
+  // 的判断并不可靠，必须显式挡在前面。
+  if (!Number.isFinite(size) || size <= 0 || start + size > buffer.length) {
     return Buffer.alloc(0);
   }
   const data = buffer.subarray(start, start + size);
+  if (entry.method !== 8) {
+    // stored：数据未压缩，预算检查是唯一能拦住超额分配的地方。
+    if (data.length > budget) {
+      throw tooLargeError();
+    }
+    return Buffer.from(data);
+  }
   try {
-    return entry.method === 8 ? zlib.inflateRawSync(data) : Buffer.from(data);
-  } catch {
+    return zlib.inflateRawSync(data, { maxOutputLength: Math.max(1, Math.floor(budget)) });
+  } catch (error) {
+    if (isOverBudgetError(error)) {
+      throw tooLargeError();
+    }
     return Buffer.alloc(0);
   }
 }
 
 // 归档按需解压：只有真正被读取的条目才会 inflate，避免整包展开占用内存。
 class ZipArchive {
-  constructor(buffer, index) {
+  constructor(buffer, index, limits = DEFAULT_LIMITS) {
     this.buffer = buffer;
     this.index = index;
+    this.limits = { ...DEFAULT_LIMITS, ...(limits ?? {}) };
     this.decompressedBytes = 0;
   }
 
@@ -217,10 +248,17 @@ class ZipArchive {
       return null;
     }
     if (!entry.data) {
-      const data = readEntryData(this.buffer, entry);
+      // 单条预算不能超过「整体剩余预算」，否则多条中等体积的条目可以绕过总量上限。
+      const remaining = this.limits.maxTotalBytes - this.decompressedBytes;
+      const budget = Math.min(this.limits.maxEntryBytes, remaining);
+      if (budget <= 0) {
+        throw tooLargeError();
+      }
+      const data = readEntryData(this.buffer, entry, budget);
       this.decompressedBytes += data.length;
-      if (data.length > MAX_ENTRY_BYTES || this.decompressedBytes > MAX_TOTAL_BYTES) {
-        throw Object.assign(new Error('xlsx 解压后体积过大，已停止解析'), { statusCode: 400 });
+      if (data.length > this.limits.maxEntryBytes
+        || this.decompressedBytes > this.limits.maxTotalBytes) {
+        throw tooLargeError();
       }
       entry.data = data;
     }
@@ -228,7 +266,7 @@ class ZipArchive {
   }
 }
 
-function openZipArchive(buffer) {
+function openZipArchive(buffer, limits = DEFAULT_LIMITS) {
   let index = null;
   try {
     index = parseCentralDirectory(buffer);
@@ -238,7 +276,27 @@ function openZipArchive(buffer) {
   if (!index) {
     index = parseStreamingDirectory(buffer);
   }
-  return index ? new ZipArchive(buffer, index) : null;
+  if (!index) {
+    return null;
+  }
+  const resolved = { ...DEFAULT_LIMITS, ...(limits ?? {}) };
+  // 读取任何条目之前先按中央目录的声明值拦截：条目数过多，或声明的未压缩总量
+  // 已经超过整体预算，就没有必要再去解压。
+  if (index.size > resolved.maxEntries) {
+    throw tooLargeError();
+  }
+  let declaredTotal = 0;
+  for (const entry of index.values()) {
+    const declared = Number(entry.uncompressedSize);
+    if (!Number.isFinite(declared) || declared < 0) {
+      throw tooLargeError();
+    }
+    declaredTotal += declared;
+    if (declaredTotal > resolved.maxTotalBytes) {
+      throw tooLargeError();
+    }
+  }
+  return new ZipArchive(buffer, index, resolved);
 }
 
 function textOf(entry) {

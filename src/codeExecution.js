@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { DEFAULT_PYTHON_BIN } from './config.js';
 import { incrementCounter } from './metrics.js';
 
 const BLOCKED_IMPORTS = [
@@ -196,10 +197,14 @@ function safeEnv(runRoot) {
   };
 }
 
+// 运行期约束，不是安全边界：用户代码与这段预置代码在同一个解释器进程里，
+// 重新赋值 builtins 就能摘掉护栏。它挡的是误操作（越界路径、整盘遍历），
+// 挡不住恶意代码。真正的隔离需要独立低权用户 + 容器/seccomp（见 docs/architecture.md）。
 function pythonPrelude() {
   const blocked = JSON.stringify(BLOCKED_IMPORTS);
-  return `# Generated safety prelude. Do not edit.
+  return `# Generated safety prelude (deterrence only). Do not edit.
 import builtins
+import io
 import importlib
 import os
 import pathlib
@@ -220,6 +225,7 @@ except Exception:
 _original_import = builtins.__import__
 _original_open = builtins.open
 _original_os_open = os.open
+_original_io_open = io.open
 
 def _guard_path(value):
     if not isinstance(value, (str, bytes, os.PathLike)):
@@ -239,8 +245,18 @@ def _guarded_open(file, mode="r", *args, **kwargs):
 def _guarded_os_open(path, flags, mode=0o777, *args, **kwargs):
     return _original_os_open(_guard_path(path), flags, mode, *args, **kwargs)
 
+def _guarded_io_open(file, mode="r", *args, **kwargs):
+    return _original_io_open(_guard_path(file), mode, *args, **kwargs)
+
+def _guarded_path_open(self, mode="r", *args, **kwargs):
+    return _guarded_io_open(self, mode, *args, **kwargs)
+
 builtins.open = _guarded_open
 os.open = _guarded_os_open
+# pathlib.Path.open / read_text / write_text 走 io.open，不经过 builtins.open，
+# 只挂 builtins.open 会留下 Path('/etc/passwd').read_text() 这条直读路径。
+io.open = _guarded_io_open
+pathlib.Path.open = _guarded_path_open
 
 def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
     root = str(name).split(".", 1)[0]
@@ -255,6 +271,41 @@ builtins.__import__ = _guarded_import
 function normalizeTimeout(value) {
   const parsed = Number(value);
   return Math.max(1, Math.min(Number.isFinite(parsed) ? parsed : 60, 120));
+}
+
+// 启动期探测解释器与依赖，只用于告警和 setup 引导，不参与业务判定。
+// .xlsx 生成/解析依赖 pandas + openpyxl；缺了就是「代码执行静默失败」。
+export function probePythonRuntime(pythonBin = DEFAULT_PYTHON_BIN) {
+  const bin = String(pythonBin ?? '').trim() || DEFAULT_PYTHON_BIN;
+  const version = spawnSync(bin, ['-c', 'import sys; print(sys.version.split()[0])'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (version.status !== 0) {
+    return {
+      pythonBin: bin,
+      available: false,
+      hasAnalysisDependencies: false,
+      version: null,
+      message: `未找到可用的 Python 解释器「${bin}」：代码执行与本地文件分析将不可用，`
+        + '可通过 PYTHON_BIN 指定解释器路径。',
+    };
+  }
+  const dependencies = spawnSync(bin, ['-c', 'import pandas, openpyxl'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'ignore', 'ignore'],
+  });
+  const hasAnalysisDependencies = dependencies.status === 0;
+  return {
+    pythonBin: bin,
+    available: true,
+    hasAnalysisDependencies,
+    version: String(version.stdout ?? '').trim() || null,
+    message: hasAnalysisDependencies
+      ? null
+      : `Python 解释器「${bin}」缺少 pandas/openpyxl：涉及 .xlsx 的代码执行会失败，`
+        + `请运行 ${bin} -m pip install pandas openpyxl。`,
+  };
 }
 
 function listFiles(root) {
@@ -359,7 +410,8 @@ export class CodeExecutionService {
       config.codeExecutionRoot
         ?? path.join(config.projectRoot ?? process.cwd(), 'data', 'code-runs'),
     );
-    this.pythonBin = String(config.pythonBin ?? process.env.PYTHON_BIN ?? 'python');
+    this.pythonBin = String(config.pythonBin ?? process.env.PYTHON_BIN ?? '').trim()
+      || DEFAULT_PYTHON_BIN;
   }
 
   materializeArtifact({ artifact, runInputDir, index }) {

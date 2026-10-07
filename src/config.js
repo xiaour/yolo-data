@@ -5,6 +5,11 @@ import { fileURLToPath } from 'node:url';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// Python 沙箱解释器的兜底候选。Windows 装的是 `python`，macOS/Linux 上是 `python3`；
+// 这里必须和 .env.example 的 `PYTHON_BIN=python3` 以及 scripts/setup.mjs 的探测顺序一致，
+// 否则「文档说 python3、代码默认 python」会在没装别名的机器上静默失败。
+export const DEFAULT_PYTHON_BIN = process.platform === 'win32' ? 'python' : 'python3';
+
 function readInt(value, fallback) {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -89,7 +94,7 @@ export function loadConfig(env = process.env) {
       projectRoot,
       String(env.CODE_EXECUTION_ROOT ?? './data/code-runs').trim(),
     ),
-    pythonBin: String(env.PYTHON_BIN ?? 'python').trim() || 'python',
+    pythonBin: String(env.PYTHON_BIN ?? '').trim() || DEFAULT_PYTHON_BIN,
     uploads: {
       maxBytes: Math.max(1, readInt(env.UPLOAD_MAX_BYTES, 8 * 1024 * 1024)),
       maxFilesPerSession: Math.max(1, readInt(env.UPLOAD_MAX_FILES_PER_SESSION, 20)),
