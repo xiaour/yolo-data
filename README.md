@@ -275,4 +275,4 @@ curl -N -X POST http://localhost:8088/api/chat/query/stream \
 
 ## 许可证
 
-Apache License 2.0 详见 [licenses/LICENSE.txt](licenses/ECHARTS-LICENSE.txt)。
+Apache License 2.0 详见 [LICENSE](LICENSE)。
