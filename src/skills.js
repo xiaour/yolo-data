@@ -9,6 +9,7 @@ const REQUIRED_TOOLS = [
   'transform_workspace_artifact',
   'execute_analysis_code',
   'search_user_memory',
+  'request_clarification',
 ];
 const TOOL_SKILL_ALIASES = {
   compile_query_contract: 'indicator_definition',

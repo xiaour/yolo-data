@@ -31,6 +31,10 @@ function uniqueStrings(values) {
   return [...new Set((values ?? []).map((value) => String(value ?? '').trim()).filter(Boolean))];
 }
 
+// 候选值展示门槛：低于该相似度的枚举不进入澄清候选列表。
+const CANDIDATE_SCORE_FLOOR = 0.5;
+const MAX_CANDIDATES = 5;
+
 function cleanCandidate(value) {
   let text = String(value ?? '').trim();
   text = text.replace(/^[\s"'“”‘’]+|[\s"'“”‘’]+$/g, '');
@@ -259,11 +263,17 @@ export function resolveSemanticValue(requested, domain = null) {
     .sort((left, right) => right.score - left.score);
   const best = ranked[0];
   const second = ranked[1];
+  // 只有「像样」的近邻才允许作为候选值展示给用户：把与请求词毫无关系的枚举
+  // 混进候选列表，用户拿到的就是一条没有信息量的澄清。判定用完整 ranked，
+  // 只有对外展示的候选列表做过滤，避免改变既有的模糊匹配裁决。
+  const candidates = ranked
+    .filter((item) => item.score >= CANDIDATE_SCORE_FLOOR)
+    .slice(0, MAX_CANDIDATES);
   if (!best || best.score < 0.72) {
     return {
       matched: false,
       reason: 'NOT_FOUND',
-      candidates: ranked.slice(0, 5),
+      candidates,
       domainStatus: governance?.status ?? 'COMPLETE',
     };
   }
@@ -271,7 +281,7 @@ export function resolveSemanticValue(requested, domain = null) {
     return {
       matched: false,
       reason: 'AMBIGUOUS',
-      candidates: ranked.slice(0, 5),
+      candidates,
       domainStatus: governance?.status ?? 'COMPLETE',
     };
   }

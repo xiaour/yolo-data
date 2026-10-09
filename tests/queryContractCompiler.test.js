@@ -1276,7 +1276,12 @@ test('contract compiler blocks ambiguous enum values instead of guessing', () =>
   });
 
   assert.equal(result.valid, false);
-  assert.ok(result.issues.some((issue) => issue.code === 'FILTER_VALUE_AMBIGUOUS'));
+  const ambiguous = result.issues.find((issue) => issue.code === 'FILTER_VALUE_AMBIGUOUS');
+  assert.ok(ambiguous);
+  // 值歧义必须带上机器可读的候选值，上层才能把它变成一次「选哪个值」的澄清。
+  assert.equal(ambiguous.field, 'business_type_name');
+  assert.equal(ambiguous.requestedValue, 'Alpha');
+  assert.deepEqual(ambiguous.candidates, ['AlphaOne', 'AlphaTwo']);
 });
 
 test('contract compiler normalizes dataset post-processing fields', () => {

@@ -30,6 +30,12 @@ import { describeIndicatorSource } from './indicatorSource.js';
 import { QueryContractCompiler } from './queryContractCompiler.js';
 import { parseTemporalExpression } from './timeSemantics.js';
 import { aggregateRowsByTimeGrain } from './timeAggregation.js';
+import {
+  buildModelClarification,
+  buildValueClarification,
+  collectValueCandidates,
+  describeClarificationOption,
+} from './valueClarification.js';
 import { buildSemanticTaxonomyPrompt } from './analysisSemantics.js';
 import { buildSemanticPolicyPrompt } from './semanticPolicy.js';
 import { createProcessArtifactRecorder } from './processArtifacts.js';
@@ -880,6 +886,45 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'request_clarification',
+      description: [
+        'Ask the business user ONE confirmation question when the question truly cannot be answered with the confirmed rules.',
+        'Use it instead of writing a clarification in plain text.',
+        'Never use it for defaults the theme prompt already defines, nor to restate internal rules, calibers or validations.',
+        'Write the question in plain business language in 1-2 sentences, and provide the 2-6 candidate options the user can pick.',
+        'An option may carry the field and value it maps to; only do that when the option really is a filter value the platform can execute.',
+      ].join(' '),
+      parameters: {
+        type: 'object',
+        properties: {
+          question: {
+            type: 'string',
+            description: 'The single question to confirm, in plain business language.',
+          },
+          options: {
+            type: 'array',
+            minItems: 2,
+            maxItems: 6,
+            items: {
+              type: 'object',
+              properties: {
+                label: { type: 'string', description: 'Option text shown to the user.' },
+                field: { type: 'string', description: 'Field the option maps to, when it is a filter value.' },
+                value: { type: 'string', description: 'Filter value the option maps to.' },
+              },
+              required: ['label'],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ['question', 'options'],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 function normalizeDetail(cached, detail) {
@@ -1442,7 +1487,9 @@ function buildSystemPrompt({
 9. execute_query_contract 只接受已通过门禁的 contractId，不得自行改写指标、维度、过滤或时间条件。
 10. 当本轮分析模式为 ATTRIBUTION 时，先锁定指标、本期、业务范围，再按主题提示词声明的归因公式和候选归因维度直接生成契约；必须提供本期与等长上期两个 timeWindows、至少一个非时间业务维度，并设置 calculation.type=PERIOD_COMPARISON。
 11. 归因问题不得先反问对比基准或拆解维度。主题提示词已声明归因公式、同期规则或候选维度时，视为具备执行条件；优先使用提示词规则，提示词没有顺序时由你从可用维度中选择 1 至 3 个最相关维度。归因维度不是用户明确点名时，dimensionFields.sourceText 绑定用户问题中的“归因/原因”短语，ruleSource 引用主题提示词中的对应规则。
-12. 澄清受预算控制：clarificationPolicy.allowed=true 时，最多一次性列出全部阻塞项，禁止一个问题一轮；clarificationPolicy.allowed=false 时禁止输出“请补充、请确认、请指定”等反问，必须基于已有信息执行归因，或明确报告无法执行的具体能力缺口。
+12. 反问受预算控制：clarificationPolicy.allowed=true 时，最多一次性把所有要确认的事列完，禁止一轮只问一个；clarificationPolicy.allowed=false 时禁止输出“请补充、请确认、请指定”等反问，必须基于已有信息执行归因，或明确报告无法执行的具体能力缺口。
+13. 用户说的过滤值没有唯一命中时优先级最高：必须先把该值原样提交 compile_query_contract，用 issues 里的 candidates 让用户确认具体值；本轮只允许问这一件事，禁止把它改写成指标选择、时间范围、计算方式等其它问题，也禁止追加其它要确认的事。值确认后下一轮再处理剩下要确认的事。
+14. 对外反问一律走 request_clarification 工具，不要在正文里写反问。反问要像业务同事说话：1 至 2 句说清要确认什么，只给 2 至 6 个用户能看懂的重点候选项（用业务名称，不要用字段英文名或技术名），不要复述系统规则、数据来源和检查过程，不要带“否则我按 X 执行”这类默认承诺。禁止出现「阻塞项、口径来源、映射方式、业务语义包、默认值域、契约、维度、粒度、候选裁决、校验」这类系统内部说法。能由主题规则、默认口径或上下文唯一确定的事项不得反问。
 
 数据条件分类与自动补全规则：
 ${buildSemanticTaxonomyPrompt()}
@@ -1489,6 +1536,7 @@ ${buildMetricResolverPrompt(question, theme.semanticPolicy)}
 本轮分析模式：${analysisModeText}
 本轮澄清策略：${clarificationPolicy?.policy || 'STANDARD_BOUNDED'}；已使用 ${clarificationPolicy?.used ?? 0} 次；剩余 ${clarificationPolicy?.remaining ?? 0} 次；允许继续反问=${clarificationAllowed ? 'true' : 'false'}
 本轮澄清选项：${clarificationOptionId || '无'}
+${describeClarificationOption(clarificationOptionId)}
 当澄清选项为 use-recommended 时，必须采用当前主题提示词声明的默认口径直接执行，不得再次反问。
 当前轮上下文模式：${contextMode}
 上下文判定原因：${contextReason || '无'}
@@ -2487,6 +2535,12 @@ export class MetricAgentService {
     };
     const compiledContracts = new Map();
     let invalidContractAttempts = 0;
+    // 本轮契约编译里出现的「过滤值未唯一命中」候选值：它比其它阻塞项优先，
+    // 因为用户必须先选定具体值，后面的口径问题才有可能问对。
+    let pendingValueCandidates = [];
+    // 模型通过 request_clarification 提出的确认问题：由平台渲染成可点选选项，
+    // 避免它自己写一大段内部术语。
+    let pendingModelClarification = null;
 
     const searchIndicators = (keyword, limit = 6) => {
       startWorkflowStage('SEMANTIC_DISCOVERY', '检索主题指标');
@@ -4319,8 +4373,10 @@ export class MetricAgentService {
       }
       if (result.valid) {
         invalidContractAttempts = 0;
+        pendingValueCandidates = [];
       } else {
         invalidContractAttempts += 1;
+        pendingValueCandidates = collectValueCandidates(result.issues);
         if (invalidContractAttempts >= 4) {
           const contractError = new Error(
             `查询契约连续 ${invalidContractAttempts} 次未通过：${
@@ -4441,6 +4497,21 @@ export class MetricAgentService {
     });
 
     const executeRawTool = async (name, args) => {
+      if (name === 'request_clarification') {
+        // 澄清预算耗尽时不再允许反问：工具直接报错，逼模型按已有信息执行或报能力缺口。
+        if (clarificationPolicy?.allowed === false) {
+          throw new Error(
+            '本轮已达到澄清上限，不得再向用户反问；请基于已确认的规则执行，或明确报告能力缺口。',
+          );
+        }
+        const question = String(args?.question ?? '').trim();
+        const options = Array.isArray(args?.options) ? args.options : [];
+        if (!question || options.length < 2) {
+          throw new Error('request_clarification 需要 question 和至少 2 个候选项');
+        }
+        pendingModelClarification = { question, options };
+        return { accepted: true, optionCount: options.length };
+      }
       if (name === 'compile_query_contract') {
         return compileQueryContract(args);
       }
@@ -5261,6 +5332,18 @@ export class MetricAgentService {
     const deterministicMessage = queryExecutions.length > 0
       ? queryExecutions.map((execution) => execution.finalMessage).join('\n\n')
       : '';
+    // 过滤值歧义优先：候选值一旦存在，本轮只问「选哪个值」，用它覆盖模型那段
+    // 口径反问。值确定后下一轮会重新编译契约，剩余阻塞项届时再按规则处理。
+    const valueClarificationAllowed = clarificationPolicy?.allowed !== false;
+    const valueClarification = lastQueryResult
+      ? null
+      : buildValueClarification(pendingValueCandidates, { allowed: valueClarificationAllowed });
+    const modelClarification = lastQueryResult
+      ? null
+      : buildModelClarification(
+        pendingModelClarification ?? {},
+        { allowed: valueClarificationAllowed },
+      );
     const baseFinalMessage = deterministicMessage
       || (clarificationExhausted
         ? '本轮归因问题已达到澄清上限，系统不会继续逐项反问。请补齐主题提示词中的归因公式、同期规则或候选归因维度后重新执行。'
@@ -5274,18 +5357,21 @@ export class MetricAgentService {
     const analysisText = resultAnalysis
       ? buildResultAnalysisText(resultAnalysis.facts)
       : '';
-    const finalMessage = [
-      baseFinalMessage,
-      analysisText,
-      validationWarnings.length > 0
-        ? `**结果验证提示**\n${validationWarnings.join('\n')}`
-        : '',
-    ].filter(Boolean).join('\n\n');
+    const activeClarification = valueClarification ?? modelClarification;
+    const finalMessage = activeClarification
+      ? activeClarification.prompt
+      : [
+        baseFinalMessage,
+        analysisText,
+        validationWarnings.length > 0
+          ? `**结果验证提示**\n${validationWarnings.join('\n')}`
+          : '',
+      ].filter(Boolean).join('\n\n');
     const structuredClarification = !lastQueryResult
-      ? buildStructuredClarification({
+      ? (activeClarification ?? buildStructuredClarification({
         message: finalMessage,
         clarificationPolicy,
-      })
+      }))
       : null;
     if (!lastQueryResult) {
       for (const code of ['SEMANTIC_RESOLVE', 'PLAN', 'VALIDATE', 'EXECUTE', 'RESULT_ANALYST', 'RESULT_VALIDATION', 'ANALYZE']) {

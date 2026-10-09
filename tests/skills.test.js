@@ -30,6 +30,7 @@ test('skill registry selects agent instructions and keeps required tools', () =>
     { type: 'function', function: { name: 'transform_workspace_artifact' } },
     { type: 'function', function: { name: 'execute_analysis_code' } },
     { type: 'function', function: { name: 'search_user_memory' } },
+    { type: 'function', function: { name: 'request_clarification' } },
     { type: 'function', function: { name: 'unregistered_tool' } },
   ];
   const enabledTools = registry.filterTools(tools, skills);

@@ -21,6 +21,7 @@ import { classifyAnalysisSemantics } from './analysisSemantics.js';
 import { applySemanticPolicy } from './semanticPolicy.js';
 import { resolveBusinessLexicon } from './businessLexicon.js';
 import { resolveWithPlugins } from './analysisPluginRegistry.js';
+import { VALUE_CLARIFICATION_CODES } from './valueClarification.js';
 import { normalizeAnalysisPipeline } from './analysisPipeline.js';
 import { CONTRACT_COMPILER_VERSION } from './contractVersion.js';
 
@@ -382,20 +383,34 @@ function resolveFilterValue(
     }
     for (const item of unresolved) {
       const candidates = (item.resolution.candidates ?? [])
-        .map((candidate) => candidate.value)
-        .join('、');
+        .map((candidate) => candidate.value);
+      const ambiguous = item.resolution.reason === 'AMBIGUOUS';
+      const code = ambiguous
+        ? VALUE_CLARIFICATION_CODES.AMBIGUOUS
+        : item.resolution.domainStatus === 'STALE'
+          ? 'FILTER_DOMAIN_STALE'
+          : item.resolution.domainStatus === 'PARTIAL'
+            ? 'FILTER_DOMAIN_PARTIAL'
+            : VALUE_CLARIFICATION_CODES.NOT_IN_DOMAIN;
+      const valueCandidates = code === VALUE_CLARIFICATION_CODES.AMBIGUOUS
+        || code === VALUE_CLARIFICATION_CODES.NOT_IN_DOMAIN
+        ? candidates
+        : [];
       issues.push({
         level: 'ERROR',
-        code: item.resolution.reason === 'AMBIGUOUS'
-          ? 'FILTER_VALUE_AMBIGUOUS'
-          : item.resolution.domainStatus === 'STALE'
-            ? 'FILTER_DOMAIN_STALE'
-            : item.resolution.domainStatus === 'PARTIAL'
-              ? 'FILTER_DOMAIN_PARTIAL'
-              : 'FILTER_VALUE_NOT_IN_DOMAIN',
-        message: item.resolution.reason === 'AMBIGUOUS'
-          ? `过滤值「${item.value}」在字段「${requestedField}」中可能匹配多个枚举值：${candidates}`
-          : `过滤值「${item.value}」不在字段「${requestedField}」的默认值域中`,
+        code,
+        message: ambiguous
+          ? `过滤值「${item.value}」在字段「${requestedField}」中可能匹配多个枚举值：${
+            candidates.join('、')}`
+          : valueCandidates.length > 0
+            ? `过滤值「${item.value}」不在字段「${requestedField}」的默认值域中，最接近的候选值：${
+              valueCandidates.join('、')}`
+            : `过滤值「${item.value}」不在字段「${requestedField}」的默认值域中`,
+        // 结构化候选值：上层据此生成「先选值」的澄清，而不是就同一处歧义展开一串口径反问。
+        field: requestedField,
+        requestedValue: item.value,
+        valueResolution: item.resolution.reason ?? null,
+        candidates: valueCandidates,
       });
     }
     return { value, mapping: null };

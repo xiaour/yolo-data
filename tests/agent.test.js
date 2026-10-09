@@ -661,6 +661,151 @@ test('agent returns structured clarification options with a recommended path', a
   );
 });
 
+test('ambiguous filter value is asked as a value choice instead of a caliber questionnaire', async () => {
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  await application.init();
+  let capturedMessages = [];
+  const user = application.database.getUserByUsername('east_manager');
+  const theme = application.database.listThemes().find((item) => item.name === '经营总览');
+  // 值解析只在「主题为该字段开启值域 + 值域已治理完成」时生效，这里直接种一份完成态值域。
+  application.database.saveSemanticValueSnapshot({
+    themeId: theme.id,
+    sourceType: 'INDICATOR',
+    sourceId: 'sales_amount',
+    fieldName: 'region',
+    displayName: 'region',
+    status: 'COMPLETE',
+    origins: ['MANUAL_VERIFIED'],
+    items: ['T7-ALPHA', 'T7-BETA', 'T7-GAMMA', 'Z9-UNRELATED'].map((value) => ({
+      value,
+      aliases: [],
+      origin: 'MANUAL_VERIFIED',
+      originRef: 'test',
+      confidence: 1,
+      firstSeenAt: new Date().toISOString(),
+    })),
+    sampleSize: 4,
+  });
+  application.database.saveTheme({
+    ...theme,
+    semanticValueConfig: {
+      enabled: true,
+      autoDiscover: true,
+      fields: { 'INDICATOR:sales_amount:region': { enabled: true, refreshMode: 'MANUAL' } },
+    },
+  }, theme.id);
+  application.agent.harnessFactory = {
+    forTheme: () => ({
+      mode: 'test-value-clarify',
+      model: 'test-model',
+      capabilities: {},
+      run: async ({ executeTool, messages }) => {
+        capturedMessages = messages;
+        await executeTool('get_indicator', { indicatorId: 'sales_amount' });
+        await executeTool('compile_query_contract', {
+          sourceType: 'INDICATOR',
+          indicatorId: 'sales_amount',
+          conditions: [
+            { id: 'metric', sourceText: '销售额', kind: 'METRIC', status: 'RESOLVED' },
+            { id: 'filter', sourceText: 'T7', kind: 'FILTER', status: 'RESOLVED' },
+          ],
+          metricFields: [{
+            field: 'sales_amount',
+            sourceText: '销售额',
+            conditionIds: ['metric'],
+          }],
+          filterFields: [{
+            field: 'region',
+            operator: '=',
+            value: 'T7',
+            sourceText: 'T7',
+            conditionIds: ['filter'],
+          }],
+        });
+        // 模型想把同一处歧义展开成一串口径反问；平台必须用「选哪个值」覆盖它。
+        return { content: '请确认以下口径：时间范围、数据版本、分组方式和计算方式。', trace: [] };
+      },
+    }),
+  };
+
+  const answer = await application.agent.answer({
+    userId: user.id,
+    themeId: theme.id,
+    question: 'T7 最近7天销售额',
+  });
+
+  assert.doesNotMatch(answer.message, /请确认以下口径/);
+  assert.match(answer.message, /T7-ALPHA/);
+  // 与请求词无关的枚举不得出现在候选里。
+  assert.doesNotMatch(answer.message, /Z9-UNRELATED/);
+  assert.equal(answer.clarification.type, 'NEEDS_CONFIRMATION');
+  assert.deepEqual(
+    answer.clarification.options.map((option) => option.id),
+    [
+      'filter-value:region=T7-ALPHA',
+      'filter-value:region=T7-BETA',
+      'filter-value:region=T7-GAMMA',
+      'cancel',
+    ],
+  );
+
+  // 用户点选候选值后，平台把该选项展开成已确认的过滤条件注入下一轮提示词。
+  await application.agent.answer({
+    userId: user.id,
+    themeId: theme.id,
+    question: 'T7 最近7天销售额',
+    clarificationOptionId: 'filter-value:region=T7-BETA',
+  });
+  const prompt = capturedMessages.map((message) => String(message.content ?? '')).join('\n');
+  assert.match(prompt, /本轮澄清选项已解析为过滤条件/);
+  assert.match(prompt, /region/);
+  assert.match(prompt, /T7-BETA/);
+});
+
+test('model clarification tool renders the model question into pickable business options', async () => {
+  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  await application.init();
+  const user = application.database.getUserByUsername('east_manager');
+  const theme = application.database.listThemes().find((item) => item.name === '经营总览');
+  let toolResult = null;
+  let offeredTools = [];
+  application.agent.harnessFactory = {
+    forTheme: () => ({
+      mode: 'test-model-clarify',
+      model: 'test-model',
+      capabilities: {},
+      run: async ({ executeTool, tools }) => {
+        offeredTools = (tools ?? []).map((tool) => tool.function?.name ?? tool.name);
+        toolResult = await executeTool('request_clarification', {
+          question: '你说的「T7」是指哪一个？',
+          options: [
+            { label: 'T7-A', field: 'region', value: 'T7-ALPHA' },
+            { label: '整个 T7 合并看' },
+          ],
+        });
+        // 模型即便仍在正文里写内部术语，也会被平台的结构化澄清覆盖。
+        return { content: '唯一阻塞项：口径来源约束与映射方式。', trace: [] };
+      },
+    }),
+  };
+
+  const answer = await application.agent.answer({
+    userId: user.id,
+    themeId: theme.id,
+    question: 'T7 最近7天销售额',
+  });
+
+  assert.equal(offeredTools.includes('request_clarification'), true);
+  assert.equal(toolResult?.accepted, true);
+  assert.equal(answer.message, '你说的「T7」是指哪一个？');
+  assert.doesNotMatch(answer.message, /阻塞项|口径来源|映射方式/);
+  assert.equal(answer.clarification.type, 'NEEDS_CONFIRMATION');
+  assert.deepEqual(
+    answer.clarification.options.map((option) => option.id),
+    ['filter-value:region=T7-ALPHA', 'choice:整个 T7 合并看', 'cancel'],
+  );
+});
+
 test('agent wires the long-term memory tool into the tool loop', async () => {
   const application = await createApplication(testConfig(), new FakeIndicatorClient());
   await application.init();

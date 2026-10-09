@@ -64,6 +64,25 @@ test('semantic value resolver supports exact, alias and unique fuzzy matching', 
   assert.equal(resolveSemanticValue('Alpha', domain).reason, 'AMBIGUOUS');
 });
 
+test('semantic value resolver reports only plausible candidates', () => {
+  const domain = {
+    values: ['T7-ALPHA', 'T7-BETA', 'T7-GAMMA', 'Z9-UNRELATED'],
+    aliases: {},
+  };
+  const ambiguous = resolveSemanticValue('T7', domain);
+  assert.equal(ambiguous.reason, 'AMBIGUOUS');
+  // 与请求词毫无关系的枚举不得混进候选列表，否则澄清里全是噪声。
+  assert.deepEqual(
+    ambiguous.candidates.map((candidate) => candidate.value),
+    ['T7-ALPHA', 'T7-BETA', 'T7-GAMMA'],
+  );
+  assert.deepEqual(ambiguous.candidates.map((candidate) => candidate.score), [0.82, 0.82, 0.82]);
+
+  const unrelated = resolveSemanticValue('Q5', domain);
+  assert.equal(unrelated.reason, 'NOT_FOUND');
+  assert.deepEqual(unrelated.candidates, []);
+});
+
 test('semantic value registry initializes fields and persists the default domain', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-values-'));
   const database = new PlatformDatabase(path.join(directory, 'test.db'));
