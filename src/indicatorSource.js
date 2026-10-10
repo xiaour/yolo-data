@@ -4,15 +4,23 @@
 
 export const INDICATOR_SOURCE = {
   LIVE: 'LIVE',
+  LOCAL: 'LOCAL',
   SNAPSHOT: 'SNAPSHOT',
   UNAVAILABLE: 'UNAVAILABLE',
 };
 
-export function describeIndicatorSource({ live, snapshot } = {}) {
+export function describeIndicatorSource({ live, local, snapshot } = {}) {
   const snapshotCount = Number(snapshot?.count ?? 0);
   if (live?.available) {
     return {
       source: INDICATOR_SOURCE.LIVE,
+      freshAt: null,
+      snapshotCount,
+    };
+  }
+  if (local) {
+    return {
+      source: INDICATOR_SOURCE.LOCAL,
       freshAt: null,
       snapshotCount,
     };
@@ -37,6 +45,9 @@ export function indicatorSourceLabel(state) {
   }
   if (state.source === INDICATOR_SOURCE.SNAPSHOT) {
     return `SNAPSHOT{freshAt=${state.freshAt ?? 'unknown'}}`;
+  }
+  if (state.source === INDICATOR_SOURCE.LOCAL) {
+    return 'LOCAL';
   }
   return state.source;
 }

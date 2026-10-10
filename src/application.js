@@ -1,6 +1,7 @@
 import { loadConfig } from './config.js';
 import path from 'node:path';
 import { PlatformDatabase } from './database.js';
+import { LocalIndicatorRepository } from './localIndicatorRepository.js';
 import { createHarness, HarnessFactory } from './harness.js';
 import {
   createSupersonicIndicatorClient,
@@ -33,6 +34,7 @@ export async function createApplication(
   indicatorClientOverride = null,
 ) {
   const database = new PlatformDatabase(config.dbPath);
+  database.localIndicators = new LocalIndicatorRepository(database.db);
   // 业务词表以平台设置为准，首次启动时用仓库配置初始化成可维护的设置项。
   const storedLexicon = database.getPlatformSetting('business.lexicon', null)?.value ?? null;
   if (!storedLexicon) {
@@ -152,9 +154,11 @@ export async function createApplication(
       && indicatorClient.mode !== 'unconfigured'
       && indicatorClient.mode !== 'unavailable'
       && !runtime.sourceError;
+    const local = !getSupersonicEnabled();
     runtime.indicatorSnapshot = snapshot;
     runtime.indicatorSource = describeIndicatorSource({
       live: { available: live },
+      local,
       snapshot,
     });
     return runtime.indicatorSource;
@@ -342,6 +346,8 @@ export async function createApplication(
         mode: runtime.sourceMode,
         enabled: runtime.supersonicEnabled,
         configured: runtime.supersonicEnabled && runtime.sourceMode === 'supersonic',
+        localIndicatorManagement: !runtime.supersonicEnabled,
+        localIndicatorCount: database.localIndicators.count(),
         indicatorSource: indicatorSource.source,
         indicatorSourceDetail: indicatorSource,
         snapshot: runtime.indicatorSnapshot,
@@ -374,8 +380,13 @@ export async function createApplication(
       counts: {
         users: database.countRows('app_users'),
         themes: database.countRows('themes'),
-        indicators: runtime.lastSyncCount,
-        indicatorTypes: runtime.lastTypeCount,
+        indicators: runtime.supersonicEnabled
+          ? runtime.lastSyncCount
+          : database.localIndicators.count(),
+        indicatorTypes: runtime.supersonicEnabled
+          ? runtime.lastTypeCount
+          : database.localIndicators.listTypes().length,
+        localIndicators: database.localIndicators.count(),
         conversations: database.countRows('conversations'),
         chatSessions: database.countRows('chat_sessions'),
         chatMessages: database.countRows('chat_messages'),

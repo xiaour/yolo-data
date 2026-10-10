@@ -176,9 +176,13 @@ export function registerUserRoutes(table) {
       const user = getRequestUser(request, database);
       const themes = agent.getThemesForUser(user.id);
       const canManage = user.role === 'ADMIN';
-      const indicatorTypes = !canManage || !supersonicAvailable()
+      const indicatorTypes = !canManage
         ? []
-        : await indicatorClient.listTypes().catch(() => []);
+        : !application.getSupersonicEnabled()
+          ? database.localIndicators.listTypes()
+          : !supersonicAvailable()
+            ? []
+            : await indicatorClient.listTypes().catch(() => []);
       sendJson(response, 200, {
         currentUser: user,
         users: canManage ? database.listUsers() : [user],

@@ -37,10 +37,19 @@ export function registerIndicatorRoutes(table) {
     tags: ['indicators'],
     summary: '列出指标类型',
     handler: async (ctx) => {
-      const { response, indicatorClient, sendJson, supersonicAvailable } = ctx;
-      const indicatorTypes = !supersonicAvailable()
-        ? []
-        : await indicatorClient.listTypes().catch(() => []);
+      const {
+        response,
+        database,
+        application,
+        indicatorClient,
+        sendJson,
+        supersonicAvailable,
+      } = ctx;
+      const indicatorTypes = !application.getSupersonicEnabled()
+        ? database.localIndicators.listTypes()
+        : !supersonicAvailable()
+          ? []
+          : await indicatorClient.listTypes().catch(() => []);
       sendJson(response, 200, indicatorTypes);
     },
   });
@@ -55,19 +64,46 @@ export function registerIndicatorRoutes(table) {
     handler: async (ctx) => {
       const { request, response, url, database, application, agent, indicatorClient, getRequestUser, sendJson, parseIntParam, supersonicAvailable } = ctx;
       const user = getRequestUser(request, database);
-      if (!application.getSupersonicEnabled()) {
+      const localMode = !application.getSupersonicEnabled();
+      const keyword = url.searchParams.get('keyword') ?? '';
+      const typeId = url.searchParams.get('typeId') ?? '';
+      const limit = parseIntParam(url.searchParams.get('limit'), 500);
+      if (localMode) {
+        const themeId = parseIntParam(url.searchParams.get('themeId'), null);
+        if (themeId) {
+          const context = await agent.getIndicatorsForUser(
+            user.id,
+            themeId,
+            { keyword, typeId, limit },
+          );
+          sendJson(response, 200, {
+            items: context.indicators,
+            total: context.total,
+            source: application.resolveIndicatorSource(),
+            disabled: true,
+            localMode: true,
+            scope: {
+              allowedIndicatorCount: context.scope.allowedIndicatorIds.length,
+              rowPolicyCount: context.scope.rowPolicies.length,
+              canManage: context.scope.canManage,
+            },
+          });
+          return;
+        }
+        if (user.role !== 'ADMIN') {
+          throw Object.assign(new Error('themeId is required'), { statusCode: 400 });
+        }
+        const items = database.localIndicators.list({ keyword, typeId, limit });
         sendJson(response, 200, {
-          items: [],
-          total: 0,
-          disabled: true,
+          items,
+          total: items.length,
           source: application.resolveIndicatorSource(),
-          message: '指标平台模块已停用',
+          disabled: true,
+          localMode: true,
         });
         return;
       }
       const themeId = parseIntParam(url.searchParams.get('themeId'), null);
-      const keyword = url.searchParams.get('keyword') ?? '';
-      const typeId = url.searchParams.get('typeId') ?? '';
       if (themeId) {
         const context = await agent.getIndicatorsForUser(
           user.id,
@@ -136,14 +172,43 @@ export function registerIndicatorRoutes(table) {
       const { request, response, url, database, application, agent, indicatorClient, params, getRequestUser, sendJson, parseIntParam, supersonicAvailable } = ctx;
       const indicatorDetailRoute = params;
       const user = getRequestUser(request, database);
-      if (!application.getSupersonicEnabled()) {
-        throw Object.assign(
-          new Error('指标平台模块已停用'),
-          { statusCode: 404 },
-        );
-      }
+      const localMode = !application.getSupersonicEnabled();
       const themeId = parseIntParam(url.searchParams.get('themeId'), null);
       const indicatorId = indicatorDetailRoute[0];
+      if (localMode) {
+        if (themeId) {
+          const context = await agent.getIndicatorsForUser(user.id, themeId);
+          const indicator = context.indicators.find(
+            (item) => String(item.id) === String(indicatorId),
+          );
+          if (!indicator) {
+            throw Object.assign(new Error('indicator permission denied'), { statusCode: 403 });
+          }
+          sendJson(response, 200, {
+            indicator,
+            metrics: indicator.metrics ?? [],
+            dimensions: indicator.dimensions ?? [],
+            source: application.resolveIndicatorSource(),
+            localMode: true,
+          });
+          return;
+        }
+        if (user.role !== 'ADMIN') {
+          throw Object.assign(new Error('themeId is required'), { statusCode: 400 });
+        }
+        const localIndicator = database.localIndicators.get(indicatorId);
+        if (!localIndicator) {
+          throw Object.assign(new Error('indicator not found'), { statusCode: 404 });
+        }
+        sendJson(response, 200, {
+          indicator: localIndicator,
+          metrics: localIndicator.metrics ?? [],
+          dimensions: localIndicator.dimensions ?? [],
+          source: application.resolveIndicatorSource(),
+          localMode: true,
+        });
+        return;
+      }
       if (themeId) {
         const context = await agent.getIndicatorsForUser(user.id, themeId);
         const indicator = context.indicators.find(
@@ -208,6 +273,23 @@ export function registerIndicatorRoutes(table) {
       if (user.role !== 'ADMIN') {
         throw Object.assign(new Error('admin permission required'), { statusCode: 403 });
       }
+      if (!application.getSupersonicEnabled()) {
+        const localCount = database.localIndicators.count();
+        database.addAuditLog({
+          userId: user.id,
+          action: 'INDICATOR_LOCAL_MODE_CONFIRMED',
+          detail: { localCount },
+        });
+        sendJson(response, 200, {
+          localMode: true,
+          localCount,
+          persisted: false,
+          message: '本地指标管理已启用',
+          source: application.resolveIndicatorSource(),
+          health: application.currentHealth(),
+        });
+        return;
+      }
       // Enabled but not configured: skip instead of failing. Supersonic is an
       // optional dependency, and any existing local snapshot stays usable.
       if (application.getSupersonicEnabled() && !supersonicAvailable()) {
@@ -239,6 +321,105 @@ export function registerIndicatorRoutes(table) {
         },
       });
       sendJson(response, 200, { ...result, health: application.currentHealth() });
+    },
+  });
+
+  table.add({
+    id: 'localIndicators.create',
+    method: 'POST',
+    path: '/api/local-indicators',
+    tags: ['indicators'],
+    summary: '新增本地指标（管理员）',
+    middleware: ['auth', 'admin'],
+    adminOnly: true,
+    handler: async (ctx) => {
+      const { request, response, database, application, getRequestUser, readJson, sendJson } = ctx;
+      const user = getRequestUser(request, database);
+      if (user.role !== 'ADMIN') {
+        throw Object.assign(new Error('admin permission required'), { statusCode: 403 });
+      }
+      if (application.getSupersonicEnabled()) {
+        throw Object.assign(
+          new Error('在线指标集成已启用，当前不能新增本地指标'),
+          { statusCode: 409 },
+        );
+      }
+      const body = await readJson(request);
+      const indicator = database.localIndicators.save(body);
+      database.addAuditLog({
+        userId: user.id,
+        action: 'INDICATOR_LOCAL_CREATE',
+        detail: { indicatorId: indicator.id, name: indicator.name },
+      });
+      sendJson(response, 200, indicator);
+    },
+  });
+
+  table.add({
+    id: 'localIndicators.update',
+    method: 'PUT',
+    path: '/api/local-indicators/:indicatorId(.*)',
+    tags: ['indicators'],
+    summary: '更新本地指标（管理员）',
+    middleware: ['auth', 'admin'],
+    adminOnly: true,
+    handler: async (ctx) => {
+      const { request, response, database, application, params, getRequestUser, readJson, sendJson } = ctx;
+      const user = getRequestUser(request, database);
+      if (user.role !== 'ADMIN') {
+        throw Object.assign(new Error('admin permission required'), { statusCode: 403 });
+      }
+      if (application.getSupersonicEnabled()) {
+        throw Object.assign(
+          new Error('在线指标集成已启用，当前不能编辑本地指标'),
+          { statusCode: 409 },
+        );
+      }
+      const indicatorId = decodeURIComponent(String(params[0]));
+      if (!database.localIndicators.get(indicatorId)) {
+        throw Object.assign(new Error('local indicator not found'), { statusCode: 404 });
+      }
+      const body = await readJson(request);
+      const indicator = database.localIndicators.save(body, indicatorId);
+      database.addAuditLog({
+        userId: user.id,
+        action: 'INDICATOR_LOCAL_UPDATE',
+        detail: { indicatorId, name: indicator.name },
+      });
+      sendJson(response, 200, indicator);
+    },
+  });
+
+  table.add({
+    id: 'localIndicators.delete',
+    method: 'DELETE',
+    path: '/api/local-indicators/:indicatorId(.*)',
+    tags: ['indicators'],
+    summary: '删除本地指标（管理员）',
+    middleware: ['auth', 'admin'],
+    adminOnly: true,
+    handler: async (ctx) => {
+      const { request, response, database, application, params, getRequestUser, sendJson } = ctx;
+      const user = getRequestUser(request, database);
+      if (user.role !== 'ADMIN') {
+        throw Object.assign(new Error('admin permission required'), { statusCode: 403 });
+      }
+      if (application.getSupersonicEnabled()) {
+        throw Object.assign(
+          new Error('在线指标集成已启用，当前不能删除本地指标'),
+          { statusCode: 409 },
+        );
+      }
+      const indicatorId = decodeURIComponent(String(params[0]));
+      if (!database.localIndicators.delete(indicatorId)) {
+        throw Object.assign(new Error('local indicator not found'), { statusCode: 404 });
+      }
+      database.addAuditLog({
+        userId: user.id,
+        action: 'INDICATOR_LOCAL_DELETE',
+        detail: { indicatorId },
+      });
+      sendJson(response, 200, { ok: true, id: indicatorId });
     },
   });
 }

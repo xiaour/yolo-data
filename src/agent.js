@@ -1769,7 +1769,13 @@ export class MetricAgentService {
     // the local indicator snapshot (P0-1) instead of failing the request, so
     // theme and permission editing keep working without the external platform.
     if (!liveAvailable) {
-      const snapshot = this.database.listIndicators({ keyword, typeId, limit });
+      const snapshot = this.isSupersonicEnabled()
+        ? this.database.listIndicators({ keyword, typeId, limit })
+        : {
+          items: this.database.localIndicators?.list({ keyword, typeId, limit }) ?? [],
+          source: 'LOCAL',
+          freshAt: null,
+        };
       const indicators = sortIndicators(
         filterIndicatorsByScope(snapshot.items, scope),
       );

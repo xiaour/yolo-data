@@ -22,7 +22,7 @@ try {
 function requireMysql() {
   if (!mysql) {
     const error = new Error(
-      'mysql2 驱动未安装：MySQL/Doris 数据源需要先执行 npm install mysql2',
+      'mysql2 驱动未安装：MySQL、TiDB 或 Doris 数据源需要先执行 npm install mysql2',
     );
     error.cause = mysqlLoadError;
     throw error;

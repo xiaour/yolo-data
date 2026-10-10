@@ -3,6 +3,7 @@ import { renderDataTable } from '../components/table.js';
 import { openDatasetProfiler } from '../components/datasetProfiler.js';
 import { openDatasetFields } from '../components/datasetFields.js';
 import { openUserEditor } from '../components/userEditor.js';
+import { openDatasourceEditor } from '../components/datasourceEditor.js';
 
 const {
   ICONS,
@@ -157,7 +158,19 @@ async function renderDatasetsPage(root) {
       renderPage();
     });
   });
-  document.getElementById('addDatasourceBtn')?.addEventListener('click', openDatasourceEditor);
+  document.getElementById('addDatasourceBtn')?.addEventListener('click', () => {
+    openDatasourceEditor({
+      api,
+      toast,
+      openModal,
+      closeModal,
+      setBusy,
+      hydrateIcons,
+      loadBootstrap,
+      renderPage,
+      state,
+    });
+  });
   document.getElementById('addDatasetBtn')?.addEventListener('click', openDatasetCreator);
   root.querySelectorAll('[data-test-source]').forEach((button) => {
     button.addEventListener('click', async () => {
@@ -249,54 +262,6 @@ function renderDatasetSourcesTable(sources) {
       </table>
     </div>
   `;
-}
-
-function openDatasourceEditor() {
-  const modal = openModal({
-    title: '新增数据源',
-    editor: true,
-    body: `
-      <div class="form-grid">
-        <div class="form-field"><label for="sourceName">数据源名称</label><input class="field" id="sourceName" placeholder="Doris 开发测试库" /></div>
-        <div class="form-field"><label for="sourceHost">Host</label><input class="field" id="sourceHost" /></div>
-        <div class="form-field"><label for="sourcePort">Port</label><input class="field" id="sourcePort" type="number" value="9030" /></div>
-        <div class="form-field"><label for="sourceDatabase">默认数据库</label><input class="field" id="sourceDatabase" /></div>
-        <div class="form-field"><label for="sourceUsername">用户名</label><input class="field" id="sourceUsername" /></div>
-        <div class="form-field"><label for="sourcePassword">密码</label><input class="field" id="sourcePassword" type="password" /></div>
-      </div>
-    `,
-    footer: `
-      <button class="btn" type="button" data-close-modal>取消</button>
-      <button class="btn btn-primary" type="button" id="saveDatasourceBtn">保存数据源</button>
-    `,
-  });
-  modal.querySelectorAll('[data-close-modal]').forEach((button) => {
-    button.addEventListener('click', closeModal);
-  });
-  modal.querySelector('#saveDatasourceBtn').addEventListener('click', async (event) => {
-    setBusy(event.currentTarget, true, '保存中');
-    try {
-      await api('/api/data-sources', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: modal.querySelector('#sourceName').value.trim(),
-          dbType: 'DORIS',
-          host: modal.querySelector('#sourceHost').value.trim(),
-          port: Number(modal.querySelector('#sourcePort').value),
-          databaseName: modal.querySelector('#sourceDatabase').value.trim(),
-          username: modal.querySelector('#sourceUsername').value.trim(),
-          password: modal.querySelector('#sourcePassword').value,
-        }),
-      });
-      toast('数据源已保存，密码已加密');
-      closeModal();
-      await loadBootstrap(state.currentUser.id);
-      renderPage();
-    } catch (error) {
-      toast(error.message, 'error');
-      setBusy(event.currentTarget, false);
-    }
-  });
 }
 
 function openDatasetCreator() {

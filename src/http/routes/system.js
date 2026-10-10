@@ -31,6 +31,8 @@ export function registerSystemRoutes(table) {
       sendJson(response, 200, {
         supersonic: {
           enabled: application.getSupersonicEnabled(),
+          localIndicatorManagement: !application.getSupersonicEnabled(),
+          localIndicatorCount: database.localIndicators.count(),
           configured: Boolean(config.supersonic.baseUrl),
           baseUrl: config.supersonic.baseUrl || null,
           mode: health.source.mode,
@@ -67,6 +69,8 @@ export function registerSystemRoutes(table) {
       sendJson(response, 200, {
         supersonic: {
           enabled,
+          localIndicatorManagement: !enabled,
+          localIndicatorCount: database.localIndicators.count(),
           sourceMode: result.sourceMode,
           sync: result.sync ?? null,
           syncError: result.syncError ?? null,

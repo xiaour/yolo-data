@@ -35,24 +35,24 @@ async function renderSettingsPage(root) {
         <div class="section-head compact">
           <div>
             <h3>指标平台模块</h3>
-            <p>启用时先经过实时指标体系检索和口径匹配；停用时跳过指标库，由大模型结合业务数据集、主题提示词和语义包直接执行。</p>
+            <p>启用在线指标集成时使用外部指标目录；停用时自动进入本地指标管理，可维护指标、口径、字段和主题挂载关系。</p>
           </div>
-          <span class="tag ${supersonic.enabled ? 'tag-teal' : 'tag-red'}">${supersonic.enabled ? '已启用' : '已停用'}</span>
+          <span class="tag ${supersonic.enabled ? 'tag-teal' : 'tag-blue'}">${supersonic.enabled ? '在线集成' : '本地指标'}</span>
         </div>
 
         <div class="form-grid settings-form">
           <div class="form-field span-2">
             <label class="inline-check settings-toggle">
               <input type="checkbox" id="supersonicEnabled"${supersonic.enabled ? ' checked' : ''} />
-              <span>启用指标平台匹配</span>
+              <span>启用在线指标集成</span>
             </label>
-            <small>停用后，开始问数不再暴露指标检索、指标详情和指标查询工具，转而使用“大模型直连模式”。</small>
+            <small>停用后自动启用本地指标管理，指标列表、详情、新增、编辑和删除功能全部开放。</small>
           </div>
           <div class="form-field span-2">
             <div class="detail-list">
-              <div class="detail-row"><span>连接状态</span><strong>${escapeHtml(supersonic.mode === 'direct-llm' ? '已停用（大模型直连）' : supersonic.configured ? (supersonic.error ? '连接异常' : '已连接') : '未配置')}</strong></div>
+              <div class="detail-row"><span>当前模式</span><strong>${escapeHtml(supersonic.localIndicatorManagement ? `本地指标管理 · ${supersonic.localIndicatorCount ?? 0} 个指标` : supersonic.configured ? (supersonic.error ? '连接异常' : '在线集成') : '在线集成未配置')}</strong></div>
               <div class="detail-row"><span>服务地址</span><strong>${escapeHtml(supersonic.baseUrl || '未配置')}</strong></div>
-              <div class="detail-row"><span>最近同步</span><strong>${supersonic.lastSyncAt ? `${formatDate(supersonic.lastSyncAt)} · ${supersonic.lastSyncCount ?? 0} 个指标` : '尚无同步记录'}</strong></div>
+              <div class="detail-row"><span>最近同步</span><strong>${supersonic.localIndicatorManagement ? '本地指标无需外部同步' : supersonic.lastSyncAt ? `${formatDate(supersonic.lastSyncAt)} · ${supersonic.lastSyncCount ?? 0} 个指标` : '尚无同步记录'}</strong></div>
               <div class="detail-row"><span>错误信息</span><strong>${escapeHtml(supersonic.error || '无')}</strong></div>
             </div>
           </div>
@@ -90,7 +90,9 @@ async function renderSettingsPage(root) {
       });
       toast(result.supersonic?.syncError
         ? `设置已保存，但指标平台同步失败：${result.supersonic.syncError}`
-        : `指标平台模块已${enabled ? '启用' : '停用'}`);
+        : enabled
+          ? '在线指标集成已启用'
+          : '本地指标管理已启用');
       await loadBootstrap(state.currentUser.id);
       renderPage();
     } catch (error) {

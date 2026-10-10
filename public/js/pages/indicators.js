@@ -1,4 +1,6 @@
 import * as core from '../core/runtime.js';
+import { bindIndicatorManagerRows, openIndicatorDetail } from '../components/indicatorManager.js';
+import { bindLocalIndicatorRows, openLocalIndicatorEditor } from '../components/indicatorEditor.js';
 
 const {
   ICONS,
@@ -61,6 +63,7 @@ async function renderIndicatorsPage(root) {
   const keyword = '';
   const data = await api(`/api/indicators?themeId=${state.selectedThemeId ?? ''}&keyword=${encodeURIComponent(keyword)}&limit=1000`);
   state.indicators = data.items ?? [];
+  state.localIndicatorMode = data.localMode === true;
   const themeOptions = state.themes.map((theme) => (
     `<option value="${theme.id}"${Number(theme.id) === Number(state.selectedThemeId) ? ' selected' : ''}>${escapeHtml(theme.name)}</option>`
   )).join('');
@@ -88,8 +91,11 @@ async function renderIndicatorsPage(root) {
           </select>
           <select class="select" id="indicatorThemeFilter" style="max-width:210px">${themeOptions}</select>
           <button class="btn" id="indicatorSearchBtn" type="button">搜索</button>
-          ${state.currentUser.role === 'ADMIN' ? `
+          ${state.currentUser.role === 'ADMIN' && !state.localIndicatorMode ? `
             <button class="btn btn-quiet" id="syncIndicatorsBtn" type="button">刷新连接</button>
+          ` : ''}
+          ${state.currentUser.role === 'ADMIN' && state.localIndicatorMode ? `
+            <button class="btn btn-primary" id="addIndicatorBtn" type="button">新增指标</button>
           ` : ''}
         </div>
       </section>
@@ -127,6 +133,20 @@ async function renderIndicatorsPage(root) {
       setBusy(event.currentTarget, false);
     }
   });
+  document.getElementById('addIndicatorBtn')?.addEventListener('click', () => {
+    openLocalIndicatorEditor({
+      api,
+      toast,
+      openModal,
+      closeModal,
+      setBusy,
+      escapeHtml,
+      escapeAttr,
+      loadBootstrap,
+      renderPage,
+      state,
+    });
+  });
   bindIndicatorRows();
 }
 
@@ -135,13 +155,14 @@ async function searchIndicators() {
   const typeId = document.getElementById('indicatorTypeFilter').value;
   const data = await api(`/api/indicators?themeId=${state.selectedThemeId ?? ''}&keyword=${encodeURIComponent(keyword)}&typeId=${encodeURIComponent(typeId)}&limit=1000`);
   state.indicators = data.items ?? [];
+  state.localIndicatorMode = data.localMode === true;
   document.querySelector('.page-stack > section:last-child').innerHTML = renderIndicatorTable(state.indicators);
   bindIndicatorRows();
 }
 
 function renderIndicatorTable(indicators) {
   if (!indicators.length) {
-    return `<div class="section-band">${emptyState('当前主题和权限范围内没有指标', 'library')}</div>`;
+    return `<div class="section-band">${emptyState(state.localIndicatorMode ? '暂无本地指标，点击“新增指标”开始维护' : '当前主题和权限范围内没有指标', 'library')}</div>`;
   }
   return `
     <div class="data-table-wrap">
@@ -162,7 +183,11 @@ function renderIndicatorTable(indicators) {
                 <td>${indicator.metrics?.length ?? 0} 个</td>
                 <td>${indicator.dimensions?.length ?? 0}</td>
                 <td>${attachedThemes.length ? attachedThemes.map((theme) => escapeHtml(theme.name)).join(' · ') : '<span class="muted">未挂主题</span>'}</td>
-                <td><button class="btn btn-quiet btn-small" data-indicator-detail="${escapeAttr(indicator.id)}" type="button">详情</button></td>
+                <td>
+                  <button class="btn btn-quiet btn-small" data-indicator-detail="${escapeAttr(indicator.id)}" type="button">详情</button>
+                  ${state.currentUser.role === 'ADMIN' && state.localIndicatorMode ? `<button class="btn btn-quiet btn-small" data-indicator-edit="${escapeAttr(indicator.id)}" type="button">编辑</button><button class="btn btn-quiet btn-small" data-indicator-delete="${escapeAttr(indicator.id)}" type="button">删除</button>` : ''}
+                  ${state.currentUser.role === 'ADMIN' ? `<button class="btn btn-quiet btn-small" data-indicator-manage="${escapeAttr(indicator.id)}" type="button">管理</button>` : ''}
+                </td>
               </tr>
             `;
           }).join('')}
@@ -179,32 +204,11 @@ function bindIndicatorRows() {
       try {
         const detail = await api(`/api/indicators/${encodeURIComponent(button.dataset.indicatorDetail)}/detail?themeId=${state.selectedThemeId ?? ''}`);
         const indicator = detail.indicator ?? detail.cached ?? {};
-        openModal({
-          title: indicator.name ?? '指标详情',
-          wide: true,
-          body: `
-            <div class="detail-grid">
-              <div class="detail-item"><span>指标编码</span><strong class="mono">${escapeHtml(indicator.bizName ?? indicator.id)}</strong></div>
-              <div class="detail-item"><span>指标类型 / 层级</span><strong>${escapeHtml(indicator.typeName ?? '-')} · ${escapeHtml(indicator.indicatorLevel ?? '-')}</strong></div>
-              <div class="detail-item"><span>负责人 / 部门</span><strong>${escapeHtml(indicator.owner ?? '-')} / ${escapeHtml(indicator.department ?? '-')}</strong></div>
-              <div class="detail-item"><span>关联模型</span><strong>${escapeHtml((indicator.models ?? []).map((model) => model.modelName).join('、') || '-')}</strong></div>
-              <div class="detail-item span-2"><span>业务口径</span><p>${escapeHtml(indicator.businessCaliber ?? '-')}</p></div>
-              <div class="detail-item span-2"><span>指标说明</span><p>${escapeHtml(indicator.description ?? '-')}</p></div>
-            </div>
-            <div class="section-head" style="margin-top:22px"><div><h3>指标与维度</h3><p>智能体只允许使用下列语义字段。</p></div></div>
-            <div class="data-table-wrap">
-              <table class="data-table">
-                <thead><tr><th>指标业务名</th><th>指标名称</th><th>所属模型</th></tr></thead>
-                <tbody>
-                  ${(detail.metrics ?? []).map((metric) => `<tr><td class="mono">${escapeHtml(metric.metricBizName ?? metric.bizName)}</td><td>${escapeHtml(metric.metricName ?? metric.name)}</td><td>${escapeHtml(metric.modelName ?? '-')}</td></tr>`).join('') || '<tr><td colspan="3">无</td></tr>'}
-                </tbody>
-              </table>
-            </div>
-            <div class="section-head" style="margin-top:22px"><div><h3>可用维度</h3></div></div>
-            <div class="check-grid">
-              ${(detail.dimensions ?? indicator.dimensions ?? []).map((dimension) => `<div class="check-item"><span class="mono">${escapeHtml(dimension.dimensionBizName ?? dimension.bizName)}</span><span>${escapeHtml(dimension.dimensionName ?? dimension.name)}</span></div>`).join('') || '<div class="muted">无</div>'}
-            </div>
-          `,
+        openIndicatorDetail({
+          indicator,
+          detail,
+          openModal,
+          escapeHtml,
         });
       } catch (error) {
         toast(error.message, 'error');
@@ -213,6 +217,31 @@ function bindIndicatorRows() {
       }
     });
   });
+  bindIndicatorManagerRows({
+    state,
+    api,
+    toast,
+    openModal,
+    closeModal,
+    setBusy,
+    escapeHtml,
+    loadBootstrap,
+    renderPage,
+  });
+  if (state.localIndicatorMode && state.currentUser.role === 'ADMIN') {
+    bindLocalIndicatorRows({
+      state,
+      api,
+      toast,
+      openModal,
+      closeModal,
+      setBusy,
+      escapeHtml,
+      escapeAttr,
+      loadBootstrap,
+      renderPage,
+    });
+  }
 }
 
 
