@@ -6,6 +6,7 @@ import test from 'node:test';
 import { PlatformDatabase } from '../src/database.js';
 import {
   applyColumnPolicies,
+  assertRowPoliciesSupported,
   enforceRowPolicies,
   resolveAccessScope,
 } from '../src/permissions.js';
@@ -83,4 +84,26 @@ test('column policies hide or mask configured result columns', () => {
   ]);
   assert.equal(result.columns.length, 1);
   assert.deepEqual(result.rows[0], { phone: '138****0000' });
+});
+
+test('row policy save guard accepts missing, default and padded operators', () => {
+  assertRowPoliciesSupported([
+    { dimension: 'region', operator: 'IN', values: ['east'] },
+    { dimension: 'amount', operator: '>=', value: 100 },
+    { dimension: 'memo', operator: ' like ', value: 'a%' },
+    { dimension: 'city' },
+  ]);
+});
+
+test('row policy save guard rejects unsupported operators as a 400 error', () => {
+  assert.throws(
+    () => assertRowPoliciesSupported([{ dimension: 'region', operator: 'EQ', values: ['east'] }]),
+    (error) => error.statusCode === 400
+      && error.code === 'ROW_POLICY_OPERATOR_UNSUPPORTED'
+      && /EQ/.test(error.message),
+  );
+  assert.throws(
+    () => assertRowPoliciesSupported([{ dimension: 'region', operator: 'BETWEEN' }]),
+    (error) => error.statusCode === 400 && /BETWEEN/.test(error.message),
+  );
 });

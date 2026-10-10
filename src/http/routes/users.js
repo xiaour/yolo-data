@@ -1,4 +1,5 @@
 import { deleteUserSessions, setDefaultUserPassword, setUserPassword } from '../../auth.js';
+import { assertRowPoliciesSupported } from '../../permissions.js';
 
 export function registerUserRoutes(table) {
   table.add({
@@ -146,6 +147,7 @@ export function registerUserRoutes(table) {
         throw Object.assign(new Error('admin permission required'), { statusCode: 403 });
       }
       const body = await readJson(request);
+      assertRowPoliciesSupported(body.rowPolicies);
       const profile = database.replacePermissionProfile(Number(permissionSaveRoute[0]), body);
       database.addAuditLog({
         userId: current.id,
