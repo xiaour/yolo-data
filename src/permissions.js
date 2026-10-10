@@ -188,6 +188,25 @@ function policyToFilter(policy) {
   };
 }
 
+// Save-boundary guard (issue #6): execution silently filters policies whose
+// operator is unsupported (resolveAccessScope), so an invalid operator must be
+// rejected here — otherwise a mistyped rule silently disables a row
+// restriction instead of failing the save.
+export function assertRowPoliciesSupported(policies) {
+  for (const policy of Array.isArray(policies) ? policies : []) {
+    const operator = String(policy?.operator || 'IN').trim().toUpperCase();
+    if (!SUPPORTED_OPERATORS.has(operator)) {
+      throw Object.assign(
+        new Error(
+          `row policy operator not supported: ${JSON.stringify(policy?.operator)}`
+          + ` (dimension: ${policy?.dimension}; supported: ${[...SUPPORTED_OPERATORS].join(', ')})`,
+        ),
+        { statusCode: 400, code: 'ROW_POLICY_OPERATOR_UNSUPPORTED' },
+      );
+    }
+  }
+}
+
 export function filterIndicatorsByScope(indicators, scope) {
   if (!scope.allowed) {
     return [];

@@ -62,7 +62,7 @@
   "src/http/routes/system.js": 170,
   "src/http/routes/themes.js": 447,
   "src/http/routes/uploads.js": 29,
-  "src/http/routes/users.js": 199,
+  "src/http/routes/users.js": 201,
   "src/http/support.js": 294,
   "src/indicatorClient.js": 397,
   "src/indicatorSearch.js": 109,
@@ -72,7 +72,7 @@
   "src/memory.js": 109,
   "src/metricResolver.js": 181,
   "src/metrics.js": 67,
-  "src/permissions.js": 292,
+  "src/permissions.js": 311,
   "src/presentationFallbacks.js": 61,
   "src/processArtifacts.js": 173,
   "src/queryContract.js": 720,
@@ -103,5 +103,5 @@
   "src/workflow.js": 219,
   "src/workspace.js": 567,
   "src/xlsx.js": 369,
-  "src/xlsxReader.js": 483
+  "src/xlsxReader.js": 480
 }
