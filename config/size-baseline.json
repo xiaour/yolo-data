@@ -43,7 +43,7 @@
   "scripts/run-eval.mjs": 369,
   "scripts/run-query-smoke.mjs": 745,
   "scripts/setup.mjs": 108,
-  "src/agent.js": 6117,
+  "src/agent.js": 5864,
   "src/analysisArtifact.js": 82,
   "src/analysisContract.js": 309,
   "src/analysisIntent.js": 37,
@@ -195,5 +195,6 @@
   "src/workspace.js": 566,
   "src/xlsx.js": 369,
   "src/xlsxReader.js": 480,
-  "src/conversationTimePatterns.js": 7
+  "src/conversationTimePatterns.js": 7,
+  "src/agentToolPresentation.js": 255
 }

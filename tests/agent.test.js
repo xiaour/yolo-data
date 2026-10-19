@@ -298,6 +298,29 @@ test('agent emits auditable runtime events while answering', async () => {
   assert.ok(types.includes('result'));
   assert.ok(types.includes('done'));
   assert.ok(types.includes('warning'));
+  const search = events.find((event) => (
+    event.type === 'tool_result' && event.name === 'search_indicators'
+  ));
+  assert.equal(search.step.stageCode, 'SEMANTIC_DISCOVERY');
+  assert.equal(search.step.title, '检索主题指标');
+  assert.equal(search.summary, search.step.detail);
+  assert.ok(search.step.review.facts.some((fact) => fact.label === '检索词'));
+  assert.ok(search.step.review.facts.some((fact) => fact.label === '命中'));
+  assert.equal(search.step.review.details, null);
+  const executed = events.find((event) => (
+    event.type === 'tool_result' && event.name === 'query_indicator'
+  ));
+  assert.equal(executed.step.stageCode, 'EXECUTE');
+  assert.equal(executed.step.title, '执行指标查询');
+  assert.equal(executed.step.review.details.rowCount, answer.data.rows.length);
+  assert.deepEqual(
+    executed.step.review.details.columns,
+    answer.data.columns.map((column) => column.name ?? column.bizName),
+  );
+  assert.equal(executed.step.review.details.queryFingerprint, answer.queryFingerprint);
+  assert.equal(executed.step.review.code, '');
+  assert.equal(executed.step.review.stdout, '');
+  assert.equal(executed.step.review.stderr, '');
   assert.equal(
     events.find((event) => event.type === 'done').messageId,
     answer.messageId,
