@@ -2,7 +2,7 @@
 // 供 agent 在上下文里看到、并作为 execute_analysis_code 的输入。
 // 只做通用的格式校验与解析，不包含任何业务口径或指标名。
 
-import { createHash } from 'node:crypto';
+import { admitUpload, admitUploadAsync, createUploadSource, uploadError } from './uploadAdmission.js';
 import { callPlatformDatabase } from './platformDatabaseAccess.js';
 import { profileDataset } from './datasetProfiler.js';
 import { getPlatformLexicon } from './businessLexicon.js';
@@ -40,10 +40,6 @@ const DEFAULT_LIMITS = {
 };
 
 const PROCESS_SAMPLE_ROWS = 200;
-
-function uploadError(message, statusCode = 400, code = 'UPLOAD_REJECTED') {
-  return Object.assign(new Error(message), { statusCode, code });
-}
 
 export function extensionOf(name) {
   const match = String(name ?? '').trim().match(/\.([A-Za-z0-9]+)$/);
@@ -164,27 +160,6 @@ export class UploadService {
       throw uploadError(`文件内容看起来是${kind}，不是纯文本表格；Excel 文件请另存为 CSV 或 xlsx`);
     }
     return { safeName, extension, buffer };
-  }
-
-  assertQuota({ workspaceId, userId, incomingBytes }) {
-    const artifacts = this.workspace.listArtifacts({ workspaceId, userId })
-      .filter((artifact) => artifact.metadata?.source?.type === 'UPLOAD');
-    if (artifacts.length >= this.limits.maxFilesPerSession) {
-      throw uploadError(
-        `单个会话最多上传 ${this.limits.maxFilesPerSession} 个文件，请先清理或新建会话`,
-        429,
-        'UPLOAD_QUOTA_EXCEEDED',
-      );
-    }
-    const usedBytes = artifacts
-      .reduce((total, artifact) => total + Number(artifact.metadata?.size ?? 0), 0);
-    if (usedBytes + incomingBytes > this.limits.maxTotalBytesPerSession) {
-      throw uploadError(
-        `会话内上传文件总大小超过 ${Math.floor(this.limits.maxTotalBytesPerSession / 1024 / 1024)}MB，请新建会话`,
-        429,
-        'UPLOAD_QUOTA_EXCEEDED',
-      );
-    }
   }
 
   buildFieldSpecs(columns = [], rows = []) {
@@ -321,32 +296,21 @@ export class UploadService {
     this.audit(action, { userId, sessionId, detail });
   }
 
-  async assertQuotaAsync({ workspaceId, userId, incomingBytes }) {
-    const artifacts = await this.workspace.listArtifactsAsync({ workspaceId, userId });
-    const uploads = artifacts.filter((artifact) => artifact.metadata?.source?.type === 'UPLOAD');
-    if (uploads.length >= this.limits.maxFilesPerSession) throw uploadError(`单个会话最多上传 ${this.limits.maxFilesPerSession} 个文件，请先清理或新建会话`, 429, 'UPLOAD_QUOTA_EXCEEDED');
-    const usedBytes = uploads.reduce((total, artifact) => total + Number(artifact.metadata?.size ?? 0), 0);
-    if (usedBytes + incomingBytes > this.limits.maxTotalBytesPerSession) throw uploadError(`会话内上传文件总大小超过 ${Math.floor(this.limits.maxTotalBytesPerSession / 1024 / 1024)}MB，请新建会话`, 429, 'UPLOAD_QUOTA_EXCEEDED');
-  }
-
   async performUploadAsync({ userId, sessionId, name, contentBase64 }) {
+    if (this.database?.db) return this.performUpload({ userId, sessionId, name, contentBase64 });
     if (!this.workspace) throw uploadError('workspace service is not configured', 500, 'UPLOAD_UNAVAILABLE');
     const session = await callPlatformDatabase(this.database, 'getChatSessionAsync', 'getChatSession', Number(sessionId), userId);
     if (!session) throw uploadError('上传前需要先建立会话', 404, 'UPLOAD_SESSION_REQUIRED');
     const { safeName, extension, buffer } = this.validate({ name, contentBase64 });
-    const workspaceRecord = this.workspace.ensureForSessionAsync
-      ? await this.workspace.ensureForSessionAsync({ userId, themeId: session.themeId, sessionId: session.id, name: safeName })
-      : this.workspace.ensureForSession({ userId, themeId: session.themeId, sessionId: session.id, name: safeName });
-    await this.assertQuotaAsync({ workspaceId: workspaceRecord.id, userId, incomingBytes: buffer.length });
     let parsed = SPREADSHEET_EXTENSIONS.has(extension) ? this.parseSpreadsheet({ buffer, extension }) : TABULAR_EXTENSIONS.has(extension) ? this.parseTextTable({ buffer, extension }) : null;
     const warnings = [...(parsed?.warnings ?? [])];
     if (parsed && !parsed.unparsed && parsed.rows?.length) { const cleaned = sanitizeTable(parsed); parsed = { ...parsed, columns: cleaned.columns, rows: cleaned.rows }; if (cleaned.sanitized) warnings.push(`检测到上传内容含疑似提示注入特征（${cleaned.findings.map((f) => f.id).join(', ')}），已中和并隔离，不影响数据本身。`); }
     if (parsed && !parsed.unparsed && parsed.truncated) warnings.push(`文件${Number(parsed.totalRows) > 0 ? `共 ${parsed.totalRows} 行，` : ''}解析表只保留前 ${parsed.rows.length} 行；如需全量请在代码计算中读取原始文件产物`);
     if (parsed && !parsed.unparsed && !parsed.columns?.length) throw uploadError('未能从文件中识别出列，请检查文件是否有表头行');
-    const sha256 = createHash('sha256').update(buffer).digest('hex');
-    const source = { type: 'UPLOAD', name: safeName, extension, size: buffer.length, mimeType: MIME_TYPES[extension] ?? 'text/plain; charset=utf-8', sha256, uploadedAt: new Date().toISOString() };
-    const fileInput = { workspaceId: workspaceRecord.id, userId, sessionId: session.id, title: `${safeName}（原始文件）`, content: buffer.toString('base64'), encoding: 'base64', format: extension, mimeType: source.mimeType, purpose: '用户上传的本地文件', size: buffer.length, source };
-    const fileArtifact = this.workspace.createFileArtifactAsync ? await this.workspace.createFileArtifactAsync(fileInput) : this.workspace.createFileArtifact(fileInput);
+    const source = createUploadSource({ buffer, name: safeName, extension, mimeType: MIME_TYPES[extension] ?? 'text/plain; charset=utf-8' });
+    const { sha256 } = source;
+    const fileInput = { title: `${safeName}（原始文件）`, content: buffer.toString('base64'), encoding: 'base64', format: extension, mimeType: source.mimeType, purpose: '用户上传的本地文件', size: buffer.length, source };
+    const { workspaceRecord, fileArtifact } = await admitUploadAsync(this.database, { userId, sessionId: session.id, name: safeName, file: fileInput, limits: this.limits });
     let tableArtifact = null;
     if (parsed && !parsed.unparsed && parsed.columns.length > 0) {
       const tableInput = { workspaceId: workspaceRecord.id, userId, sessionId: session.id, title: `${safeName}（解析表）`, metadata: { source: { type: 'UPLOAD_FILE', id: fileArtifact.id, name: safeName }, derivedFromArtifactId: fileArtifact.id, parentArtifactIds: [fileArtifact.id], inputArtifactIds: [fileArtifact.id], lineageQuestion: `上传本地文件：${safeName}`, format: extension, encoding: parsed.encoding, delimiter: parsed.delimiter, sheetName: parsed.sheetName ?? null, rowCount: parsed.rows.length, totalRowCount: parsed.totalRows ?? parsed.rows.length, columnCount: parsed.columns.length, truncated: Boolean(parsed.truncated), warnings }, payload: { data: { columns: parsed.columns, rows: parsed.rows } } };
@@ -369,18 +333,6 @@ export class UploadService {
       throw uploadError('上传前需要先建立会话', 404, 'UPLOAD_SESSION_REQUIRED');
     }
     const { safeName, extension, buffer } = this.validate({ name, contentBase64 });
-    const workspaceRecord = this.workspace.ensureForSession({
-      userId,
-      themeId: session.themeId,
-      sessionId: session.id,
-      name: safeName,
-    });
-    this.assertQuota({
-      workspaceId: workspaceRecord.id,
-      userId,
-      incomingBytes: buffer.length,
-    });
-
     let parsed = null;
     const warnings = [];
     if (SPREADSHEET_EXTENSIONS.has(extension)) {
@@ -414,28 +366,15 @@ export class UploadService {
       }
     }
 
-    const sha256 = createHash('sha256').update(buffer).digest('hex');
-    const source = {
-      type: 'UPLOAD',
-      name: safeName,
-      extension,
-      size: buffer.length,
-      mimeType: MIME_TYPES[extension] ?? 'text/plain; charset=utf-8',
-      sha256,
-      uploadedAt: new Date().toISOString(),
-    };
-    const fileArtifact = this.workspace.createFileArtifact({
-      workspaceId: workspaceRecord.id,
-      userId,
-      sessionId: session.id,
-      title: `${safeName}（原始文件）`,
-      content: buffer.toString('base64'),
-      encoding: 'base64',
-      format: extension,
-      mimeType: source.mimeType,
-      purpose: '用户上传的本地文件',
-      size: buffer.length,
-      source,
+    const source = createUploadSource({ buffer, name: safeName, extension, mimeType: MIME_TYPES[extension] ?? 'text/plain; charset=utf-8' });
+    const { sha256 } = source;
+    const { workspaceRecord, fileArtifact } = admitUpload(this.database, {
+      userId, sessionId: session.id, name: safeName, limits: this.limits,
+      file: {
+        title: `${safeName}（原始文件）`, content: buffer.toString('base64'),
+        encoding: 'base64', format: extension, mimeType: source.mimeType,
+        purpose: '用户上传的本地文件', size: buffer.length, source,
+      },
     });
     let tableArtifact = null;
     if (parsed && !parsed.unparsed && parsed.columns.length > 0) {

@@ -6,7 +6,6 @@ const valid = { name: '销售额', bizName: 'sales_amount', indicatorLevel: 'ATO
 
 test('local indicator writes reject malformed payloads without changing catalog or audit history', async () => {
   await withSkillServer(async ({ application, request, login }) => {
-    application.database.savePlatformSetting('本地指标目录.enabled', false);
     const cookie = await login('admin');
     const created = await request('/api/local-indicators', { cookie, method: 'POST', body: valid });
     assert.equal(created.response.status, 200);
@@ -36,9 +35,8 @@ test('local indicator writes reject malformed payloads without changing catalog 
   });
 });
 
-test('local indicator lifecycle normalizes numeric statuses and enforces session ACL and online mode', async () => {
+test('local indicator lifecycle normalizes numeric statuses and enforces session ACL in the always-local catalog', async () => {
   await withSkillServer(async ({ application, request, login }) => {
-    application.database.savePlatformSetting('本地指标目录.enabled', false);
     const admin = await login('admin');
     const analyst = await login('east_manager');
     const created = await request('/api/local-indicators', {
@@ -60,12 +58,6 @@ test('local indicator lifecycle normalizes numeric statuses and enforces session
       assert.equal(updated.response.status, 200);
       assert.equal(updated.data.status, Number(status));
     }
-    application.database.savePlatformSetting('本地指标目录.enabled', true);
-    for (const [url, method] of [['/api/local-indicators', 'POST'], [route, 'PUT'], [route, 'DELETE']]) {
-      const blocked = await request(url, { cookie: admin, method, body: valid });
-      assert.equal(blocked.response.status, 409);
-    }
-    application.database.savePlatformSetting('本地指标目录.enabled', false);
     assert.equal((await request(route, { cookie: admin, method: 'DELETE' })).response.status, 200);
     assert.equal(await application.database.localIndicators.countAsync(), 0);
     assert.equal((await request(route, { cookie: admin, method: 'PUT', body: valid })).response.status, 404);
@@ -74,7 +66,6 @@ test('local indicator lifecycle normalizes numeric statuses and enforces session
 
 test('mounting an existing indicator only updates theme indicatorIds', async () => {
   await withSkillServer(async ({ application, request, login }) => {
-    application.database.savePlatformSetting('本地指标目录.enabled', false);
     const admin = await login('admin');
     const created = await request('/api/local-indicators', {
       cookie: admin, method: 'POST', body: valid,
