@@ -56,8 +56,8 @@ function createPlatformLock(database) {
       }
       try {
         await database.execute(`INSERT INTO session_locks (
-          `key`, owner, expires_at
-        ) VALUES (?, ?, ?) ON CONFLICT(`key`) DO UPDATE SET
+          "key", owner, expires_at
+        ) VALUES (?, ?, ?) ON CONFLICT("key") DO UPDATE SET
           owner = excluded.owner, expires_at = excluded.expires_at
           WHERE session_locks.expires_at <= ?`,
         [String(key), String(owner), expiresAt, new Date(now).toISOString()]);

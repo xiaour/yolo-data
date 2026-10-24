@@ -1,3 +1,4 @@
+import { WorkspaceRepository } from './workspaceRepository.js';
 import { PlatformLogRepository } from './platformLogRepository.js';
 import { SkillRepository } from './skillRepository.js';
 import fs from 'node:fs';
@@ -129,6 +130,7 @@ export class PlatformDatabase {
     this.initSqlPath = initSqlPath;
     this.db = new DatabaseSync(filePath);
     attachKnexPlatformStore(this, createKnexPlatformStore({ backend: 'sqlite', path: filePath }));
+    this.workspaceRepository = new WorkspaceRepository(this.db);
     this.logRepository = new PlatformLogRepository(this.db, filePath === ':memory:' ? null : this);
     this.skillRepository = new SkillRepository(this.db, this);
     this.modelRepository = new ModelRepository(this.db, this);
@@ -2673,262 +2675,50 @@ export class PlatformDatabase {
     } : null;
   }
 
-  ensureWorkspace({
-    userId,
-    themeId,
-    sessionId,
-    name = '问数工作区',
-  }) {
-    const existing = this.getWorkspaceBySession(sessionId, userId);
-    if (existing) {
-      return existing;
-    }
-    const timestamp = nowIso();
-    const result = this.db.prepare(`
-      INSERT INTO workspaces
-        (user_id, theme_id, session_id, name, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 1, ?, ?)
-    `).run(
-      Number(userId),
-      Number(themeId),
-      Number(sessionId),
-      String(name || '问数工作区').trim(),
-      timestamp,
-      timestamp,
-    );
-    return this.getWorkspace(Number(result.lastInsertRowid), userId);
+  ensureWorkspace({ userId, themeId, sessionId, name = '问数工作区' }) {
+    return this.workspaceRepository.ensureWorkspace({ userId, themeId, sessionId, name });
   }
 
   getWorkspace(id, userId = null) {
-    const row = this.db.prepare(`
-      SELECT w.id, w.user_id AS userId, w.theme_id AS themeId,
-             t.name AS themeName, w.session_id AS sessionId, w.name,
-             w.status, w.created_at AS createdAt, w.updated_at AS updatedAt,
-             (SELECT COUNT(*) FROM workspace_artifacts a
-              WHERE a.workspace_id = w.id AND a.status = 1) AS artifactCount
-      FROM workspaces w
-      JOIN themes t ON t.id = w.theme_id
-      WHERE w.id = ? AND (? IS NULL OR w.user_id = ?)
-    `).get(Number(id), userId ? Number(userId) : null, userId ? Number(userId) : null);
-    return row ?? null;
+    return this.workspaceRepository.getWorkspace(id, userId);
   }
 
   getWorkspaceBySession(sessionId, userId = null) {
-    const row = this.db.prepare(`
-      SELECT id FROM workspaces
-      WHERE session_id = ? AND (? IS NULL OR user_id = ?)
-    `).get(
-      Number(sessionId),
-      userId ? Number(userId) : null,
-      userId ? Number(userId) : null,
-    );
-    return row ? this.getWorkspace(row.id, userId) : null;
+    return this.workspaceRepository.getWorkspaceBySession(sessionId, userId);
   }
 
   updateWorkspace(id, userId, { name } = {}) {
-    const current = this.getWorkspace(id, userId);
-    if (!current) {
-      return null;
-    }
-    this.db.prepare(`
-      UPDATE workspaces
-      SET name = ?, updated_at = ?
-      WHERE id = ? AND user_id = ?
-    `).run(
-      name === undefined ? current.name : String(name).trim(),
-      nowIso(),
-      Number(id),
-      Number(userId),
-    );
-    return this.getWorkspace(id, userId);
+    return this.workspaceRepository.updateWorkspace(id, userId, { name });
   }
 
   createWorkspaceArtifact({
-    workspaceId,
-    userId,
-    sessionId,
-    messageId,
-    conversationId,
-    artifactType = 'TABLE',
-    title = '',
-    metadata = {},
-    payload = {},
+    workspaceId, userId, sessionId, messageId, conversationId,
+    artifactType = 'TABLE', title = '', metadata = {}, payload = {},
   }) {
-    const artifactId = crypto.randomUUID();
-    const versionId = crypto.randomUUID();
-    const timestamp = nowIso();
-    const create = this.db.prepare(`
-      INSERT INTO workspace_artifacts
-        (id, workspace_id, user_id, session_id, message_id, conversation_id,
-         artifact_type, title, current_version, metadata_json, status,
-         created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 1, ?, ?)
-    `);
-    const createVersion = this.db.prepare(`
-      INSERT INTO artifact_versions
-        (id, artifact_id, version, operation_json, payload_json, created_at)
-      VALUES (?, ?, 1, ?, ?, ?)
-    `);
-    this.db.exec('BEGIN');
-    try {
-      create.run(
-        artifactId,
-        Number(workspaceId),
-        Number(userId),
-        sessionId ? Number(sessionId) : null,
-        messageId ? Number(messageId) : null,
-        conversationId ? Number(conversationId) : null,
-        String(artifactType),
-        String(title ?? ''),
-        asJson(metadata),
-        timestamp,
-        timestamp,
-      );
-      createVersion.run(
-        versionId,
-        artifactId,
-        asJson({ type: 'CREATE' }),
-        asJson(payload),
-        timestamp,
-      );
-      this.db.prepare(`
-        UPDATE workspaces SET updated_at = ? WHERE id = ?
-      `).run(timestamp, Number(workspaceId));
-      this.db.exec('COMMIT');
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
-    return this.getWorkspaceArtifact(artifactId, userId);
+    return this.workspaceRepository.createWorkspaceArtifact({
+      workspaceId, userId, sessionId, messageId, conversationId,
+      artifactType, title, metadata, payload,
+    });
   }
 
   appendWorkspaceArtifactVersion({
-    artifactId,
-    userId,
-    operation = {},
-    payload = {},
-    metadata = undefined,
+    artifactId, userId, operation = {}, payload = {}, metadata = undefined,
   }) {
-    const artifact = this.getWorkspaceArtifact(artifactId, userId);
-    if (!artifact) {
-      throw new Error('workspace artifact not found');
-    }
-    const version = Number(artifact.currentVersion) + 1;
-    const versionId = crypto.randomUUID();
-    const timestamp = nowIso();
-    this.db.exec('BEGIN');
-    try {
-      this.db.prepare(`
-        INSERT INTO artifact_versions
-          (id, artifact_id, version, operation_json, payload_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(
-        versionId,
-        artifact.id,
-        version,
-        asJson(operation),
-        asJson(payload),
-        timestamp,
-      );
-      this.db.prepare(`
-        UPDATE workspace_artifacts
-        SET current_version = ?, metadata_json = ?, updated_at = ?
-        WHERE id = ? AND user_id = ?
-      `).run(
-        version,
-        asJson(metadata ?? artifact.metadata ?? {}),
-        timestamp,
-        artifact.id,
-        Number(userId),
-      );
-      this.db.prepare(`
-        UPDATE workspaces SET updated_at = ?
-        WHERE id = (SELECT workspace_id FROM workspace_artifacts WHERE id = ?)
-      `).run(timestamp, artifact.id);
-      this.db.exec('COMMIT');
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
-    return this.getWorkspaceArtifact(artifact.id, userId);
+    return this.workspaceRepository.appendWorkspaceArtifactVersion({
+      artifactId, userId, operation, payload, metadata,
+    });
   }
 
   getWorkspaceArtifact(id, userId = null) {
-    const row = this.db.prepare(`
-      SELECT a.id, a.workspace_id AS workspaceId, a.user_id AS userId,
-             a.session_id AS sessionId, a.message_id AS messageId,
-             a.conversation_id AS conversationId, a.artifact_type AS artifactType,
-             a.title, a.current_version AS currentVersion,
-             a.metadata_json AS metadataJson, a.status,
-             a.created_at AS createdAt, a.updated_at AS updatedAt,
-             v.payload_json AS payloadJson
-      FROM workspace_artifacts a
-      JOIN artifact_versions v
-        ON v.artifact_id = a.id AND v.version = a.current_version
-      WHERE a.id = ? AND (? IS NULL OR a.user_id = ?)
-    `).get(String(id), userId ? Number(userId) : null, userId ? Number(userId) : null);
-    return row ? {
-      ...row,
-      metadata: parseJson(row.metadataJson, {}),
-      payload: parseJson(row.payloadJson, {}),
-    } : null;
+    return this.workspaceRepository.getWorkspaceArtifact(id, userId);
   }
 
   listWorkspaceArtifacts(workspaceId, userId = null) {
-    const rows = this.db.prepare(`
-      SELECT a.id, a.workspace_id AS workspaceId, a.user_id AS userId,
-             a.session_id AS sessionId, a.message_id AS messageId,
-             a.conversation_id AS conversationId, a.artifact_type AS artifactType,
-             a.title, a.current_version AS currentVersion,
-             a.metadata_json AS metadataJson, a.status,
-             a.created_at AS createdAt, a.updated_at AS updatedAt
-      FROM workspace_artifacts a
-      WHERE a.workspace_id = ? AND a.status = 1
-        AND (? IS NULL OR a.user_id = ?)
-      ORDER BY a.updated_at DESC, a.id DESC
-    `).all(
-      Number(workspaceId),
-      userId ? Number(userId) : null,
-      userId ? Number(userId) : null,
-    );
-    return rows.map((row) => ({
-      ...row,
-      metadata: parseJson(row.metadataJson, {}),
-    }));
+    return this.workspaceRepository.listWorkspaceArtifacts(workspaceId, userId);
   }
 
-  bindWorkspaceArtifactsToMessage({
-    artifactIds = [],
-    userId,
-    messageId,
-  }) {
-    const ids = [...new Set((artifactIds ?? []).map(String).filter(Boolean))];
-    if (ids.length === 0) {
-      return 0;
-    }
-    const update = this.db.prepare(`
-      UPDATE workspace_artifacts
-      SET message_id = ?, updated_at = ?
-      WHERE id = ? AND user_id = ?
-    `);
-    const timestamp = nowIso();
-    this.db.exec('BEGIN');
-    try {
-      let count = 0;
-      for (const artifactId of ids) {
-        count += update.run(
-          Number(messageId),
-          timestamp,
-          artifactId,
-          Number(userId),
-        ).changes;
-      }
-      this.db.exec('COMMIT');
-      return count;
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      throw error;
-    }
+  bindWorkspaceArtifactsToMessage({ artifactIds = [], userId, messageId }) {
+    return this.workspaceRepository.bindWorkspaceArtifactsToMessage({ artifactIds, userId, messageId });
   }
 
   updateThemePrompt(id, systemPrompt) {
