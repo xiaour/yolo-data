@@ -272,3 +272,17 @@ test('provider failures keep the HTML base-url diagnosis and truncate long detai
   assert.ok(long.length < 400);
   assert.match(long, /\.\.\./);
 });
+
+
+test('local rule runtime with metadata-only catalog never calls removed indicator tools', async () => {
+  const { RuleBasedHarness } = await import('../src/harness.js');
+  const calls = [];
+  const result = await new RuleBasedHarness().run({
+    messages: [{ role: 'user', content: '销售额是多少' }],
+    tools: [], metadata: { sourceMode: 'local' },
+    executeTool: async (name) => { calls.push(name); throw new Error('unavailable tool'); },
+  });
+  assert.deepEqual(calls, []);
+  assert.match(result.content, /业务数据集/);
+  assert.deepEqual(result.trace, []);
+});

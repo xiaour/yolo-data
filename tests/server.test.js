@@ -5,18 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { startServer } from '../src/server.js';
-import { FakeIndicatorClient } from './fixtures/fakeIndicatorClient.js';
 
 function testConfig(directory) {
   return {
     projectRoot: process.cwd(),
     port: 0,
     dbPath: path.join(directory, 'test.db'),
-    本地指标目录: {
-      baseUrl: '',
-      token: '',
-      timeoutMs: 5_000,
-    },
     deepseek: {
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
@@ -35,7 +29,7 @@ function testConfig(directory) {
 
 test('theme API stores model keys encrypted and never returns plaintext', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-server-'));
-  const { server, application } = await startServer(testConfig(directory), new FakeIndicatorClient());
+  const { server, application } = await startServer(testConfig(directory));
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const headers = {
@@ -113,7 +107,7 @@ test('theme API stores model keys encrypted and never returns plaintext', async 
 
 test('theme semantic value API persists field switches independently per agent', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-semantic-api-'));
-  const { server, application } = await startServer(testConfig(directory), new FakeIndicatorClient());
+  const { server, application } = await startServer(testConfig(directory));
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const adminHeaders = {
@@ -196,54 +190,30 @@ test('theme semantic value API persists field switches independently per agent',
   }
 });
 
-test('system settings can disable 本地指标目录 and switch the agent to direct LLM mode', async () => {
+test('system settings and health report the persisted local catalog count', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-settings-'));
-  const { server, application } = await startServer(testConfig(directory), new FakeIndicatorClient());
-  const address = server.address();
-  const baseUrl = `http://127.0.0.1:${address.port}`;
-  const adminHeaders = {
-    'content-type': 'application/json',
-    'x-user-id': '1',
-  };
-
+  const { server, application } = await startServer(testConfig(directory));
+  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const adminHeaders = { 'content-type': 'application/json', 'x-user-id': '1' };
   try {
-    const settingsResponse = await fetch(`${baseUrl}/api/settings`, {
-      headers: adminHeaders,
-    });
-    const settings = await settingsResponse.json();
-    assert.equal(settingsResponse.status, 200);
-    assert.equal(settings.本地指标目录.enabled, true);
-
-    const disabledResponse = await fetch(`${baseUrl}/api/settings/本地指标目录`, {
-      method: 'PUT',
-      headers: adminHeaders,
-      body: JSON.stringify({ enabled: false }),
-    });
-    const disabled = await disabledResponse.json();
-    assert.equal(disabledResponse.status, 200);
-    assert.equal(disabled.本地指标目录.enabled, false);
-    assert.equal(disabled.health.source.mode, 'direct-llm');
-
-    const indicatorsResponse = await fetch(`${baseUrl}/api/indicators`, {
-      headers: adminHeaders,
-    });
-    const indicators = await indicatorsResponse.json();
-    assert.equal(indicators.disabled, true);
-    assert.deepEqual(indicators.items, []);
-    assert.equal(
-      application.database.getPlatformSetting('本地指标目录.enabled').value,
-      false,
-    );
-
-    const enabledResponse = await fetch(`${baseUrl}/api/settings/本地指标目录`, {
-      method: 'PUT',
-      headers: adminHeaders,
-      body: JSON.stringify({ enabled: true }),
-    });
-    const enabled = await enabledResponse.json();
-    assert.equal(enabledResponse.status, 200);
-    assert.equal(enabled.本地指标目录.enabled, true);
-    assert.equal(enabled.health.source.mode, '本地指标目录');
+    const readSettings = async () => {
+      const response = await fetch(`${baseUrl}/api/settings`, { headers: adminHeaders });
+      assert.equal(response.status, 200);
+      return response.json();
+    };
+    assert.deepEqual(await readSettings(), { localIndicatorCount: 0 });
+    const indicator = await application.database.localIndicators.save({ name: '销售额', bizName: 'sales_amount' });
+    assert.deepEqual(await readSettings(), { localIndicatorCount: 1 });
+    const health = await (await fetch(`${baseUrl}/api/health`)).json();
+    assert.equal(health.source.mode, 'local');
+    assert.equal(health.source.localIndicatorManagement, true);
+    assert.equal(health.source.localIndicatorCount, 1);
+    assert.equal(health.source.indicatorSource, 'LOCAL');
+    const catalog = await (await fetch(`${baseUrl}/api/indicators`, { headers: adminHeaders })).json();
+    assert.equal(catalog.localMode, true);
+    assert.deepEqual(catalog.items.map((item) => item.id), [indicator.id]);
+    await application.database.localIndicators.deleteAsync(indicator.id);
+    assert.deepEqual(await readSettings(), { localIndicatorCount: 0 });
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await application.database.closeAsync();
@@ -252,7 +222,7 @@ test('system settings can disable 本地指标目录 and switch the agent to dir
 
 test('model management persists multiple models and theme default selection', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-models-'));
-  const { server, application } = await startServer(testConfig(directory), new FakeIndicatorClient());
+  const { server, application } = await startServer(testConfig(directory));
   const address = server.address();
   const baseUrl = `http://127.0.0.1:${address.port}`;
   const adminHeaders = {
@@ -361,7 +331,7 @@ test('model management can test a saved model connection without exposing the ke
   await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
 
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-model-test-'));
-  const { server, application } = await startServer(testConfig(directory), new FakeIndicatorClient());
+  const { server, application } = await startServer(testConfig(directory));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const upstreamUrl = `http://127.0.0.1:${upstream.address().port}/v1`;
   const headers = {
@@ -409,7 +379,7 @@ test('model connection test turns an HTML upstream error into a readable message
   await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
 
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-model-html-error-'));
-  const { server, application } = await startServer(testConfig(directory), new FakeIndicatorClient());
+  const { server, application } = await startServer(testConfig(directory));
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const upstreamUrl = `http://127.0.0.1:${upstream.address().port}/v1`;
   const headers = {

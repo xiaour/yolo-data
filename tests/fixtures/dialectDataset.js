@@ -11,6 +11,7 @@ export function dialectDataset(dbType = 'POSTGRESQL', schemaName = 'public') {
   ].map((field) => ({ ...field, dataType: field.semanticType === 'NUMBER' ? 'numeric' : 'text', allowedOperators: [] }));
   const logs = [];
   const database = {
+    isInMemory: true,
     getDataSource: () => source,
     getBusinessDataset: () => dataset,
     listDatasetFields: () => fields,
