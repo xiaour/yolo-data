@@ -8,142 +8,14 @@
 //
 // 边界：记忆只承载“用户自己的表达与偏好”，不定义平台业务规则；与主题提示词、
 // 平台规则或本轮用户明确指令冲突时一律以后者为准。
-import crypto from 'node:crypto';
-
-export const MEMORY_KINDS = [
-  { code: 'BUSINESS_KNOWLEDGE', label: '业务知识' },
-  { code: 'CALIBER', label: '口径偏好' },
-  { code: 'TERM', label: '术语映射' },
-  { code: 'TIME_RANGE', label: '时间习惯' },
-  { code: 'PREFERENCE', label: '分析偏好' },
-];
-
-export const NOTE_SOURCES = {
-  EXPLICIT: '用户要求记住',
-  DISTILLED: '自动提炼',
-  MANUAL: '手工录入',
-};
-
-export const NOTE_STATES = {
-  PENDING: '待合并',
-  MERGED: '已合并',
-  ARCHIVED: '已归档',
-};
-
-const KIND_CODES = MEMORY_KINDS.map((item) => item.code);
-const KIND_LABELS = new Map(MEMORY_KINDS.map((item) => [item.code, item.label]));
-const KIND_SET = new Set(KIND_CODES);
-const DEFAULT_KIND = 'BUSINESS_KNOWLEDGE';
-const MIN_NOTE_LENGTH = 4;
-const MAX_NOTE_LENGTH = 400;
-const SUMMARY_BUDGET = 1200;
-const CONTENT_BUDGET = 8000;
-const MAX_PENDING_NOTES = 400;
-const LEGACY_MIGRATION_KEY = 'userMemory.legacyMigrated';
-
-export function memoryKindLabel(code) {
-  return KIND_LABELS.get(String(code ?? '')) ?? KIND_LABELS.get(DEFAULT_KIND);
-}
-
-export function memoryScopeKey(themeId) {
-  return themeId ? `theme:${Number(themeId)}` : 'global';
-}
-
-export function normalizeNoteContent(value) {
-  return String(value ?? '')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/^[\s:：,，、;；。.!！?？]+|[\s。]+$/g, '')
-    .trim();
-}
-
-function normalizeKind(value) {
-  const code = String(value ?? '').trim().toUpperCase();
-  return KIND_SET.has(code) ? code : DEFAULT_KIND;
-}
-
-function clampText(value, budget) {
-  const text = String(value ?? '').trim();
-  return text.length <= budget ? text : `${text.slice(0, budget - 1).trimEnd()}…`;
-}
-
-function noteKey(content) {
-  return crypto
-    .createHash('sha256')
-    .update(normalizeNoteContent(content).toLowerCase())
-    .digest('hex')
-    .slice(0, 32);
-}
-
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function mapDocument(row) {
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    userId: row.userId,
-    themeId: row.themeId,
-    themeName: row.themeName ?? null,
-    scopeKey: row.scopeKey,
-    scopeLabel: row.scopeKey === 'global' ? '通用（全部智能体）' : (row.themeName ?? row.scopeLabel),
-    summary: row.summary ?? '',
-    content: row.content ?? '',
-    version: row.version ?? 0,
-    status: row.status,
-    summaryBudget: row.summaryBudget ?? SUMMARY_BUDGET,
-    contentBudget: row.contentBudget ?? CONTENT_BUDGET,
-    lastConsolidatedAt: row.lastConsolidatedAt ?? null,
-    injectedCount: row.injectedCount ?? 0,
-    lastInjectedAt: row.lastInjectedAt ?? null,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-function mapNote(row) {
-  if (!row) {
-    return null;
-  }
-  return {
-    id: row.id,
-    userId: row.userId,
-    themeId: row.themeId,
-    scopeKey: row.scopeKey,
-    themeName: row.themeName ?? null,
-    scopeLabel: row.scopeKey === 'global' ? '通用（全部智能体）' : (row.themeName ?? ''),
-    kind: row.kind,
-    kindLabel: memoryKindLabel(row.kind),
-    source: row.source,
-    sourceLabel: NOTE_SOURCES[row.source] ?? row.source,
-    state: row.state,
-    stateLabel: NOTE_STATES[row.state] ?? row.state,
-    content: row.content,
-    sessionId: row.sessionId,
-    mergedVersion: row.mergedVersion ?? null,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
-  };
-}
-
-const DOCUMENT_COLUMNS = `
-  d.id, d.user_id AS userId, d.theme_id AS themeId, t.name AS themeName,
-  d.scope_key AS scopeKey, d.scope_label AS scopeLabel, d.summary, d.content,
-  d.version, d.status, d.summary_budget AS summaryBudget,
-  d.content_budget AS contentBudget, d.last_consolidated_at AS lastConsolidatedAt,
-  d.injected_count AS injectedCount, d.last_injected_at AS lastInjectedAt,
-  d.created_at AS createdAt, d.updated_at AS updatedAt
-`;
-
-const NOTE_COLUMNS = `
-  n.id, n.user_id AS userId, n.theme_id AS themeId, t.name AS themeName,
-  n.scope_key AS scopeKey, n.kind, n.source, n.state, n.content,
-  n.session_id AS sessionId, n.merged_version AS mergedVersion,
-  n.created_at AS createdAt, n.updated_at AS updatedAt
-`;
+import { UserMemoryRepository } from './userMemoryRepository.js';
+import {
+  SUMMARY_BUDGET, CONTENT_BUDGET, MAX_PENDING_NOTES, LEGACY_MIGRATION_KEY,
+  memoryScopeKey, clampText, nowIso,
+} from './userMemoryModel.js';
+export {
+  MEMORY_KINDS, NOTE_SOURCES, NOTE_STATES, memoryKindLabel, memoryScopeKey, normalizeNoteContent,
+} from './userMemoryModel.js';
 
 export class UserMemoryStore {
   constructor(database, {
@@ -152,6 +24,7 @@ export class UserMemoryStore {
     maxPendingNotes = MAX_PENDING_NOTES,
   } = {}) {
     this.database = database;
+    this.repository = new UserMemoryRepository(database);
     this.summaryBudget = summaryBudget;
     this.contentBudget = contentBudget;
     this.maxPendingNotes = maxPendingNotes;
@@ -200,59 +73,12 @@ export class UserMemoryStore {
     return count;
   }
 
-  listDocuments({
-    userId = null, themeId = null, status = null, limit = 50,
-  } = {}) {
-    const conditions = [];
-    const params = [];
-    if (userId !== null && userId !== undefined) {
-      conditions.push('d.user_id = ?');
-      params.push(Number(userId));
-    }
-    if (themeId) {
-      conditions.push('(d.theme_id = ? OR d.theme_id IS NULL)');
-      params.push(Number(themeId));
-    }
-    if (status === 0 || status === 1) {
-      conditions.push('d.status = ?');
-      params.push(Number(status));
-    }
-    return this.database.db.prepare(`
-      SELECT ${DOCUMENT_COLUMNS}
-      FROM user_memory_documents d
-      LEFT JOIN themes t ON t.id = d.theme_id
-      ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
-      ORDER BY d.theme_id IS NULL, d.updated_at DESC, d.id DESC
-      LIMIT ?
-    `).all(...params, Math.max(1, Math.min(Number(limit) || 50, 200))).map(mapDocument);
+  listDocuments(options = {}) {
+    return this.repository.listDocuments(options);
   }
 
-  async listDocumentsAsync({
-    userId = null, themeId = null, status = null, limit = 50,
-  } = {}) {
-    const conditions = [];
-    const params = [];
-    if (userId !== null && userId !== undefined) {
-      conditions.push('d.user_id = ?');
-      params.push(Number(userId));
-    }
-    if (themeId) {
-      conditions.push('(d.theme_id = ? OR d.theme_id IS NULL)');
-      params.push(Number(themeId));
-    }
-    if (status === 0 || status === 1) {
-      conditions.push('d.status = ?');
-      params.push(Number(status));
-    }
-    const rows = await this.database.query(`
-      SELECT ${DOCUMENT_COLUMNS}
-      FROM user_memory_documents d
-      LEFT JOIN themes t ON t.id = d.theme_id
-      ${conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''}
-      ORDER BY d.theme_id IS NULL, d.updated_at DESC, d.id DESC
-      LIMIT ?
-    `, [...params, Math.max(1, Math.min(Number(limit) || 50, 200))]);
-    return rows.map(mapDocument);
+  async listDocumentsAsync(options = {}) {
+    return this.repository.listDocumentsAsync(options);
   }
 
   // 自动维护的工作清单：有待合并笔记，或正文已经长到需要压缩的作用域。
@@ -326,41 +152,19 @@ export class UserMemoryStore {
   }
 
   getDocument(id) {
-    return mapDocument(this.database.db.prepare(`
-      SELECT ${DOCUMENT_COLUMNS}
-      FROM user_memory_documents d
-      LEFT JOIN themes t ON t.id = d.theme_id
-      WHERE d.id = ?
-    `).get(Number(id)));
+    return this.repository.getDocument(id);
   }
 
   async getDocumentAsync(id) {
-    const [row] = await this.database.query(`
-      SELECT ${DOCUMENT_COLUMNS}
-      FROM user_memory_documents d
-      LEFT JOIN themes t ON t.id = d.theme_id
-      WHERE d.id = ?
-    `, [Number(id)]);
-    return mapDocument(row);
+    return this.repository.getDocumentAsync(id);
   }
 
   getDocumentByScope(userId, themeId) {
-    return mapDocument(this.database.db.prepare(`
-      SELECT ${DOCUMENT_COLUMNS}
-      FROM user_memory_documents d
-      LEFT JOIN themes t ON t.id = d.theme_id
-      WHERE d.user_id = ? AND d.scope_key = ?
-    `).get(Number(userId), memoryScopeKey(themeId)));
+    return this.repository.getDocumentByScope(userId, themeId);
   }
 
   async getDocumentByScopeAsync(userId, themeId) {
-    const [row] = await this.database.query(`
-      SELECT ${DOCUMENT_COLUMNS}
-      FROM user_memory_documents d
-      LEFT JOIN themes t ON t.id = d.theme_id
-      WHERE d.user_id = ? AND d.scope_key = ?
-    `, [Number(userId), memoryScopeKey(themeId)]);
-    return mapDocument(row);
+    return this.repository.getDocumentByScopeAsync(userId, themeId);
   }
 
   async ensureDocumentAsync(userId, themeId = null) {
@@ -586,254 +390,59 @@ export class UserMemoryStore {
     });
   }
 
-  listNotes({
-    userId, themeId = null, scopeKey = '', state = '', kind = '', keyword = '', limit = 200,
-  } = {}) {
-    const conditions = ['n.user_id = ?'];
-    const params = [Number(userId)];
-    if (scopeKey) {
-      conditions.push('n.scope_key = ?');
-      params.push(String(scopeKey));
-    } else if (themeId) {
-      conditions.push('(n.theme_id = ? OR n.theme_id IS NULL)');
-      params.push(Number(themeId));
-    }
-    if (NOTE_STATES[String(state ?? '').toUpperCase()]) {
-      conditions.push('n.state = ?');
-      params.push(String(state).toUpperCase());
-    }
-    if (KIND_SET.has(String(kind ?? '').toUpperCase())) {
-      conditions.push('n.kind = ?');
-      params.push(String(kind).toUpperCase());
-    }
-    if (String(keyword ?? '').trim()) {
-      conditions.push('n.content LIKE ?');
-      params.push(`%${String(keyword).trim()}%`);
-    }
-    return this.database.db.prepare(`
-      SELECT ${NOTE_COLUMNS}
-      FROM user_memory_notes n
-      LEFT JOIN themes t ON t.id = n.theme_id
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY n.state = 'PENDING' DESC, n.id DESC
-      LIMIT ?
-    `).all(...params, Math.max(1, Math.min(Number(limit) || 200, 500))).map(mapNote);
+  listNotes(options = {}) {
+    return this.repository.listNotes(options);
   }
 
-  async listNotesAsync({
-    userId, themeId = null, scopeKey = '', state = '', kind = '', keyword = '', limit = 200,
-  } = {}) {
-    const conditions = ['n.user_id = ?'];
-    const params = [Number(userId)];
-    if (scopeKey) {
-      conditions.push('n.scope_key = ?');
-      params.push(String(scopeKey));
-    } else if (themeId) {
-      conditions.push('(n.theme_id = ? OR n.theme_id IS NULL)');
-      params.push(Number(themeId));
-    }
-    if (NOTE_STATES[String(state ?? '').toUpperCase()]) {
-      conditions.push('n.state = ?');
-      params.push(String(state).toUpperCase());
-    }
-    if (KIND_SET.has(String(kind ?? '').toUpperCase())) {
-      conditions.push('n.kind = ?');
-      params.push(String(kind).toUpperCase());
-    }
-    if (String(keyword ?? '').trim()) {
-      conditions.push('n.content LIKE ?');
-      params.push(`%${String(keyword).trim()}%`);
-    }
-    const rows = await this.database.query(`
-      SELECT ${NOTE_COLUMNS}
-      FROM user_memory_notes n
-      LEFT JOIN themes t ON t.id = n.theme_id
-      WHERE ${conditions.join(' AND ')}
-      ORDER BY n.state = 'PENDING' DESC, n.id DESC
-      LIMIT ?
-    `, [...params, Math.max(1, Math.min(Number(limit) || 200, 500))]);
-    return rows.map(mapNote);
+  async listNotesAsync(options = {}) {
+    return this.repository.listNotesAsync(options);
   }
 
   getNote(id) {
-    return mapNote(this.database.db.prepare(`
-      SELECT ${NOTE_COLUMNS}
-      FROM user_memory_notes n
-      LEFT JOIN themes t ON t.id = n.theme_id
-      WHERE n.id = ?
-    `).get(Number(id)));
+    return this.repository.getNote(id);
   }
 
   async getNoteAsync(id) {
-    const [row] = await this.database.query(`SELECT ${NOTE_COLUMNS}
-      FROM user_memory_notes n LEFT JOIN themes t ON t.id = n.theme_id WHERE n.id = ?`, [Number(id)]);
-    return mapNote(row);
+    return this.repository.getNoteAsync(id);
   }
 
   pendingNotes(userId, themeId = null, limit = MAX_PENDING_NOTES) {
-    return this.listNotes({
-      userId,
-      themeId,
-      state: 'PENDING',
-      limit,
-    });
+    return this.repository.pendingNotes(userId, themeId, limit);
   }
 
   async pendingNotesAsync(userId, themeId = null, limit = MAX_PENDING_NOTES) {
-    return this.listNotesAsync({ userId, themeId, state: 'PENDING', limit });
+    return this.repository.pendingNotesAsync(userId, themeId, limit);
+  }
+  createNote(input) {
+    return this.repository.createNote(input);
   }
 
-  // 笔记只追加：同一作用域内内容重复时只刷新时间与来源，不新增条目，也不覆盖已有类型，
-  // 避免后续自动提炼把用户手工选定的分类改掉。
-  createNote({
-    userId, themeId = null, kind, content, source = 'DISTILLED', state = 'PENDING',
-    sessionId = null, createdAt = null,
-  }) {
-    const text = normalizeNoteContent(content);
-    if (text.length < MIN_NOTE_LENGTH || text.length > MAX_NOTE_LENGTH) {
-      return null;
-    }
-    const scopeKey = memoryScopeKey(themeId);
-    const key = noteKey(text);
-    const timestamp = nowIso();
-    const existing = this.database.db.prepare(`
-      SELECT id, state FROM user_memory_notes
-      WHERE user_id = ? AND scope_key = ? AND dedupe_key = ?
-    `).get(Number(userId), scopeKey, key);
-    if (existing) {
-      this.database.db.prepare(`
-        UPDATE user_memory_notes
-        SET content = ?, updated_at = ?,
-            state = CASE WHEN state = 'ARCHIVED' THEN 'PENDING' ELSE state END
-        WHERE id = ?
-      `).run(text, timestamp, existing.id);
-      return { ...this.getNote(existing.id), deduped: true };
-    }
-    const result = this.database.db.prepare(`
-      INSERT INTO user_memory_notes
-        (user_id, theme_id, scope_key, kind, source, state, content, dedupe_key,
-         session_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      Number(userId),
-      themeId ? Number(themeId) : null,
-      scopeKey,
-      normalizeKind(kind),
-      NOTE_SOURCES[String(source ?? '').toUpperCase()] ? String(source).toUpperCase() : 'DISTILLED',
-      NOTE_STATES[String(state ?? '').toUpperCase()] ? String(state).toUpperCase() : 'PENDING',
-      text,
-      key,
-      sessionId ? Number(sessionId) : null,
-      createdAt ?? timestamp,
-      timestamp,
-    );
-    return { ...this.getNote(Number(result.lastInsertRowid)), deduped: false };
+  async createNoteAsync(input) {
+    return this.repository.createNoteAsync(input);
   }
 
-  async createNoteAsync({
-    userId, themeId = null, kind, content, source = 'DISTILLED', state = 'PENDING',
-    sessionId = null, createdAt = null,
-  }) {
-    const text = normalizeNoteContent(content);
-    if (text.length < MIN_NOTE_LENGTH || text.length > MAX_NOTE_LENGTH) return null;
-    const scopeKey = memoryScopeKey(themeId);
-    const key = noteKey(text);
-    const timestamp = nowIso();
-    let id;
-    let deduped = false;
-    await this.database.transaction(async (tx) => {
-      const [existing] = await tx.query(`SELECT id FROM user_memory_notes
-        WHERE user_id = ? AND scope_key = ? AND dedupe_key = ?`, [Number(userId), scopeKey, key]);
-      if (existing) {
-        id = Number(existing.id);
-        deduped = true;
-        await tx.execute(`UPDATE user_memory_notes SET content = ?, updated_at = ?,
-          state = CASE WHEN state = 'ARCHIVED' THEN 'PENDING' ELSE state END WHERE id = ?`, [text, timestamp, id]);
-        return;
-      }
-      const result = await tx.execute(`INSERT INTO user_memory_notes
-        (user_id, theme_id, scope_key, kind, source, state, content, dedupe_key,
-         session_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
-        Number(userId), themeId ? Number(themeId) : null, scopeKey, normalizeKind(kind),
-        NOTE_SOURCES[String(source ?? '').toUpperCase()] ? String(source).toUpperCase() : 'DISTILLED',
-        NOTE_STATES[String(state ?? '').toUpperCase()] ? String(state).toUpperCase() : 'PENDING',
-        text, key, sessionId ? Number(sessionId) : null, createdAt ?? timestamp, timestamp,
-      ]);
-      id = Number(result.insertId);
-    });
-    return { ...(await this.getNoteAsync(id)), deduped };
+  updateNote(id, changes = {}) {
+    return this.repository.updateNote(id, changes);
   }
 
-  updateNote(id, { content, kind, state } = {}) {
-    const current = this.getNote(id);
-    if (!current) {
-      return null;
-    }
-    const text = content === undefined ? current.content : normalizeNoteContent(content);
-    if (text.length < MIN_NOTE_LENGTH || text.length > MAX_NOTE_LENGTH) {
-      return null;
-    }
-    this.database.db.prepare(`
-      UPDATE user_memory_notes
-      SET content = ?, kind = ?, state = ?, dedupe_key = ?, updated_at = ?
-      WHERE id = ?
-    `).run(
-      text,
-      kind === undefined ? current.kind : normalizeKind(kind),
-      state === undefined
-        ? current.state
-        : (NOTE_STATES[String(state).toUpperCase()] ? String(state).toUpperCase() : current.state),
-      noteKey(text),
-      nowIso(),
-      Number(id),
-    );
-    return this.getNote(id);
-  }
-
-  async updateNoteAsync(id, { content, kind, state } = {}) {
-    const current = await this.getNoteAsync(id);
-    if (!current) return null;
-    const text = content === undefined ? current.content : normalizeNoteContent(content);
-    if (text.length < MIN_NOTE_LENGTH || text.length > MAX_NOTE_LENGTH) return null;
-    await this.database.execute(`UPDATE user_memory_notes SET content = ?, kind = ?, state = ?,
-      dedupe_key = ?, updated_at = ? WHERE id = ?`, [text,
-      kind === undefined ? current.kind : normalizeKind(kind),
-      state === undefined ? current.state : (NOTE_STATES[String(state).toUpperCase()] ? String(state).toUpperCase() : current.state),
-      noteKey(text), nowIso(), Number(id)]);
-    return this.getNoteAsync(id);
+  async updateNoteAsync(id, changes = {}) {
+    return this.repository.updateNoteAsync(id, changes);
   }
 
   removeNote(id) {
-    return this.database.db.prepare('DELETE FROM user_memory_notes WHERE id = ?')
-      .run(Number(id)).changes > 0;
+    return this.repository.removeNote(id);
   }
 
   async removeNoteAsync(id) {
-    const result = await this.database.execute('DELETE FROM user_memory_notes WHERE id = ?', [Number(id)]);
-    return Number(result.affectedRows) > 0;
+    return this.repository.removeNoteAsync(id);
   }
 
   markNotesMerged(ids, version) {
-    const list = (ids ?? []).map(Number).filter(Number.isFinite);
-    if (list.length === 0) {
-      return 0;
-    }
-    const placeholders = list.map(() => '?').join(',');
-    return this.database.db.prepare(`
-      UPDATE user_memory_notes
-      SET state = 'MERGED', merged_version = ?, updated_at = ?
-      WHERE id IN (${placeholders})
-    `).run(Number(version) || null, nowIso(), ...list).changes;
+    return this.repository.markNotesMerged(ids, version);
   }
 
   async markNotesMergedAsync(ids, version) {
-    const list = (ids ?? []).map(Number).filter(Number.isFinite);
-    if (!list.length) return 0;
-    const placeholders = list.map(() => '?').join(',');
-    const result = await this.database.execute(`UPDATE user_memory_notes
-      SET state = 'MERGED', merged_version = ?, updated_at = ?
-      WHERE id IN (${placeholders})`, [Number(version) || null, nowIso(), ...list]);
-    return Number(result.affectedRows) || 0;
+    return this.repository.markNotesMergedAsync(ids, version);
   }
 
   markDocumentUsed(ids) {
