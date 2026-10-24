@@ -1,3 +1,4 @@
+import { mapRow } from './dataSourceRow.js';
 import { normalizeDataSource } from './dialects/index.js';
 import { dataSourceTestState } from './datasourceLifecycle.js';
 
@@ -5,23 +6,8 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function parseJson(value, fallback) {
-  if (value === null || value === undefined || value === '') {
-    return fallback;
-  }
-  try {
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
-}
-
 function asJson(value) {
   return JSON.stringify(value ?? {});
-}
-
-function asBool(value) {
-  return value === 1 || value === true;
 }
 
 export class DataSourceRepository {
@@ -30,15 +16,7 @@ export class DataSourceRepository {
     this.asyncStore = asyncStore;
   }
 
-  mapRow(row) {
-    return row ? {
-      ...row,
-      options: parseJson(row.optionsJson, {}),
-      lastTestOk: row.lastTestOk === null || row.lastTestOk === undefined
-        ? null
-        : asBool(row.lastTestOk),
-    } : null;
-  }
+  mapRow(row) { return mapRow(row); }
 
   async listDataSourcesAsync() {
     const rows = await this.asyncStore.query(`SELECT id, code, name, db_type AS dbType,
@@ -84,17 +62,15 @@ export class DataSourceRepository {
   async updateDataSourceTestAsync(id, { ok, message }, source = null) {
     const current = source ?? await this.getDataSourceAsync(id);
     if (!current) return null;
-    const unchanged = (await this.asyncStore.query(`SELECT COUNT(*) AS count FROM data_sources
-      WHERE id=? AND code=? AND db_type=? AND host=? AND port=? AND database_name=?
-      AND username=? AND encrypted_password=? AND options_json=?`, [
-      Number(id), current.code, current.dbType, current.host, Number(current.port),
-      current.databaseName, current.username, current.encryptedPassword ?? '',
-      JSON.stringify(current.options ?? {}),
-    ]))[0]?.count;
-    if (Number(unchanged) > 0) {
-      await this.asyncStore.execute(`UPDATE data_sources SET last_test_at=?, last_test_ok=?,
-        last_test_message=? WHERE id=?`, [nowIso(), ok ? 1 : 0, String(message ?? ''), Number(id)]);
-    }
+    const fields = ['code', 'db_type', 'host', 'database_name', 'username', 'encrypted_password', 'options_json'];
+    const match = fields.map(field => this.asyncStore.backend === 'mysql'
+      ? `BINARY ${field} = BINARY ?` : `${field} = ?`).join(' AND ');
+    await this.asyncStore.execute(`UPDATE data_sources SET last_test_at=?, last_test_ok=?,
+      last_test_message=? WHERE id=? AND port=? AND ${match}`, [
+      nowIso(), ok ? 1 : 0, String(message ?? ''), Number(id), Number(current.port),
+      current.code, current.dbType, current.host, current.databaseName, current.username,
+      current.encryptedPassword ?? '', JSON.stringify(current.options ?? {}),
+    ]);
     return this.getDataSourceAsync(id);
   }
 

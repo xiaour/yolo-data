@@ -182,3 +182,15 @@ test('PG datasource settings survive SQLite persistence without schema migration
     assert.equal(dataset.schemaName, 'public');
   } finally { database.db.close(); }
 });
+
+
+test('dialect fixture supports asynchronous metadata discovery without a platform repository', async () => {
+  const { service } = dialectDataset();
+  const calls = [];
+  service.getPool = () => ({ query: async (query) => {
+    calls.push(query);
+    return [[{ schemaName: 'public' }]];
+  } });
+  assert.deepEqual(await service.listDatabases(1), ['public']);
+  assert.match(calls[0], /information_schema.schemata/);
+});
