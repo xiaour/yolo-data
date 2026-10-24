@@ -105,3 +105,30 @@ jobs:
           name: permission-browser
           path: artifacts/permission-browser
           if-no-files-found: ignore
+
+  mysql-upload-admission:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: test
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_DATABASE: yolo_upload_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -ptest"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      YOLO_MYSQL_UPLOAD_TEST_DATABASE: yolo_upload_test
+      YOLO_MYSQL_UPLOAD_TEST_USER: root
+      YOLO_MYSQL_UPLOAD_TEST_PASSWORD: test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Live MySQL concurrent upload admission
+        run: node --test tests/uploadAdmission.mysql.integration.test.js

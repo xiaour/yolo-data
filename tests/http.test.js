@@ -4,16 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { buildRouteTable, startServer } from '../src/server.js';
+import { configureAgentDataset } from './fixtures/agentDataset.js';
 import { createMiddlewareRegistry } from '../src/http/middleware.js';
 import { createRouteTable, runRoute } from '../src/http/router.js';
-import { FakeIndicatorClient } from './fixtures/fakeIndicatorClient.js';
 
 function testConfig(directory, overrides = {}) {
   return {
     projectRoot: process.cwd(),
     port: 0,
     dbPath: path.join(directory, 'test.db'),
-    本地指标目录: { baseUrl: '', token: '', timeoutMs: 5_000 },
     deepseek: {
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
@@ -33,7 +32,6 @@ async function withServer(run, overrides = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-http-'));
   const { server, application } = await startServer(
     testConfig(directory, overrides),
-    new FakeIndicatorClient(),
   );
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   try {
@@ -134,131 +132,72 @@ test('P0-8 timeout middleware rejects slow handlers without leaking late failure
   });
 });
 
-test('unconfigured 本地指标目录 defaults to local HTTP reads and supports explicit mode changes', async () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-local-'));
-  const { server, application } = await startServer(testConfig(directory), null);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const headers = { 'x-user-id': '1', 'content-type': 'application/json' };
-  try {
+test('local catalog HTTP reads are available without an external platform', async () => {
+  await withServer(async ({ baseUrl }) => {
+    const headers = { 'x-user-id': '1' };
     const settings = await (await fetch(`${baseUrl}/api/settings`, { headers })).json();
-    assert.equal(settings.本地指标目录.enabled, false);
-    assert.equal(settings.本地指标目录.localIndicatorManagement, true);
-    const indicators = await (await fetch(`${baseUrl}/api/indicators`, { headers })).json();
-    assert.equal(indicators.localMode, true);
-    assert.equal(indicators.source.source, 'LOCAL');
-    assert.deepEqual(indicators.items, []);
-    const scoped = await (await fetch(`${baseUrl}/api/indicators?themeId=1`, {
-      headers: { 'x-user-id': '2' },
-    })).json();
-    assert.equal(scoped.localMode, true);
-    assert.equal(scoped.source.source, 'LOCAL');
-    for (const enabled of [true, false]) {
-      const response = await fetch(`${baseUrl}/api/settings/本地指标目录`, {
-        method: 'PUT', headers, body: JSON.stringify({ enabled }),
+    assert.deepEqual(settings, { localIndicatorCount: 0 });
+    const health = await (await fetch(`${baseUrl}/api/health`)).json();
+    assert.equal(health.source.mode, 'local');
+    assert.equal(health.source.localIndicatorManagement, true);
+    assert.equal(health.source.indicatorSource, 'LOCAL');
+    for (const [suffix, userId] of [['', '1'], ['?themeId=1', '2']]) {
+      const response = await fetch(`${baseUrl}/api/indicators${suffix}`, {
+        headers: { 'x-user-id': userId },
       });
       assert.equal(response.status, 200);
-      const body = await response.json();
-      assert.equal(body.本地指标目录.enabled, enabled);
-      assert.equal(body.health.source.enabled, enabled);
-      assert.equal(body.health.source.mode, enabled ? 'unconfigured' : 'direct-llm');
-      assert.equal(application.agent.is本地指标目录Enabled(), enabled);
-      const current = await (await fetch(`${baseUrl}/api/settings`, { headers })).json();
-      assert.equal(current.本地指标目录.enabled, enabled);
+      const catalog = await response.json();
+      assert.equal(catalog.localMode, true);
+      assert.equal(catalog.source.source, 'LOCAL');
+      assert.deepEqual(catalog.items, []);
     }
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    await application.database.closeAsync();
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
+  });
 });
 
-test('explicitly enabled but unconfigured 本地指标目录 serves the offline snapshot', async () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-offline-'));
-  const { server, application } = await startServer(testConfig(directory), null);
-  application.database.savePlatformSetting('本地指标目录.enabled', true);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const admin = { 'x-user-id': '1' };
-  const analyst = { 'x-user-id': '2' };
-  try {
-    // Admin global list is what the theme/permission editors load; it used to
-    // return 400 when 本地指标目录 was enabled but unconfigured.
-    const empty = await fetch(`${baseUrl}/api/indicators?limit=2000`, { headers: admin });
-    assert.equal(empty.status, 200);
-    const emptyBody = await empty.json();
-    assert.deepEqual(emptyBody.items, []);
-    assert.equal(emptyBody.offline, true);
-    assert.equal(emptyBody.source.source, 'UNAVAILABLE');
-
-    const scoped = await fetch(`${baseUrl}/api/indicators?themeId=1`, { headers: analyst });
-    assert.equal(scoped.status, 200);
-    assert.ok(Array.isArray((await scoped.json()).items));
-
+test('local catalog sync confirms metadata and management writes remain available', async () => {
+  await withServer(async ({ baseUrl, application }) => {
+    const admin = { 'x-user-id': '1', 'content-type': 'application/json' };
     const types = await fetch(`${baseUrl}/api/indicator-types`, { headers: admin });
     assert.equal(types.status, 200);
     assert.deepEqual(await types.json(), []);
-
-    // Explicit sync also degrades instead of returning an error.
-    const sync = await fetch(`${baseUrl}/api/indicators/sync`, {
-      method: 'POST',
-      headers: admin,
-    });
+    const sync = await fetch(`${baseUrl}/api/indicators/sync`, { method: 'POST', headers: admin });
     assert.equal(sync.status, 200);
-    const syncBody = await sync.json();
-    assert.equal(syncBody.skipped, true);
-    assert.equal(syncBody.reason, '本地指标目录_NOT_CONFIGURED');
-
-    // Management writes are not blocked by the missing indicator platform.
+    assert.deepEqual(await sync.json(), {
+      localMode: true, localCount: 0, persisted: false, message: '本地指标管理已启用',
+    });
     const themeSave = await fetch(`${baseUrl}/api/themes/1`, {
-      method: 'PUT',
-      headers: { ...admin, 'content-type': 'application/json' },
-      body: JSON.stringify({ name: '经营总览', description: '离线可编辑' }),
+      method: 'PUT', headers: admin,
+      body: JSON.stringify({ name: '经营总览', description: '本地可编辑' }),
     });
     assert.equal(themeSave.status, 200);
-
-    const relationSave = await fetch(`${baseUrl}/api/indicators/offline-metric/themes`, {
-      method: 'PUT',
-      headers: { ...admin, 'content-type': 'application/json' },
-      body: JSON.stringify({ themeIds: [1, 999999] }),
+    const indicator = await application.database.localIndicators.save({
+      name: '销售额', bizName: 'sales_amount', typeId: 'sales', typeName: '经营指标',
+    });
+    const relationSave = await fetch(`${baseUrl}/api/indicators/${encodeURIComponent(indicator.id)}/themes`, {
+      method: 'PUT', headers: admin, body: JSON.stringify({ themeIds: [1, 999999] }),
     });
     assert.equal(relationSave.status, 200);
-    assert.deepEqual(await relationSave.json(), {
-      indicatorId: 'offline-metric',
-      themeIds: [1],
-    });
-    assert.deepEqual(application.database.listThemeIndicatorIds(1), ['offline-metric']);
-
-    // Once a snapshot exists it is served with an explicit SNAPSHOT marker.
-    application.database.syncIndicators([
-      { id: '42', name: '销售额', bizName: '销售额', metrics: [], dimensions: [] },
-    ]);
-    const snapshotResponse = await fetch(`${baseUrl}/api/indicators?limit=2000`, {
-      headers: admin,
-    });
-    const snapshot = await snapshotResponse.json();
-    assert.equal(snapshot.items.length, 1);
-    assert.equal(snapshot.items[0].id, '42');
-    assert.equal(snapshot.source.source, 'SNAPSHOT');
-
-    const detail = await fetch(`${baseUrl}/api/indicators/42/detail`, { headers: admin });
+    assert.deepEqual(await relationSave.json(), { indicatorId: indicator.id, themeIds: [1] });
+    assert.deepEqual(application.database.listThemeIndicatorIds(1), [indicator.id]);
+    const catalog = await (await fetch(`${baseUrl}/api/indicators?limit=2000`, { headers: admin })).json();
+    assert.deepEqual(catalog.items.map((item) => item.id), [indicator.id]);
+    assert.equal(catalog.source.source, 'LOCAL');
+    const detail = await fetch(`${baseUrl}/api/indicators/${encodeURIComponent(indicator.id)}/detail`, { headers: admin });
     assert.equal(detail.status, 200);
-    assert.equal((await detail.json()).indicator.id, '42');
-
-    const missingDetail = await fetch(`${baseUrl}/api/indicators/9999/detail`, {
-      headers: admin,
-    });
-    assert.equal(missingDetail.status, 404);
-    assert.deepEqual(await missingDetail.json(), {
-      code: 404,
-      message: 'indicator not found',
-    });
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-    await application.database.closeAsync();
-  }
+    assert.equal((await detail.json()).indicator.id, indicator.id);
+    const missing = await fetch(`${baseUrl}/api/indicators/missing/detail`, { headers: admin });
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { code: 404, message: 'indicator not found' });
+    const confirmation = await (await fetch(`${baseUrl}/api/indicators/sync`, { method: 'POST', headers: admin })).json();
+    assert.equal(confirmation.localCount, 1);
+    assert.equal(confirmation.persisted, false);
+    assert.deepEqual(await application.database.localIndicators.getAsync(indicator.id), catalog.items[0]);
+  });
 });
 
 test('P0-8 HTTP contract is unchanged: errors, static fallback, NDJSON stream', async () => {
-  await withServer(async ({ baseUrl }) => {
+  await withServer(async ({ baseUrl, application }) => {
+    configureAgentDataset(application);
     const admin = { 'content-type': 'application/json', 'x-user-id': '1' };
     const analyst = { 'content-type': 'application/json', 'x-user-id': '2' };
 
