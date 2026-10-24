@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
+import { dockerEnvironmentArgs } from './fixtures/dockerEnvironment.js';
+import { dockerPersistedStateScript } from './fixtures/dockerPersistedState.js';
 
 const enabled = process.env.YOLO_DOCKER_TEST === '1';
 const PASSWORD = 'docker-acceptance-password';
@@ -26,9 +28,7 @@ test('Docker image supports sessions and preserves SQLite and encryption keys ac
 
   async function start(defaultPassword) {
     docker('run', '-d', '--name', name, '-p', '127.0.0.1::8088',
-      '-v', `${volume}:/app/data`, '-e', 'AUTH_MODE=session',
-      '-e', `DEFAULT_USER_PASSWORD=${defaultPassword}`,
-      '-e', 'USER_MEMORY_MAINTENANCE_INTERVAL_MS=0', image);
+      '-v', `${volume}:/app/data`, ...dockerEnvironmentArgs(defaultPassword), image);
     const port = docker('port', name, '8088/tcp').split(':').at(-1);
     const base = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 90_000;
@@ -59,22 +59,8 @@ test('Docker image supports sessions and preserves SQLite and encryption keys ac
   }
 
   function persistedState() {
-    return JSON.parse(docker('exec', name, 'node', '--input-type=module', '-e', `
-      import assert from 'node:assert/strict';
-      import fs from 'node:fs';
-      import crypto from 'node:crypto';
-      import { DatabaseSync } from 'node:sqlite';
-      import { DatasourceCrypto } from './src/datasourceCrypto.js';
-      const keyFilePath = '/app/data/.datasource-key';
-      const database = new DatabaseSync('/app/data/platform.db', { readOnly: true });
-      try {
-        const row = database.prepare('SELECT encrypted_password AS password FROM data_sources WHERE code = ?').get('docker_smoke');
-        assert.ok(row);
-        assert.equal(new DatasourceCrypto({ keyFilePath }).decrypt(row.password), '${SOURCE_PASSWORD}');
-        console.log(JSON.stringify({ ciphertext: row.password,
-          keyHash: crypto.createHash('sha256').update(fs.readFileSync(keyFilePath)).digest('hex') }));
-      } finally { await database.closeAsync(); }
-    `));
+    return JSON.parse(docker('exec', name, 'node', '--input-type=module', '-e',
+      dockerPersistedStateScript('/app/data', SOURCE_PASSWORD)));
   }
 
   const firstBase = await start(PASSWORD);
