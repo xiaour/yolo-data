@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createApplication } from '../src/application.js';
-import { FakeIndicatorClient } from './fixtures/fakeIndicatorClient.js';
+import { createAgentApplication } from './fixtures/agentDataset.js';
 import { assertGateCoverage, getGate, summarizeGateIssues } from '../src/gateRegistry.js';
 import { STAGE_DEFINITIONS } from '../src/workflow.js';
 import { describeIndicatorSource } from '../src/indicatorSource.js';
@@ -20,7 +20,6 @@ function testConfig() {
     projectRoot: process.cwd(),
     port: 0,
     dbPath: path.join(directory, 'test.db'),
-    本地指标目录: { baseUrl: '', token: '', timeoutMs: 5_000 },
     deepseek: {
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
@@ -72,6 +71,7 @@ test('P0-7 frozen contracts carry the compiler version', () => {
 });
 
 test('P0-1 indicator source is explicitly classified', () => {
+  assert.equal(describeIndicatorSource({ local: true }).source, 'LOCAL');
   assert.equal(
     describeIndicatorSource({ live: { available: true }, snapshot: { count: 5 } }).source,
     'LIVE',
@@ -86,50 +86,53 @@ test('P0-1 indicator source is explicitly classified', () => {
   );
 });
 
-test('P0-1 startup neither clears nor writes the indicator catalog', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
-  const calls = [];
-  const originalClear = application.database.clearIndicatorCatalog.bind(application.database);
-  application.database.clearIndicatorCatalog = (...args) => {
-    calls.push('clearIndicatorCatalog');
-    return originalClear(...args);
-  };
-  const originalSync = application.database.syncIndicators.bind(application.database);
-  application.database.syncIndicators = (...args) => {
-    calls.push('syncIndicators');
-    return originalSync(...args);
-  };
+test('P0-1 startup preserves the persisted local indicator catalog', async () => {
+  const config = testConfig();
+  let application = await createApplication(config);
   try {
     await application.init();
-    assert.deepEqual(calls, []);
-    assert.equal(application.database.indicatorCacheStats().count, 0);
+    assert.equal(await application.database.localIndicators.countAsync(), 0);
+    const indicator = await application.database.localIndicators.save({
+      name: '销售额', bizName: 'sales_amount', businessCaliber: '已完成订单的金额合计',
+    });
+    await application.database.closeAsync();
+    application = await createApplication(config);
+    await application.init();
+    assert.equal(await application.database.localIndicators.countAsync(), 1);
+    assert.deepEqual(await application.database.localIndicators.getAsync(indicator.id), indicator);
+    await application.init();
+    assert.deepEqual(await application.database.localIndicators.getAsync(indicator.id), indicator);
     const health = await application.currentHealth();
-    assert.ok(['LIVE', 'SNAPSHOT', 'UNAVAILABLE'].includes(health.source.indicatorSource));
-    assert.equal(health.source.indicatorSource, 'LIVE');
+    assert.equal(health.source.indicatorSource, 'LOCAL');
+    assert.equal(health.source.localIndicatorCount, 1);
   } finally {
     await application.database.closeAsync();
   }
 });
 
-test('P0-1 explicit sync persists a snapshot and snapshot reads are marked', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+test('P0-1 local catalog serves metadata without fabricating query results', async () => {
+  const application = await createApplication(testConfig());
   try {
     await application.init();
-    const result = await application.syncIndicators({ persist: true });
-    assert.equal(result.persisted, true);
-    assert.ok(application.database.indicatorCacheStats().count > 0);
-    const read = application.database.listIndicators({ limit: 5 });
-    assert.equal(read.source, 'SNAPSHOT');
-    assert.ok(read.freshAt);
-    const options = application.database.listDatasetOptions();
-    assert.equal(options.source, 'SNAPSHOT');
+    const indicator = await application.database.localIndicators.save({
+      name: '销售额', bizName: 'sales_amount', typeId: 'sales', typeName: '经营指标',
+    });
+    const read = await application.indicatorService.listCatalog({ keyword: '销售' });
+    assert.deepEqual(read.list, [indicator]);
+    assert.equal(read.total, 1);
+    assert.deepEqual(await application.indicatorService.getIndicator(indicator.id), indicator);
+    assert.equal((await application.indicatorService.listTypes())[0].id, 'sales');
+    await assert.rejects(application.indicatorService.queryIndicator({ indicatorId: indicator.id }),
+      (error) => error.code === 'LOCAL_INDICATOR_QUERY_UNSUPPORTED');
+    assert.deepEqual(await application.indicatorService.queryIndicatorPresentationEvidence({ indicatorId: indicator.id }),
+      { columns: [], rows: [] });
   } finally {
     await application.database.closeAsync();
   }
 });
 
 test('P0-4 traceId threads through plan, audit and emitted events', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   try {
     await application.init();
     const user = application.database.getUserByUsername('east_manager');
