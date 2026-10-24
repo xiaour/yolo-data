@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createApplication } from '../src/application.js';
-import { FakeIndicatorClient } from './fixtures/fakeIndicatorClient.js';
+import { createAgentApplication } from './fixtures/agentDataset.js';
 
 function testConfig() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-agent-'));
@@ -12,11 +12,6 @@ function testConfig() {
     projectRoot: process.cwd(),
     port: 0,
     dbPath: path.join(directory, 'test.db'),
-    本地指标目录: {
-      baseUrl: '',
-      token: '',
-      timeoutMs: 5_000,
-    },
     deepseek: {
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: '',
@@ -27,8 +22,8 @@ function testConfig() {
   };
 }
 
-test('agent answer enforces user row policy during indicator execution', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+test('agent answer enforces user row policy during business dataset execution', async () => {
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -38,11 +33,12 @@ test('agent answer enforces user row policy during indicator execution', async (
     question: '近7天华东销售额趋势',
   });
 
-  assert.equal(answer.indicator.name, '销售额');
+  assert.equal(answer.dataset.name, '销售经营分析');
+  assert.ok(answer.data.rows.every(row => row.sales_amount < 1000));
   assert.ok(answer.data.rows.length > 0);
   assert.equal(answer.chart.type, 'line');
   assert.ok(answer.skills.some((skill) => skill.code === 'trend_analysis'));
-  assert.ok(answer.processSteps.some((step) => step.skillCode === 'indicator_query'));
+  assert.ok(answer.processSteps.some((step) => step.skillCode === 'business_dataset_query'));
   assert.ok(answer.processSteps.at(-1).title === '生成业务回答');
   assert.equal(answer.semanticParse.status, 'VALIDATED');
   assert.equal(answer.workflow.status, 'COMPLETED');
@@ -60,11 +56,11 @@ test('agent answer enforces user row policy during indicator execution', async (
   assert.ok(application.database.getQueryPlan(answer.semanticParse.planId, user.id));
   assert.ok(application.database.listLlmLogs(10).length >= 1);
   const queryTrace = answer.trace.find(
-    (item) => item.type === 'tool_call' && item.name === 'query_indicator',
+    (item) => item.type === 'tool_call' && item.name === 'query_business_dataset',
   );
-  assert.deepEqual(queryTrace.args.filters, [
-    { bizName: 'region', operator: 'IN', value: ['华东'] },
-  ]);
+  assert.ok(queryTrace);
+  assert.ok(application.testStatements.at(-1).values.flat().includes('华东'));
+  assert.match(application.testStatements.at(-1).sql, /region.*IN/);
 });
 
 test('configured model is seeded, available to initialized themes, and resolved for chat', async () => {
@@ -78,7 +74,7 @@ test('configured model is seeded, available to initialized themes, and resolved 
     timeoutMs: 12_000,
     maxToolRounds: 5,
   };
-  const application = await createApplication(config, new FakeIndicatorClient());
+  const application = await createAgentApplication(config);
   const [model] = application.database.listModels();
   assert.equal(model.modelName, 'example-chat');
   assert.equal(model.baseUrl, 'https://models.example/v1');
@@ -102,7 +98,7 @@ test('configured model is seeded, available to initialized themes, and resolved 
 });
 
 test('theme permission blocks users without a query grant', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('channel_analyst');
   const theme = application.database.listThemes().find((item) => item.name === '履约运营');
@@ -117,7 +113,7 @@ test('theme permission blocks users without a query grant', async () => {
 });
 
 test('chat session model is locked after the first conversation message', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -162,7 +158,7 @@ test('chat session model is locked after the first conversation message', async 
 });
 
 test('multi-turn questions reuse session memory and inherit prior context', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -184,13 +180,15 @@ test('multi-turn questions reuse session memory and inherit prior context', asyn
     question: '那按渠道拆开呢',
   });
 
+  assert.equal(followUp.contextMode, 'FOLLOW_UP');
+  assert.match(followUp.resolvedQuestion, /销售额/);
   const queryTrace = [...followUp.trace].reverse().find(
-    (item) => item.type === 'tool_call' && item.name === 'query_indicator',
+    (item) => item.type === 'tool_call' && item.name === 'query_business_dataset',
   );
   assert.ok(queryTrace.args.dimensions.includes('channel'));
-  assert.deepEqual(queryTrace.args.filters, [
-    { bizName: 'region', operator: 'IN', value: ['华东'] },
-  ]);
+  assert.ok(queryTrace);
+  assert.ok(application.testStatements.at(-1).values.flat().includes('华东'));
+  assert.match(application.testStatements.at(-1).sql, /region.*IN/);
   const messages = application.agent.listMessages(session.id, user.id);
   assert.deepEqual(messages.map((message) => message.role), [
     'user',
@@ -203,7 +201,7 @@ test('multi-turn questions reuse session memory and inherit prior context', asyn
 });
 
 test('chat sessions are isolated per user and prompt changes are agent-scoped', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const owner = application.database.getUserByUsername('east_manager');
   const otherUser = application.database.getUserByUsername('channel_analyst');
@@ -233,7 +231,7 @@ test('chat sessions are isolated per user and prompt changes are agent-scoped', 
 });
 
 test('revoked theme permission also hides its stored session memory', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -259,7 +257,7 @@ test('revoked theme permission also hides its stored session memory', async () =
 });
 
 test('theme configuration is persisted without storing the indicator catalog', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -273,8 +271,8 @@ test('theme configuration is persisted without storing the indicator catalog', a
   assert.equal(application.database.countRows('indicator_cache'), 0);
 });
 
-test('indicator query is rejected until semantic definition confirmation completes', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+test('dataset query is rejected until semantic definition confirmation completes', async () => {
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -285,9 +283,8 @@ test('indicator query is rejected until semantic definition confirmation complet
       capabilities: {},
       run: async ({ executeTool }) => {
         try {
-          await executeTool('query_indicator', {
-            indicatorId: 'sales_amount',
-            metricNames: ['sales_amount'],
+          await executeTool('query_business_dataset', {
+            datasetId: application.testDataset.id, metrics: [{ field: 'sales_amount', aggregator: 'SUM' }],
           });
           return { content: 'unexpected success', trace: [] };
         } catch (error) {
@@ -301,16 +298,17 @@ test('indicator query is rejected until semantic definition confirmation complet
     themeId: theme.id,
     question: '直接查询销售额',
   });
-  assert.match(answer.message, /必须完成指标搜索/);
-  assert.equal(answer.workflow.status, 'FAILED');
+  assert.match(answer.message, /必须确认业务数据集字段口径/);
+  assert.deepEqual(answer.executionResults, []);
+  assert.equal(application.testStatements.length, 0);
   assert.equal(
-    answer.workflow.stages.find((stage) => stage.code === 'SEMANTIC_DISCOVERY').status,
+    answer.workflow.stages.find((stage) => stage.code === 'SEMANTIC_CONFIRM').status,
     'FAILED',
   );
 });
 
 test('agent emits auditable runtime events while answering', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -338,14 +336,13 @@ test('agent emits auditable runtime events while answering', async () => {
   );
 });
 
-test('unconfigured 本地指标目录 defaults to the same local mode in health and agent execution', async () => {
+test('local catalog health and agent execution agree without remote configuration', async () => {
   const config = testConfig();
   const application = await createApplication(config);
   try {
     await application.init();
-    assert.equal(application.get本地指标目录Enabled(), false);
-    assert.equal(application.agent.is本地指标目录Enabled(), false);
-    assert.equal((await application.currentHealth()).source.mode, 'direct-llm');
+    assert.equal(application.indicatorService.mode, 'local');
+    assert.equal((await application.currentHealth()).source.mode, 'local');
     const user = application.database.getUserByUsername('east_manager');
     const theme = application.database.listThemes().find((item) => item.name === '经营总览');
     const events = [];
@@ -353,8 +350,8 @@ test('unconfigured 本地指标目录 defaults to the same local mode in health 
       userId: user.id, themeId: theme.id, question: '近7天销售额趋势',
       onEvent: (event) => events.push(event),
     });
-    assert.equal(answer.runtime.executionAdapter, 'direct-llm');
-    assert.equal(events.find((event) => event.type === 'runtime_selected').source.mode, 'direct-llm');
+    assert.equal(answer.runtime.executionAdapter, 'local-indicator-catalog');
+    assert.equal(events.find((event) => event.type === 'runtime_selected').source.mode, 'local');
     assert.ok(!events.some((event) => event.code === '本地指标目录_NOT_CONFIGURED'));
     assert.equal(application.database.getPlatformSetting('本地指标目录.enabled', null), null);
   } finally {
@@ -363,7 +360,7 @@ test('unconfigured 本地指标目录 defaults to the same local mode in health 
   }
 });
 
-test('explicitly enabled 本地指标目录 requires a configured indicator source', async () => {
+test('obsolete remote enablement cannot turn the local catalog into a query source', async () => {
   const config = testConfig();
   const application = await createApplication(config);
   application.database.savePlatformSetting('本地指标目录.enabled', true);
@@ -376,21 +373,22 @@ test('explicitly enabled 本地指标目录 requires a configured indicator sour
     themeId: theme.id,
     question: '近7天销售额趋势',
   });
-  assert.match(answer.message, /指标平台尚未配置/);
-  assert.equal(answer.runtime.executionAdapter, 'unconfigured-indicator');
-  assert.equal((await application.currentHealth()).source.mode, 'unconfigured');
+  assert.match(answer.message, /业务数据集/);
+  assert.equal(answer.runtime.executionAdapter, 'local-indicator-catalog');
+  assert.deepEqual(answer.executionResults, []);
+  assert.equal((await application.currentHealth()).source.mode, 'local');
 });
 
 test('agent reuses identical snapshots but preserves distinct query results', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
-  const originalQuery = application.indicatorService.queryIndicator.bind(
-    application.indicatorService,
+  const originalQuery = application.businessDatasets.executeQuery.bind(
+    application.businessDatasets,
   );
   let queryCount = 0;
-  application.indicatorService.queryIndicator = async (args) => {
+  application.businessDatasets.executeQuery = async (args) => {
     queryCount += 1;
     return originalQuery(args);
   };
@@ -429,33 +427,27 @@ test('agent reuses identical snapshots but preserves distinct query results', as
         }],
       }),
       run: async ({ executeTool }) => {
-        const search = await executeTool('search_indicators', {
-          keyword: '近7天华东销售额趋势',
-          limit: 8,
-        });
-        const indicatorId = 'sales_amount';
-        await executeTool('get_indicator', { indicatorId });
-        firstResult = await executeTool('query_indicator', {
-          indicatorId,
-          dimensions: ['date'],
-          filters: [{ bizName: 'region', operator: 'IN', value: ['华东'] }],
-          limit: 200,
-        });
-        const retry = await executeTool('query_indicator', {
-          indicatorId,
-          dimensions: ['date'],
-          filters: [{ bizName: 'region', operator: 'IN', value: ['华东'] }],
-          limit: 200,
-        });
+        const datasetId = application.testDataset.id;
+        await executeTool('get_business_dataset_definition', { datasetId });
+        const compile = async (aggregator) => {
+          const contract = await executeTool('compile_query_contract', {
+            sourceType: 'BUSINESS_DATASET', datasetId,
+            conditions: [{ id: 'sales', sourceText: '销售额', kind: 'METRIC', status: 'RESOLVED' },
+              { id: 'orders', sourceText: '订单量', kind: 'METRIC', status: 'RESOLVED' }],
+            metricFields: [
+              { field: 'sales_amount', sourceText: '销售额', aggregator, conditionIds: ['sales'] },
+              { field: 'order_count', sourceText: '订单量', aggregator: 'SUM', conditionIds: ['orders'] },
+            ],
+            dimensionFields: [{ field: 'date', sourceText: '日期' }], limit: 200,
+          });
+          assert.equal(contract.valid, true, JSON.stringify(contract.issues));
+          return { contractId: contract.contractId };
+        };
+        const request = await compile('SUM');
+        firstResult = await executeTool('execute_query_contract', request);
+        const retry = await executeTool('execute_query_contract', request);
         assert.equal(retry.queryFingerprint, firstResult.queryFingerprint);
-        const secondIndicatorId = 'order_count';
-        await executeTool('get_indicator', { indicatorId: secondIndicatorId });
-        secondResult = await executeTool('query_indicator', {
-          indicatorId: secondIndicatorId,
-          dimensions: ['date'],
-          filters: [{ bizName: 'region', operator: 'IN', value: ['华东'] }],
-          limit: 200,
-        });
+        secondResult = await executeTool('execute_query_contract', await compile('AVG'));
         assert.notEqual(secondResult.queryFingerprint, firstResult.queryFingerprint);
         return {
           content: '模型自由生成的、可能不稳定的回答',
@@ -468,10 +460,10 @@ test('agent reuses identical snapshots but preserves distinct query results', as
   const answer = await application.agent.answer({
     userId: user.id,
     themeId: theme.id,
-    question: '近7天华东销售额趋势',
+    question: '日期 销售额 订单量',
   });
 
-  assert.equal(queryCount, 4);
+  assert.equal(queryCount, 2);
   assert.equal(answer.deterministic, true);
   assert.match(answer.message, /销售额（万元）合计|订单量（万元）合计/);
   assert.equal(answer.dataHash, secondResult.dataHash);
@@ -487,8 +479,8 @@ test('agent reuses identical snapshots but preserves distinct query results', as
   assert.ok(answer.executionResults.every((item) => item.artifactId));
 });
 
-test('agent executes indicator queries only through a compiled query contract', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+test('agent executes business dataset queries only through a compiled query contract', async () => {
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -498,16 +490,10 @@ test('agent executes indicator queries only through a compiled query contract', 
       model: 'test-model',
       capabilities: {},
       run: async ({ executeTool }) => {
-        const search = await executeTool('search_indicators', {
-          keyword: '本月含税销售金额',
-          limit: 8,
-        });
-        const indicatorId = 'sales_amount';
-        const detail = await executeTool('get_indicator', { indicatorId });
-        const metric = detail.metrics[0];
+        const datasetId = application.testDataset.id;
+        await executeTool('get_business_dataset_definition', { datasetId });
         const compiled = await executeTool('compile_query_contract', {
-          sourceType: 'INDICATOR',
-          indicatorId,
+          sourceType: 'BUSINESS_DATASET', datasetId,
           conditions: [{
             id: 'metric',
             sourceText: '本月含税销售金额',
@@ -515,7 +501,7 @@ test('agent executes indicator queries only through a compiled query contract', 
             status: 'RESOLVED',
           }],
           metricFields: [{
-            field: metric.bizName,
+            field: 'sales_amount',
             sourceText: '含税销售金额',
             aggregator: 'SUM',
             conditionIds: ['metric'],
@@ -555,10 +541,10 @@ test('agent executes indicator queries only through a compiled query contract', 
   assert.equal(answer.deterministic, true);
   assert.doesNotMatch(answer.message, /查询范围/);
   assert.ok(answer.processSteps.some(
-    (step) => step.name === 'query_scope_summary' && /指标/.test(step.detail),
+    (step) => step.name === 'query_scope_summary' && /销售经营分析/.test(step.detail),
   ));
-  assert.equal(answer.provenance.mode, 'INDICATOR_LIBRARY');
-  assert.equal(answer.provenance.label, '指标库口径');
+  assert.equal(answer.provenance.mode, 'DATASET_EXACT');
+  assert.equal(answer.provenance.label, '数据集字段精确匹配');
   assert.ok(answer.queryFingerprint);
   assert.ok(
     answer.processSteps.some((item) => item.name === 'compile_query_contract'),
@@ -569,7 +555,7 @@ test('agent executes indicator queries only through a compiled query contract', 
 });
 
 test('execution messages use the structured contract instead of raw session history', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -621,7 +607,7 @@ test('execution messages use the structured contract instead of raw session hist
 });
 
 test('artifact follow-up keeps controlled dataset requery tools', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -645,7 +631,7 @@ test('artifact follow-up keeps controlled dataset requery tools', async () => {
     answer: {
       question: '本月销售额',
       resolvedQuestion: '本月销售额',
-      indicator: { id: '2', name: '销售额' },
+      dataset: { id: application.testDataset.id, name: '销售经营分析' },
       data: {
         columns: [
           { name: '大区', bizName: 'region', showType: 'CATEGORY' },
@@ -658,7 +644,7 @@ test('artifact follow-up keeps controlled dataset requery tools', async () => {
       dataHash: 'snapshot-hash',
     },
     artifactType: 'QUERY_RESULT',
-    source: { type: 'INDICATOR', id: '2', name: '销售额' },
+    source: { type: 'BUSINESS_DATASET', id: application.testDataset.id, name: '销售经营分析' },
   });
   application.memory.appendUserMessage(session.id, user.id, '本月销售额是多少');
   application.memory.appendAssistantMessage(session.id, user.id, '本月销售额为 30', {
@@ -698,7 +684,7 @@ test('artifact follow-up keeps controlled dataset requery tools', async () => {
 });
 
 test('agent returns structured clarification options with a recommended path', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -729,7 +715,7 @@ test('agent returns structured clarification options with a recommended path', a
 });
 
 test('ambiguous filter value is asked as a value choice instead of a caliber questionnaire', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   let capturedMessages = [];
   const user = application.database.getUserByUsername('east_manager');
@@ -737,10 +723,10 @@ test('ambiguous filter value is asked as a value choice instead of a caliber que
   // 值解析只在「主题为该字段开启值域 + 值域已治理完成」时生效，这里直接种一份完成态值域。
   application.database.saveSemanticValueSnapshot({
     themeId: theme.id,
-    sourceType: 'INDICATOR',
-    sourceId: 'sales_amount',
-    fieldName: 'region',
-    displayName: 'region',
+    sourceType: 'DATASET',
+    sourceId: String(application.testDataset.id),
+    fieldName: 'channel',
+    displayName: 'channel',
     status: 'COMPLETE',
     origins: ['MANUAL_VERIFIED'],
     items: ['T7-ALPHA', 'T7-BETA', 'T7-GAMMA', 'Z9-UNRELATED'].map((value) => ({
@@ -758,7 +744,9 @@ test('ambiguous filter value is asked as a value choice instead of a caliber que
     semanticValueConfig: {
       enabled: true,
       autoDiscover: true,
-      fields: { 'INDICATOR:sales_amount:region': { enabled: true, refreshMode: 'MANUAL' } },
+      fields: { [`DATASET:${application.testDataset.id}:channel`]: {
+        enabled: true, refreshMode: 'MANUAL', sources: ['MANUAL_VERIFIED'],
+      } },
     },
   }, theme.id);
   application.agent.harnessFactory = {
@@ -768,10 +756,12 @@ test('ambiguous filter value is asked as a value choice instead of a caliber que
       capabilities: {},
       run: async ({ executeTool, messages }) => {
         capturedMessages = messages;
-        await executeTool('get_indicator', { indicatorId: 'sales_amount' });
+        const definition = await executeTool('get_business_dataset_definition', { datasetId: application.testDataset.id });
+        assert.deepEqual(definition.fields.find(field => field.name === 'channel').values,
+          ['T7-ALPHA', 'T7-BETA', 'T7-GAMMA', 'Z9-UNRELATED']);
         await executeTool('compile_query_contract', {
-          sourceType: 'INDICATOR',
-          indicatorId: 'sales_amount',
+          sourceType: 'BUSINESS_DATASET',
+          datasetId: application.testDataset.id,
           conditions: [
             { id: 'metric', sourceText: '销售额', kind: 'METRIC', status: 'RESOLVED' },
             { id: 'filter', sourceText: 'T7', kind: 'FILTER', status: 'RESOLVED' },
@@ -782,7 +772,7 @@ test('ambiguous filter value is asked as a value choice instead of a caliber que
             conditionIds: ['metric'],
           }],
           filterFields: [{
-            field: 'region',
+            field: 'channel',
             operator: '=',
             value: 'T7',
             sourceText: 'T7',
@@ -809,9 +799,9 @@ test('ambiguous filter value is asked as a value choice instead of a caliber que
   assert.deepEqual(
     answer.clarification.options.map((option) => option.id),
     [
-      'filter-value:region=T7-ALPHA',
-      'filter-value:region=T7-BETA',
-      'filter-value:region=T7-GAMMA',
+      'filter-value:channel=T7-ALPHA',
+      'filter-value:channel=T7-BETA',
+      'filter-value:channel=T7-GAMMA',
       'cancel',
     ],
   );
@@ -821,16 +811,16 @@ test('ambiguous filter value is asked as a value choice instead of a caliber que
     userId: user.id,
     themeId: theme.id,
     question: 'T7 最近7天销售额',
-    clarificationOptionId: 'filter-value:region=T7-BETA',
+    clarificationOptionId: 'filter-value:channel=T7-BETA',
   });
   const prompt = capturedMessages.map((message) => String(message.content ?? '')).join('\n');
   assert.match(prompt, /本轮澄清选项已解析为过滤条件/);
-  assert.match(prompt, /region/);
+  assert.match(prompt, /channel/);
   assert.match(prompt, /T7-BETA/);
 });
 
 test('model clarification tool renders the model question into pickable business options', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -874,7 +864,7 @@ test('model clarification tool renders the model question into pickable business
 });
 
 test('agent wires the long-term memory tool into the tool loop', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
@@ -913,7 +903,7 @@ test('agent wires the long-term memory tool into the tool loop', async () => {
 });
 
 test('chart type follow-ups reuse the locked result and render natively', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const theme = application.database.listThemes().find((item) => item.name === '经营总览');
