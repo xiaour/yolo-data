@@ -524,7 +524,7 @@ export class RuleBasedHarness {
     }
     if (
       metadata.sourceMode
-      && !['local', 'direct-llm'].includes(String(metadata.sourceMode))
+      && String(metadata.sourceMode) !== 'direct-llm'
     ) {
       const content = '当前没有可执行的业务数据集查询配置，请先配置数据集后重试。';
       await this.onCall?.({
