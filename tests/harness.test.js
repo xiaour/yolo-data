@@ -116,6 +116,34 @@ test('harness factory decrypts a theme-scoped API key', async () => {
   assert.equal(authorization, 'Bearer stored-theme-key');
 });
 
+test('.env API key overrides an encrypted model key without attempting to decrypt it', async () => {
+  const previous = process.env.TEST_ENV_MODEL_KEY;
+  process.env.TEST_ENV_MODEL_KEY = 'env-model-key';
+  let authorization = null;
+  const factory = new HarnessFactory({
+    baseUrl: 'https://api.example/v1', apiKey: '', model: 'test-model', timeoutMs: 5_000,
+  }, async (_url, options) => {
+    authorization = options.headers.Authorization;
+    return new Response(JSON.stringify({
+      choices: [{ message: { role: 'assistant', content: 'ok' } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }, null, {
+    decrypt: () => { throw new Error('must not decrypt when env key is set'); },
+  });
+  try {
+    const harness = factory.forTheme({
+      model: 'test-model',
+      apiKeyEnv: 'TEST_ENV_MODEL_KEY',
+      apiKeyEncrypted: 'ENC:server-ciphertext',
+    });
+    await harness.run({ messages: [{ role: 'user', content: 'ping' }], tools: [] });
+    assert.equal(authorization, 'Bearer env-model-key');
+  } finally {
+    if (previous === undefined) delete process.env.TEST_ENV_MODEL_KEY;
+    else process.env.TEST_ENV_MODEL_KEY = previous;
+  }
+});
+
 test('harness stops after a tool locks the first valid result', async () => {
   let requestCount = 0;
   const harness = new OpenAICompatibleDeepSeekHarness({

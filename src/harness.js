@@ -780,7 +780,15 @@ export class HarnessFactory {
   }
 
   forTheme(themeConfig = {}) {
-    const storedApiKey = themeConfig.apiKeyEncrypted && this.credentialCrypto
+    const environmentApiKey = String(
+      (themeConfig.apiKeyEnv && process.env[themeConfig.apiKeyEnv])
+      || process.env.API_KEY
+      || this.baseConfig.apiKey
+      || '',
+    ).trim();
+    // Environment credentials deliberately override persisted ENC values so
+    // deployments can keep secrets in .env without sharing the encryption key.
+    const storedApiKey = !environmentApiKey && themeConfig.apiKeyEncrypted && this.credentialCrypto
       ? this.credentialCrypto.decrypt(themeConfig.apiKeyEncrypted)
       : '';
     const merged = {
@@ -794,10 +802,7 @@ export class HarnessFactory {
       maxToolRounds: Number(
         themeConfig.maxToolRounds ?? this.baseConfig.maxToolRounds ?? 12,
       ),
-      apiKey: String(storedApiKey || '').trim()
-        || (themeConfig.apiKeyEnv
-          ? String(process.env[themeConfig.apiKeyEnv] ?? '').trim()
-          : this.baseConfig.apiKey),
+      apiKey: environmentApiKey || String(storedApiKey || '').trim(),
       provider: themeConfig.provider || 'deepseek',
       rateLimitMs: themeConfig.isDefaultConfModel === true ? 1000 : 0,
     };

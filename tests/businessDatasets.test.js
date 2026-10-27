@@ -4,7 +4,35 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createApplication } from '../src/application.js';
+import { resolveDataSourceRuntimeConfig } from '../src/businessDatasets.js';
 import { DatasourceCrypto } from '../src/datasourceCrypto.js';
+
+test('data source environment settings override stored endpoints and ENC passwords', () => {
+  const runtime = resolveDataSourceRuntimeConfig({
+    code: 'platform_mysql',
+    host: 'localhost',
+    port: 3306,
+    databaseName: 'yolodata',
+    username: 'yoloapp',
+    encryptedPassword: 'ENC:server-ciphertext',
+  }, {
+    DATASOURCE_PLATFORM_MYSQL_HOST: '49.232.39.8',
+    DATASOURCE_PLATFORM_MYSQL_PORT: '3307',
+    DATASOURCE_PLATFORM_MYSQL_USER: 'local-user',
+    DATASOURCE_PLATFORM_MYSQL_PASSWORD: 'local-password',
+  });
+  assert.deepEqual(runtime, {
+    source: {
+      code: 'platform_mysql',
+      host: '49.232.39.8',
+      port: 3307,
+      databaseName: 'yolodata',
+      username: 'local-user',
+      encryptedPassword: 'ENC:server-ciphertext',
+    },
+    password: 'local-password',
+  });
+});
 
 function testConfig() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-business-'));

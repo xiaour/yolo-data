@@ -47,14 +47,15 @@ export function registerModelRoutes(table) {
         throw Object.assign(new Error('model not found'), { statusCode: 404 });
       }
       const apiKey = String(body?.apiKey ?? '').trim()
-        || (existing?.apiKeyEncrypted
-          ? application.datasourceCrypto.decrypt(existing.apiKeyEncrypted)
-          : '')
         || (body?.apiKeyEnv
           ? String(process.env[String(body.apiKeyEnv).trim()] ?? '').trim()
           : '')
         || (existing?.apiKeyEnv
           ? String(process.env[String(existing.apiKeyEnv).trim()] ?? '').trim()
+          : '')
+        || String(process.env.API_KEY ?? '').trim()
+        || (existing?.apiKeyEncrypted
+          ? application.datasourceCrypto.decrypt(existing.apiKeyEncrypted)
           : '');
       const config = {
         baseUrl: String(body?.baseUrl ?? existing?.baseUrl ?? '').trim(),

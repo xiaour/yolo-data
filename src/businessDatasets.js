@@ -28,6 +28,24 @@ const FILTER_OPERATORS = new Set([
 ]);
 const TIME_GRAINS = new Set(['DAY', 'WEEK', 'MONTH', 'QUARTER', 'YEAR']);
 
+export function resolveDataSourceRuntimeConfig(source, env = process.env) {
+  const prefix = `DATASOURCE_${String(source?.code ?? '')
+    .toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
+  const read = (suffix) => String(env[`${prefix}_${suffix}`] ?? '').trim();
+  const port = read('PORT');
+  const password = read('PASSWORD');
+  return {
+    source: {
+      ...source,
+      host: read('HOST') || source.host,
+      port: port ? Number(port) : source.port,
+      databaseName: read('DATABASE') || source.databaseName,
+      username: read('USER') || source.username,
+    },
+    password: password || null,
+  };
+}
+
 export function buildTimeGrainExpression(fieldName, timeGrain, dbType = 'MYSQL') {
   const dialect = getDialect(dbType);
   return dialect.timeGrainExpr(dialect.quoteIdentifier(fieldName), timeGrain);
@@ -258,8 +276,10 @@ export class BusinessDatasetService {
   }
 
   createPool(source) {
-    const password = source.encryptedPassword ? this.crypto.decrypt(source.encryptedPassword) : '';
-    return getDialect(source.dbType).createPool(source, password);
+    const runtime = resolveDataSourceRuntimeConfig(source);
+    const password = runtime.password
+      ?? (source.encryptedPassword ? this.crypto.decrypt(source.encryptedPassword) : '');
+    return getDialect(runtime.source.dbType).createPool(runtime.source, password);
   }
 
   getPool(source) {
