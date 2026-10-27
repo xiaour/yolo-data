@@ -483,12 +483,12 @@ export class SemanticValueRegistry {
       }
     }
 
-    const overrideRows = await (this.database.listSemanticValueOverridesAsync ?? this.database.listSemanticValueOverrides).call(this.database, {
+    const overrideRows = (await (this.database.listSemanticValueOverridesAsync ?? this.database.listSemanticValueOverrides).call(this.database, {
       themeId,
       sourceType: normalizedSourceType,
       sourceId: String(sourceId),
       fieldName: String(fieldName),
-    }).filter((override) => override.enabled);
+    })).filter((override) => override.enabled);
     const excludedValues = new Set(
       overrideRows
         .filter((override) => override.action === 'EXCLUDE')
