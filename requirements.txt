@@ -1,3 +1,3 @@
 # Python analysis runtime required by execute_analysis_code and XLSX generation.
-pandas==2.3.2
+pandas==2.3.2,<3
 openpyxl>=3.1,<4
