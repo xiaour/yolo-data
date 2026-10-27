@@ -153,6 +153,8 @@ docker compose up -d --build
 
 Open [http://localhost:8088/](http://localhost:8088/) after startup. Configure model and data-source settings in `yolo-conf.yaml` as needed; change the default password after your first login. See Configuration below for details.
 
+Keep machine-local passwords and API keys in `.env` (copy `.env.example`); do not commit it. Precedence is process environment > `.env` > `yolo-conf.yaml`.
+
 For PostgreSQL data sources, see the [PostgreSQL integration guide](docs/postgresql.md).
 
 | Username | Display name | Role | Default password |

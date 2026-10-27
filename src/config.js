@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveAuthMode } from './auth.js';
 import { applyConfigFile } from './configFile.js';
+import { loadEnvFile } from './envFile.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -39,7 +40,10 @@ function parsePathList(value, fallback = []) {
 export function loadConfig(env = process.env) {
   // 配置面：yolo-conf.yaml 提供结构与默认值，真实环境变量覆盖；平台不读取 .env 文件。
   // `env === process.env` 是「真实进程」守卫：测试传自定义 env 时不读工作区配置文件。
-  if (env === process.env) applyConfigFile({ projectRoot });
+  if (env === process.env) {
+    loadEnvFile({ projectRoot, target: env });
+    applyConfigFile({ projectRoot, target: env });
+  }
   const nodeEnv = String(env.NODE_ENV ?? '').trim().toLowerCase();
   const authMode = resolveAuthMode({ authMode: env.AUTH_MODE ?? '', nodeEnv });
   const host = String(env.HOST ?? '').trim() || (authMode === 'dev' ? '127.0.0.1' : '0.0.0.0');

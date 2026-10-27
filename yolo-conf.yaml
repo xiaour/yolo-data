@@ -42,7 +42,7 @@ platformDatabase:
     port: 3306
     database: yolo-data
     user: datagrouptest
-    password: "OUl2u82p83$#2"
+    password: ""
     charset: utf8mb4
     initialize: true
     initSqlPath: ./config/platform/mysql-init.sql
