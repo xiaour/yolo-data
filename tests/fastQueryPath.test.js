@@ -1,6 +1,70 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildSemanticFastPathDraft } from '../src/fastQueryPath.js';
+import { matchPromptMetric } from '../src/fastPathMetricMatch.js';
+import { configureBusinessLexicon } from '../src/businessLexicon.js';
+
+const TAX_FIELDS = [
+  { fieldName: 'gross', displayName: '含税销售额', role: 'METRIC', aggregator: 'SUM' },
+  { fieldName: 'net', displayName: '不含税销售额', role: 'METRIC', aggregator: 'SUM' },
+];
+
+for (const [question, expected] of [
+  ['上个月不含税销售额是多少', 'net'],
+  ['上个月未税销售额是多少', 'net'],
+  ['上个月含税销售额是多少', 'gross'],
+]) {
+  test(`explicit tax basis overrides the prompt default: ${question}`, () => {
+    assert.equal(matchPromptMetric(question, { systemPrompt: '未指定默认含税。' }, TAX_FIELDS).field.fieldName, expected);
+    const plan = buildSemanticFastPathDraft({
+      question, datasetFields: TAX_FIELDS,
+      theme: { systemPrompt: '未指定默认含税。', semanticPolicy: {} },
+      now: new Date('2026-10-23T03:00:00Z'),
+    });
+    // Unsupported language may defer to the full workflow, but cannot select
+    // the opposite basis. The alternate prefix exercises the fast route.
+    if (question.includes('不含税') && !plan.eligible) return;
+    assert.equal(plan.eligible, true);
+    assert.equal(plan.draft.metricFields[0].field, expected);
+  });
+}
+
+test('fast path defers when only a conflicting tax basis exists', () => {
+  const plan = buildSemanticFastPathDraft({
+    question: '上个月不含税销售额是多少', datasetFields: [TAX_FIELDS[0]],
+    theme: { systemPrompt: '未指定默认含税。', semanticPolicy: {} },
+    now: new Date('2026-10-23T03:00:00Z'),
+  });
+  assert.equal(plan.eligible, false);
+});
+
+test('metric tax qualifiers come from the lexicon and escape regular expression syntax', t => {
+  configureBusinessLexicon({ taxPrefixes: { all: ['A+', 'B?'], excluded: ['B?'] } });
+  t.after(() => configureBusinessLexicon(null));
+  const resolved = matchPromptMetric('B?amount', { systemPrompt: '' }, [
+    { fieldName: 'a', displayName: 'A+amount', role: 'METRIC' },
+    { fieldName: 'b', displayName: 'B?amount', role: 'METRIC' },
+  ]);
+  assert.equal(resolved.field.fieldName, 'b');
+});
+
+test('a generic metric alias cannot override an explicit conflicting tax basis', () => {
+  const plan = buildSemanticFastPathDraft({
+    question: '上个月不含税收入是多少', datasetFields: TAX_FIELDS,
+    theme: { systemPrompt: '指标同义词：收入=含税销售额', semanticPolicy: {} },
+    now: new Date('2026-10-23T03:00:00Z'),
+  });
+  assert.equal(plan.eligible, false);
+});
+
+test('fast path defers a request for both tax bases', () => {
+  const plan = buildSemanticFastPathDraft({
+    question: '上个月含税销售额和不含税销售额分别是多少', datasetFields: TAX_FIELDS,
+    theme: { systemPrompt: '未指定默认含税。', semanticPolicy: {} },
+    now: new Date('2026-10-23T03:00:00Z'),
+  });
+  assert.equal(plan.eligible, false);
+});
 
 const THEME = {
   semanticPolicy: {
