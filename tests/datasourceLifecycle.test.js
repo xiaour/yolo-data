@@ -57,6 +57,25 @@ for (const [mode, getPool] of [
     assert.equal(await getPool(service, original), pool);
     assert.deepEqual(closed, []);
   });
+
+  test(`${mode} retires old pool keys after external datasource renames`, async t => {
+    const { database, service, closed } = fixture(t);
+    const original = database.saveDataSource(payload);
+    await getPool(service, original);
+    const other = database.saveDataSource({ ...payload, code: 'other', host: 'other.example' });
+    const otherPool = await getPool(service, other);
+    let previousCode = original.code;
+    for (const code of ['renamed', 'renamed_again']) {
+      database.saveDataSource({ ...payload, code }, original.id);
+      const currentPool = await getPool(service, original);
+      assert.equal(service.pools.has(previousCode), false);
+      assert.equal(service.pools.get(code), currentPool);
+      assert.equal(service.pools.get('other'), otherPool);
+      assert.equal(service.pools.size, 2);
+      previousCode = code;
+    }
+    assert.deepEqual(closed, ['old.example', 'old.example']);
+  });
 }
 
 test('changing a datasource code releases its original connection pool', t => {
