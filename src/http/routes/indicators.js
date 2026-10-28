@@ -166,6 +166,27 @@ export function registerIndicatorRoutes(table) {
   });
 
   table.add({
+    id: 'localIndicators.listForThemeEditor',
+    method: 'GET',
+    path: '/api/local-indicators',
+    tags: ['indicators'],
+    summary: '列出本地指标供智能体配置（管理员）',
+    middleware: ['auth', 'admin'],
+    adminOnly: true,
+    handler: async (ctx) => {
+      const { request, response, database, getRequestUser, url, sendJson } = ctx;
+      const user = await getRequestUser(request, database);
+      if (user.role !== 'ADMIN') {
+        throw Object.assign(new Error('admin permission required'), { statusCode: 403 });
+      }
+      const keyword = url.searchParams.get('keyword') ?? '';
+      const limit = Math.max(1, Math.min(Number(url.searchParams.get('limit')) || 500, 2000));
+      const items = await database.localIndicators.listAsync({ keyword, limit, enabledOnly: true });
+      sendJson(response, 200, { items, total: items.length, source: 'LOCAL' });
+    },
+  });
+
+  table.add({
     id: 'localIndicators.create',
     method: 'POST',
     path: '/api/local-indicators',

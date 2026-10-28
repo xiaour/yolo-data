@@ -89,7 +89,7 @@ export class UserMemoryStore {
       SELECT user_id AS userId, theme_id AS themeId, scope_key AS scopeKey, COUNT(*) AS pending
       FROM user_memory_notes
       WHERE state = 'PENDING'
-      GROUP BY user_id, scope_key
+      GROUP BY user_id, theme_id, scope_key
     `).all();
     for (const row of pendingRows) {
       targets.set(targetKey(row.userId, row.scopeKey), {
@@ -128,7 +128,7 @@ export class UserMemoryStore {
     const pendingRows = await this.database.query(`
       SELECT user_id AS userId, theme_id AS themeId, scope_key AS scopeKey, COUNT(*) AS pending
       FROM user_memory_notes WHERE state = 'PENDING'
-      GROUP BY user_id, scope_key
+      GROUP BY user_id, theme_id, scope_key
     `);
     for (const row of pendingRows) {
       targets.set(targetKey(row.userId, row.scopeKey), {

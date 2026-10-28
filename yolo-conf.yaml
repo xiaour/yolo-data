@@ -101,6 +101,12 @@ reflection:
   # Judge timeout in milliseconds / 评估超时（毫秒）
   judgeTimeoutMs: 20000
 
+# Automatic recovery / 自动异常恢复
+recovery:
+  # Model-led recovery replans after the first failed attempt (minimum 5; hard maximum 8)
+  # 首次执行失败后的大模型恢复重规划次数（至少 5 次，硬上限 8 次）
+  maxAttempts: 5
+
 # Code execution / 代码执行
 codeExecution:
   # Workspace for code execution / 代码执行工作目录

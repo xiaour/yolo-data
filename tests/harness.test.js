@@ -53,6 +53,22 @@ test('harness factory builds an agent-scoped model runtime', async () => {
   delete process.env.TEST_AGENT_LLM_KEY;
 });
 
+test('model request timeout is reported distinctly from a generic abort', async () => {
+  const harness = new OpenAICompatibleDeepSeekHarness({
+    baseUrl: 'https://api.example/v1',
+    apiKey: 'test-key',
+    model: 'test-model',
+    timeoutMs: 5,
+    fetchImpl: (_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    }),
+  });
+  await assert.rejects(
+    harness.chat([], []),
+    /模型服务请求超时（5 毫秒）/,
+  );
+});
+
 test('yolo-conf default model is throttled to one request per second', async () => {
   const startedAt = [];
   const factory = new HarnessFactory({
@@ -187,6 +203,24 @@ test('harness stops after a tool locks the first valid result', async () => {
   assert.equal(requestCount, 1);
   assert.equal(result.content, '含税销售金额合计 100');
   assert.equal(result.stoppedByResultLock, true);
+});
+
+test('model provider errors retain safe upstream diagnostics for the stream UI', async () => {
+  const harness = new OpenAICompatibleDeepSeekHarness({
+    baseUrl: 'https://models.example/v1',
+    apiKey: 'test-key',
+    model: 'example-model',
+    fetchImpl: async () => new Response(JSON.stringify({
+      error: { message: 'Free quota exhausted. Please add funds.' },
+    }), { status: 403, headers: { 'Content-Type': 'application/json' } }),
+  });
+  await assert.rejects(
+    harness.run({ messages: [{ role: 'user', content: 'ping' }], tools: [] }),
+    (error) => error.code === 'MODEL_PROVIDER_ERROR'
+      && error.statusCode === 403
+      && /Free quota exhausted/.test(error.providerDetail)
+      && /免费额度已用尽/.test(error.message),
+  );
 });
 
 test('harness stops immediately on a terminal configuration error', async () => {

@@ -120,11 +120,17 @@ test('P0-8 middleware chain resolves auth errors through a single error boundary
 
 test('P0-8 timeout middleware rejects slow handlers without leaking late failures', async () => {
   const registry = createMiddlewareRegistry();
+  const context = {};
+  let observedSignal = null;
   const timeout = registry.timeout('1ms');
   await assert.rejects(
-    timeout({}, () => new Promise((resolve) => setTimeout(resolve, 30))),
+    timeout(context, () => {
+      observedSignal = context.signal;
+      return new Promise((resolve) => setTimeout(resolve, 30));
+    }),
     (error) => error.statusCode === 504 && error.code === 'REQUEST_TIMEOUT',
   );
+  assert.equal(observedSignal?.aborted, true);
   // Fast handlers still pass through untouched.
   await assert.doesNotReject(async () => {
     const result = await registry.timeout('1s')({}, async () => 'ok');

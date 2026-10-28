@@ -1545,8 +1545,17 @@ async function runQuestion({
     state.chatMessages.push({
       id: `error-${Date.now()}`,
       role: 'assistant',
-      content: `本次查询失败：${error.message}`,
-      result: { error: error.message },
+      content: `本次查询失败：${error.message}${error.providerDetail && error.providerDetail !== error.message
+        && !String(error.message).includes('上游返回')
+        ? `\n\n上游返回：${error.providerDetail}` : ''}`,
+      result: {
+        error: error.message,
+        errorCode: error.code ?? null,
+        statusCode: error.statusCode ?? null,
+        providerStatus: error.providerStatus ?? null,
+        providerDetail: error.providerDetail ?? null,
+        recovery: error.recovery ?? null,
+      },
       createdAt: new Date().toISOString(),
     });
     toast(error.message, 'error');
