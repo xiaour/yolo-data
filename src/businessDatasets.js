@@ -29,18 +29,28 @@ const FILTER_OPERATORS = new Set([
 const TIME_GRAINS = new Set(['DAY', 'WEEK', 'MONTH', 'QUARTER', 'YEAR']);
 
 export function resolveDataSourceRuntimeConfig(source, env = process.env) {
-  const prefix = `DATASOURCE_${String(source?.code ?? '')
+  const sourceCode = String(source?.code ?? '').trim().toLowerCase();
+  const prefix = `DATASOURCE_${sourceCode
     .toUpperCase().replace(/[^A-Z0-9]+/g, '_')}`;
   const read = (suffix) => String(env[`${prefix}_${suffix}`] ?? '').trim();
+  // `platform_mysql` mirrors the platform database connection. Reuse its
+  // environment/config credentials instead of requiring a second encrypted
+  // copy in platform storage (which cannot be decrypted after moving hosts).
+  const platformMysqlConfigured = sourceCode === 'platform_mysql'
+    && String(env.PLATFORM_DB_BACKEND ?? env.DATABASE_BACKEND ?? '').trim().toLowerCase() === 'mysql';
+  const readPlatform = (suffix) => platformMysqlConfigured
+    ? String(env[`PLATFORM_DB_${suffix}`] ?? '').trim()
+    : '';
   const port = read('PORT');
-  const password = read('PASSWORD');
+  const platformPort = readPlatform('PORT');
+  const password = read('PASSWORD') || readPlatform('PASSWORD');
   return {
     source: {
       ...source,
-      host: read('HOST') || source.host,
-      port: port ? Number(port) : source.port,
-      databaseName: read('DATABASE') || source.databaseName,
-      username: read('USER') || source.username,
+      host: read('HOST') || readPlatform('HOST') || source.host,
+      port: port ? Number(port) : platformPort ? Number(platformPort) : source.port,
+      databaseName: read('DATABASE') || readPlatform('NAME') || source.databaseName,
+      username: read('USER') || readPlatform('USER') || source.username,
     },
     password: password || null,
   };

@@ -34,6 +34,74 @@ test('data source environment settings override stored endpoints and ENC passwor
   });
 });
 
+test('platform_mysql reuses platform database credentials when dedicated datasource vars are absent', () => {
+  const runtime = resolveDataSourceRuntimeConfig({
+    code: 'platform_mysql',
+    host: 'stale-host',
+    port: 3306,
+    databaseName: 'stale-db',
+    username: 'stale-user',
+    encryptedPassword: 'ENC:unavailable-on-this-host',
+  }, {
+    PLATFORM_DB_BACKEND: 'mysql',
+    PLATFORM_DB_HOST: 'platform-host',
+    PLATFORM_DB_PORT: '3307',
+    PLATFORM_DB_NAME: 'platform-db',
+    PLATFORM_DB_USER: 'platform-user',
+    PLATFORM_DB_PASSWORD: 'platform-password',
+  });
+
+  assert.deepEqual(runtime, {
+    source: {
+      code: 'platform_mysql',
+      host: 'platform-host',
+      port: 3307,
+      databaseName: 'platform-db',
+      username: 'platform-user',
+      encryptedPassword: 'ENC:unavailable-on-this-host',
+    },
+    password: 'platform-password',
+  });
+});
+
+test('dedicated datasource settings take priority over platform database credentials', () => {
+  const runtime = resolveDataSourceRuntimeConfig({
+    code: 'platform_mysql',
+    host: 'stored-host',
+    port: 3306,
+    databaseName: 'stored-db',
+    username: 'stored-user',
+    encryptedPassword: 'ENC:stored',
+  }, {
+    PLATFORM_DB_BACKEND: 'mysql',
+    PLATFORM_DB_HOST: 'platform-host',
+    PLATFORM_DB_PASSWORD: 'platform-password',
+    DATASOURCE_PLATFORM_MYSQL_HOST: 'datasource-host',
+    DATASOURCE_PLATFORM_MYSQL_PASSWORD: 'datasource-password',
+  });
+
+  assert.equal(runtime.source.host, 'datasource-host');
+  assert.equal(runtime.password, 'datasource-password');
+});
+
+test('platform database credentials are not applied to a non-platform datasource', () => {
+  const runtime = resolveDataSourceRuntimeConfig({
+    code: 'sales_mysql',
+    host: 'stored-host',
+    port: 3306,
+    databaseName: 'stored-db',
+    username: 'stored-user',
+    encryptedPassword: 'ENC:stored',
+  }, {
+    PLATFORM_DB_BACKEND: 'mysql',
+    PLATFORM_DB_HOST: 'platform-host',
+    PLATFORM_DB_PASSWORD: 'platform-password',
+  });
+
+  assert.equal(runtime.source.host, 'stored-host');
+  assert.equal(runtime.password, null);
+});
+
 function testConfig() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-business-'));
   return {
