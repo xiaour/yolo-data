@@ -310,10 +310,12 @@ export async function createApplication(config = loadConfig()) {
       if (bootstrapped?.length) {
         const bootstrappedIds = bootstrapped.map((dataset) => dataset.id);
         for (const theme of await listThemesAsync()) {
-          const businessDatasetIds = [...new Set([
-            ...(theme.businessDatasetIds ?? []),
-            ...bootstrappedIds,
-          ])];
+          // Demo/bootstrap resources may seed an empty installation, but must
+          // never rewrite a user's explicit dataset selection on every start.
+          const existingDatasetIds = theme.businessDatasetIds ?? [];
+          const businessDatasetIds = existingDatasetIds.length > 0
+            ? existingDatasetIds
+            : bootstrappedIds;
           await saveThemeAsync({
             ...theme,
             businessDatasetIds,
