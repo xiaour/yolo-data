@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildSemanticFastPathDraft } from '../src/fastQueryPath.js';
+import {
+  buildSemanticFastPathDraft,
+  resolveSemanticFastPathCandidate,
+} from '../src/fastQueryPath.js';
 
 const THEME = {
   semanticPolicy: {
@@ -155,4 +158,46 @@ test('semantic fast path accepts the public dataset-definition field shape', () 
   assert.equal(plan.eligible, true);
   assert.equal(plan.draft.metricFields[0].field, 'sale_amt');
   assert.equal(plan.metricMatches[0].field, 'sale_amt');
+});
+
+test('prompt-defined performance synonym resolves across datasets without a primary selection', async () => {
+  const theme = {
+    systemPrompt: '## 固定业务规则\n**税口径**：未指定默认含税。\n**指标同义词**：业绩=含税销售额；收入=含税销售额',
+    semanticPolicy: {},
+  };
+  const definitions = new Map([
+    ['margin', [{ fieldName: 'gross_margin', displayName: '毛利率', role: 'METRIC', aggregator: 'AVG' },
+      { fieldName: 'sales_date', displayName: '销售日期', role: 'TIME', aggregator: 'NONE' }]],
+    ['sales', [{ fieldName: 'sale_amt', displayName: '含税销售额', role: 'METRIC', aggregator: 'SUM' },
+      { fieldName: 'sales_date', displayName: '销售日期', role: 'TIME', aggregator: 'NONE' }]],
+  ]);
+  const result = await resolveSemanticFastPathCandidate({
+    question: '上个月的业绩是多少',
+    theme,
+    datasets: [{ id: 'margin' }, { id: 'sales' }],
+    loadDatasetFields: async (dataset) => definitions.get(dataset.id),
+    now: new Date('2026-10-23T03:00:00Z'),
+  });
+
+  assert.equal(result.candidate.dataset.id, 'sales');
+  assert.equal(result.candidate.fastPath.draft.metricFields[0].field, 'sale_amt');
+});
+
+test('prompt metric synonym does not auto-select when multiple datasets match', async () => {
+  const result = await resolveSemanticFastPathCandidate({
+    question: '上个月的业绩是多少',
+    theme: {
+      systemPrompt: '**指标同义词**：业绩=含税销售额',
+      semanticPolicy: {},
+    },
+    datasets: [{ id: 'one' }, { id: 'two' }],
+    loadDatasetFields: async () => [
+      { fieldName: 'sale_amt', displayName: '含税销售额', role: 'METRIC', aggregator: 'SUM' },
+      { fieldName: 'sales_date', displayName: '销售日期', role: 'TIME', aggregator: 'NONE' },
+    ],
+    now: new Date('2026-10-23T03:00:00Z'),
+  });
+
+  assert.equal(result.candidate, null);
+  assert.equal(result.ambiguous, true);
 });

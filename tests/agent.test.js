@@ -63,6 +63,78 @@ test('agent answer enforces user row policy during business dataset execution', 
   assert.match(application.testStatements.at(-1).sql, /region.*IN/);
 });
 
+test('agent replans recoverable failures five times with prior failure context', async () => {
+  const application = await createAgentApplication(testConfig());
+  application.agent.config.recovery = { maxAttempts: 5 };
+  const events = [];
+  const prompts = [];
+  let calls = 0;
+  application.agent._runOnce = async (options) => {
+    calls += 1;
+    prompts.push(options.replanHint);
+    if (calls <= 5) {
+      const error = new Error(`temporary failure ${calls}`);
+      error.recoveryContext = {
+        sessionId: 17,
+        phase: 'QUERY_EXECUTE',
+        completedStages: [{ code: 'QUERY_COMPILE', status: 'SUCCESS' }],
+        processSteps: [{ title: '执行查询', status: 'FAILED', detail: 'temporary failure' }],
+      };
+      throw error;
+    }
+    return { answer: 'recovered', sessionId: 17 };
+  };
+  const result = await application.agent.answerWithTrace({
+    question: '统计销售额',
+    userId: 1,
+    sessionId: 17,
+    onEvent: (event) => events.push(event),
+  });
+
+  assert.equal(result.answer, 'recovered');
+  assert.equal(calls, 6); // initial attempt plus five recovery replans
+  assert.equal(events.filter((event) => event.type === 'recovery_attempt').length, 5);
+  assert.match(prompts[1], /temporary failure 1/);
+  assert.match(prompts[1], /QUERY_COMPILE:SUCCESS/);
+  assert.match(prompts[1], /数据权限/);
+});
+
+test('agent does not retry user cancellation or permission failures', async () => {
+  const application = await createAgentApplication(testConfig());
+  let calls = 0;
+  application.agent._runOnce = async () => {
+    calls += 1;
+    const error = Object.assign(new Error('business dataset permission denied'), { statusCode: 403 });
+    throw error;
+  };
+  await assert.rejects(application.agent.answerWithTrace({ question: '统计销售额', userId: 1 }));
+  assert.equal(calls, 1);
+
+  const controller = new AbortController();
+  controller.abort();
+  application.agent._runOnce = async () => {
+    calls += 1;
+    throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+  };
+  await assert.rejects(application.agent.answerWithTrace({
+    question: '统计销售额', userId: 1, signal: controller.signal,
+  }));
+  assert.equal(calls, 2);
+});
+
+test('agent stops when recovery produces the same failure signature', async () => {
+  const application = await createAgentApplication(testConfig());
+  let calls = 0;
+  application.agent._runOnce = async () => {
+    calls += 1;
+    const error = new Error('invalid query contract');
+    error.recoveryContext = { sessionId: 18, phase: 'VALIDATE', completedStages: [], processSteps: [] };
+    throw error;
+  };
+  await assert.rejects(application.agent.answerWithTrace({ question: '统计销售额', userId: 1 }));
+  assert.equal(calls, 2);
+});
+
 test('configured model is seeded, available to initialized themes, and resolved for chat', async () => {
   const config = testConfig();
   config.deepseek = {
@@ -264,9 +336,11 @@ test('theme configuration is persisted without storing the indicator catalog', a
   const updated = application.database.saveTheme({
     ...theme,
     datasetIds: ['not-existing-dataset'],
+    indicatorIds: ['local:test-sales'],
   }, theme.id);
   const context = application.agent.resolveContext(user.id, updated.id);
   assert.equal(context.theme.datasetIds[0], 'not-existing-dataset');
+  assert.deepEqual(context.theme.indicatorIds, ['local:test-sales']);
   assert.equal(context.allIndicators, undefined);
   assert.equal(application.database.countRows('indicator_cache'), 0);
 });

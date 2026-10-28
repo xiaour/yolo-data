@@ -131,9 +131,16 @@ export function createMiddlewareRegistry() {
     // because a long analysis stream is a legitimate, expected duration.
     timeout: (arg) => async (ctx, next) => {
       const seconds = parseSeconds(arg, 120);
+      const controller = new AbortController();
+      const previousSignal = ctx.signal;
+      const signal = previousSignal
+        ? AbortSignal.any([previousSignal, controller.signal])
+        : controller.signal;
+      ctx.signal = signal;
       let timer = null;
       const timeout = new Promise((resolve, reject) => {
         timer = setTimeout(() => {
+          controller.abort();
           reject(Object.assign(
             new Error(`request timed out after ${seconds}s`),
             { statusCode: 504, code: 'REQUEST_TIMEOUT' },
@@ -151,6 +158,9 @@ export function createMiddlewareRegistry() {
       } finally {
         if (timer) {
           clearTimeout(timer);
+        }
+        if (ctx.signal === signal) {
+          ctx.signal = previousSignal;
         }
       }
     },

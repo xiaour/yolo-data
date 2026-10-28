@@ -53,6 +53,22 @@ test('harness factory builds an agent-scoped model runtime', async () => {
   delete process.env.TEST_AGENT_LLM_KEY;
 });
 
+test('model request timeout is reported distinctly from a generic abort', async () => {
+  const harness = new OpenAICompatibleDeepSeekHarness({
+    baseUrl: 'https://api.example/v1',
+    apiKey: 'test-key',
+    model: 'test-model',
+    timeoutMs: 5,
+    fetchImpl: (_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    }),
+  });
+  await assert.rejects(
+    harness.chat([], []),
+    /模型服务请求超时（5 毫秒）/,
+  );
+});
+
 test('yolo-conf default model is throttled to one request per second', async () => {
   const startedAt = [];
   const factory = new HarnessFactory({
@@ -116,6 +132,34 @@ test('harness factory decrypts a theme-scoped API key', async () => {
   assert.equal(authorization, 'Bearer stored-theme-key');
 });
 
+test('.env API key overrides an encrypted model key without attempting to decrypt it', async () => {
+  const previous = process.env.TEST_ENV_MODEL_KEY;
+  process.env.TEST_ENV_MODEL_KEY = 'env-model-key';
+  let authorization = null;
+  const factory = new HarnessFactory({
+    baseUrl: 'https://api.example/v1', apiKey: '', model: 'test-model', timeoutMs: 5_000,
+  }, async (_url, options) => {
+    authorization = options.headers.Authorization;
+    return new Response(JSON.stringify({
+      choices: [{ message: { role: 'assistant', content: 'ok' } }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }, null, {
+    decrypt: () => { throw new Error('must not decrypt when env key is set'); },
+  });
+  try {
+    const harness = factory.forTheme({
+      model: 'test-model',
+      apiKeyEnv: 'TEST_ENV_MODEL_KEY',
+      apiKeyEncrypted: 'ENC:server-ciphertext',
+    });
+    await harness.run({ messages: [{ role: 'user', content: 'ping' }], tools: [] });
+    assert.equal(authorization, 'Bearer env-model-key');
+  } finally {
+    if (previous === undefined) delete process.env.TEST_ENV_MODEL_KEY;
+    else process.env.TEST_ENV_MODEL_KEY = previous;
+  }
+});
+
 test('harness stops after a tool locks the first valid result', async () => {
   let requestCount = 0;
   const harness = new OpenAICompatibleDeepSeekHarness({
@@ -159,6 +203,24 @@ test('harness stops after a tool locks the first valid result', async () => {
   assert.equal(requestCount, 1);
   assert.equal(result.content, '含税销售金额合计 100');
   assert.equal(result.stoppedByResultLock, true);
+});
+
+test('model provider errors retain safe upstream diagnostics for the stream UI', async () => {
+  const harness = new OpenAICompatibleDeepSeekHarness({
+    baseUrl: 'https://models.example/v1',
+    apiKey: 'test-key',
+    model: 'example-model',
+    fetchImpl: async () => new Response(JSON.stringify({
+      error: { message: 'Free quota exhausted. Please add funds.' },
+    }), { status: 403, headers: { 'Content-Type': 'application/json' } }),
+  });
+  await assert.rejects(
+    harness.run({ messages: [{ role: 'user', content: 'ping' }], tools: [] }),
+    (error) => error.code === 'MODEL_PROVIDER_ERROR'
+      && error.statusCode === 403
+      && /Free quota exhausted/.test(error.providerDetail)
+      && /免费额度已用尽/.test(error.message),
+  );
 });
 
 test('harness stops immediately on a terminal configuration error', async () => {

@@ -42,12 +42,10 @@ export function buildAnswerEvidence({
   const contract = semanticParse?.queryContract ?? null;
   const resultQuality = semanticParse?.resultQuality ?? null;
   return {
-    grounded: Boolean(
-      contract
-      && rowCount > 0
-      && queryFingerprint
-      && dataHash,
-    ),
+    // An audited empty result is still grounded. Treating zero rows as
+    // ungrounded causes valid "no matching data" answers to be replaced by a
+    // clarification and may trigger pointless retries.
+    grounded: Boolean(contract && queryFingerprint && dataHash),
     contractId: semanticParse?.planId ?? null,
     planId: semanticParse?.planId ?? null,
     queryFingerprint: queryFingerprint ?? semanticParse?.queryFingerprint ?? null,

@@ -126,6 +126,10 @@ export function loadConfig(env = process.env) {
       maxReplan: Math.max(0, Math.min(3, readInt(env.REFLECTION_MAX_REPLAN, 2))),
       judgeTimeoutMs: Math.max(1_000, readInt(env.REFLECTION_JUDGE_TIMEOUT_MS, 20_000)),
     },
+    recovery: {
+      // Number of model-led recovery replans after the initial attempt.
+      maxAttempts: Math.max(5, Math.min(8, readInt(env.AGENT_RECOVERY_MAX_ATTEMPTS, 5))),
+    },
     codeExecutionRoot: path.resolve(
       projectRoot,
       String(env.CODE_EXECUTION_ROOT ?? './data/code-runs').trim(),

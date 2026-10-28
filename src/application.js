@@ -164,7 +164,14 @@ export async function createApplication(config = loadConfig()) {
     secretKey: config.datasourceSecretKey,
   });
   if (String(config.deepseek.apiKey ?? '').startsWith('ENC:')) {
-    config.deepseek.apiKey = datasourceCrypto.decrypt(config.deepseek.apiKey);
+    // A deployment may still have an older encrypted key in yolo-conf.yaml.
+    // Prefer the plain .env/process credential and only decrypt legacy config
+    // when no environment key is available.
+    const environmentApiKey = String(
+      process.env.API_KEY || process.env.DEEPSEEK_API_KEY || '',
+    ).trim();
+    config.deepseek.apiKey = environmentApiKey
+      || datasourceCrypto.decrypt(config.deepseek.apiKey);
   }
   const businessDatasets = new BusinessDatasetService({
     database,
