@@ -73,6 +73,7 @@ import {
 import { analyzeWithPlugins, resolveWithPlugins } from './analysisPluginRegistry.js';
 import {
   buildSemanticFastPathDraft,
+  resolveSemanticFastPathCandidate,
 } from './fastQueryPath.js';
 import {
   AgentRuntimeCache,
@@ -4843,12 +4844,28 @@ export class MetricAgentService {
       && conversationContext.turnType !== TURN_TYPES.INSTRUCTION
       && ['NEW_TOPIC', 'INDEPENDENT'].includes(conversationContext.mode);
     if (canUseSemanticFastPath) {
-      const preferredDataset = businessDatasets.find(
-        (dataset) => Number(dataset.id) === Number(primaryBusinessDatasetId),
-      );
-      const fastDataset = preferredDataset
-        ?? (businessDatasets.length === 1 ? businessDatasets[0] : null);
-      if (fastDataset) {
+      const selection = await resolveSemanticFastPathCandidate({
+        question: resolvedQuestion,
+        theme,
+        datasets: businessDatasets,
+        preferredDatasetId: primaryBusinessDatasetId,
+        loadDatasetFields: (dataset) => this.businessDatasets.getDatasetFieldsAsync(
+          dataset.id,
+          true,
+        ),
+      });
+      if (selection.ambiguous) {
+        emit({
+          type: 'warning',
+          code: 'SEMANTIC_FAST_PATH_AMBIGUOUS_DATASET',
+          message: `多个业务数据集都匹配当前指标口径（${selection.eligibleDatasetIds.join('、')}），不会自动选择数据源，转入完整问数流程。`,
+        });
+      }
+      if (!selection.candidate && selection.errors.length > 0) {
+        semanticFastPathError = selection.errors[0].error;
+      }
+      if (selection.candidate) {
+        const fastDataset = selection.candidate.dataset;
         const fastPathStartedAt = Date.now();
         try {
           const definition = await getBusinessDatasetDefinition({
