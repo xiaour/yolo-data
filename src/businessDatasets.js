@@ -692,7 +692,7 @@ export class BusinessDatasetService {
       if (filter.operator === 'IN' || filter.operator === 'NOT_IN') {
         const list = Array.isArray(filter.value) ? filter.value : [filter.value];
         if (list.length === 0) {
-          parts.push('1 = 0');
+          parts.push(filter.operator === 'NOT_IN' ? '1 = 1' : '1 = 0');
           return;
         }
         parts.push(`${expression} ${filter.operator.replaceAll('_', ' ')} (${list.map(() => '?').join(', ')})`);
