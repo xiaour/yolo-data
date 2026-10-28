@@ -223,6 +223,54 @@ const TOOL_DEFINITIONS = [
               additionalProperties: false,
             },
           },
+          analysisGoals: {
+            type: 'array',
+            description: [
+              'Semantic analysis objectives, independent of SQL and physical execution.',
+              'Use COMPOSITION for each group value divided by the total across all groups, BREAKDOWN for grouped values, RANKING for top/bottom analysis, TREND for a time series, PERIOD_COMPARISON for period-over-period analysis, ATTRIBUTION for driver analysis, and MULTI_STAGE for staged qualification or rollups.',
+              'The compiler lowers goals into derived metrics and execution constraints, then validates that measures and grouping grain are bound.',
+            ].join(' '),
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                type: {
+                  type: 'string',
+                  enum: [
+                    'SUMMARY',
+                    'DETAIL',
+                    'BREAKDOWN',
+                    'COMPOSITION',
+                    'RANKING',
+                    'TREND',
+                    'PERIOD_COMPARISON',
+                    'ATTRIBUTION',
+                    'MULTI_STAGE',
+                  ],
+                },
+                measure: {
+                  type: 'string',
+                  description: 'A metricFields field or outputField used by this objective.',
+                },
+                groupBy: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'dimensionFields fields that define the analytical grain.',
+                },
+                outputField: { type: 'string' },
+                label: { type: 'string' },
+                direction: { type: 'string', enum: ['ASC', 'DESC'] },
+                limit: { type: 'integer', minimum: 1, maximum: 2000 },
+                conditionIds: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+                ruleSource: { type: 'string' },
+              },
+              required: ['id', 'type'],
+              additionalProperties: false,
+            },
+          },
           metricFields: {
             type: 'array',
             items: {
@@ -265,7 +313,7 @@ const TOOL_DEFINITIONS = [
             type: 'array',
             description: [
               'Optional structured derived metrics compiled by the platform.',
-              'Use RATIO for numerator/denominator, GROWTH_RATE for period growth, DIFFERENCE for amount change, PERCENTAGE_POINT for percentage-point change, SUM for additive aggregation, AVERAGE for averages and EXPRESSION for a generic arithmetic tree.',
+              'Use SHARE_OF_TOTAL for grouped composition share (current row value divided by the sum of that value across all result rows), RATIO for two independently defined measures, GROWTH_RATE for period growth, DIFFERENCE for amount change, PERCENTAGE_POINT for percentage-point change, SUM for additive aggregation, AVERAGE for averages and EXPRESSION for a generic arithmetic tree.',
               'EXPRESSION uses op/left/right/value nodes with FIELD, ADD, SUBTRACT, MULTIPLY, DIVIDE, ABS and NEGATE. FIELD nodes reference confirmed metric fields or earlier derived outputField values.',
               'For a ratio, define both numerator and denominator as metricFields with unique outputField values. The numerator metric includes the applicable FILTER conditionIds; the denominator metric includes the SCOPE conditionIds but excludes the numerator FILTER conditionIds. The platform will calculate each scope separately within the same time window and then apply the derived ratio.',
               'RATIO numerator/denominator must reference metricFields outputField values or exact confirmed field names; do not provide SQL or rendered values.',
@@ -278,6 +326,7 @@ const TOOL_DEFINITIONS = [
                   type: 'string',
                   enum: [
                     'RATIO',
+                    'SHARE_OF_TOTAL',
                     'DIFFERENCE',
                     'GROWTH_RATE',
                     'PERCENTAGE_POINT',
@@ -2836,6 +2885,7 @@ export class MetricAgentService {
         indicatorId: indicator.id,
         metrics: metricNames,
         derivedMetrics: boundContract?.derivedMetrics ?? [],
+        analysisGoals: boundContract?.analysisGoals ?? [],
         dimensions: timeWindows.length > 1 ? [...dimensions, '__period'] : dimensions,
         filters: queryContractFilters,
         dateInfo,
@@ -3672,6 +3722,7 @@ export class MetricAgentService {
         metrics: effectivePlan.metrics.map((metric) => metric.field),
         metricSpecs: effectivePlan.metrics,
         derivedMetrics: boundContract?.derivedMetrics ?? [],
+        analysisGoals: boundContract?.analysisGoals ?? [],
         dimensions: boundWindows.length > 1
           ? [...effectivePlan.dimensions, '__period']
           : effectivePlan.dimensions,
@@ -4336,7 +4387,7 @@ export class MetricAgentService {
           throw new Error('compile_query_contract requires datasetId');
         }
         if (!confirmationState.confirmedDatasetIds.has(datasetId)) {
-          throw new Error('必须先确认业务数据集字段口径后才能编译查询契约');
+          await getBusinessDatasetDefinition({ datasetId: Number(datasetId) });
         }
         const confirmed = confirmationState.datasetDefinitions.get(datasetId);
         const dataset = confirmed?.dataset

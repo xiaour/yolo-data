@@ -433,6 +433,66 @@ test('cross trends keep the complete business-by-time result set', () => {
   assert.ok(result.contract.limit >= 5000);
 });
 
+test('grouped business share is compiled as current value over the complete result total', () => {
+  const result = new QueryContractCompiler().compile({
+    question: '上个月各业务类型的业绩占比是多少',
+    sourceType: 'BUSINESS_DATASET',
+    dataset,
+    datasetFields,
+    theme: {
+      systemPrompt: '指标同义词：业绩=含税销售额',
+    },
+    draft: {
+      conditions: [
+        { id: 'metric', sourceText: '业绩', kind: 'METRIC', status: 'RESOLVED' },
+        { id: 'dimension', sourceText: '业务类型', kind: 'DIMENSION', status: 'RESOLVED' },
+        { id: 'calculation', sourceText: '占比', kind: 'CALCULATION', status: 'RESOLVED' },
+        { id: 'time', sourceText: '上个月', kind: 'TIME', status: 'RESOLVED' },
+      ],
+      metricFields: [
+        {
+          field: 'sale_amt',
+          outputField: 'sale_amt',
+          sourceText: '业绩',
+          aggregator: 'SUM',
+          conditionIds: ['metric'],
+        },
+      ],
+      analysisGoals: [{
+        id: 'composition',
+        type: 'COMPOSITION',
+        measure: 'sale_amt',
+        groupBy: ['business_type_name'],
+        outputField: 'sale_amt_share',
+        label: '业绩占比',
+        conditionIds: ['calculation'],
+      }],
+      dimensionFields: [{
+        field: 'business_type_name',
+        sourceText: '业务类型',
+        conditionIds: ['dimension'],
+      }],
+      timeWindows: [{
+        sourceText: '上个月',
+        dateMode: 'BETWEEN',
+        startDate: '2026-08-01',
+        endDate: '2026-08-31',
+        conditionIds: ['time'],
+      }],
+    },
+    now,
+  });
+
+  assert.equal(result.valid, true, result.issues.map((issue) => issue.message).join('\n'));
+  assert.equal(result.contract.derivedMetrics.length, 1);
+  assert.equal(result.contract.derivedMetrics[0].type, 'SHARE_OF_TOTAL');
+  assert.equal(result.contract.derivedMetrics[0].left.field, 'sale_amt');
+  assert.equal(result.contract.derivedMetrics[0].right, null);
+  assert.equal(result.contract.analysisGoals[0].type, 'COMPOSITION');
+  assert.equal(result.contract.limitPolicy.reason, 'COMPLETE_RESULT_SET');
+  assert.ok(result.contract.limit >= 5000);
+});
+
 test('model-owned semantic categories cannot be silently omitted', () => {
   const result = compile(
     '本月销售额按management_category拆分',

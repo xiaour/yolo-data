@@ -553,7 +553,7 @@ test('agent reuses identical snapshots but preserves distinct query results', as
   assert.ok(answer.executionResults.every((item) => item.artifactId));
 });
 
-test('agent executes business dataset queries only through a compiled query contract', async () => {
+test('contract compilation auto-loads dataset metadata before execution', async () => {
   const application = await createAgentApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
@@ -565,7 +565,6 @@ test('agent executes business dataset queries only through a compiled query cont
       capabilities: {},
       run: async ({ executeTool }) => {
         const datasetId = application.testDataset.id;
-        await executeTool('get_business_dataset_definition', { datasetId });
         const compiled = await executeTool('compile_query_contract', {
           sourceType: 'BUSINESS_DATASET', datasetId,
           conditions: [{

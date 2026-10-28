@@ -113,7 +113,10 @@ ${buildSemanticTaxonomyPrompt()}
 - 如果同一句同时包含多个类别，必须生成多个条件项，不得只保留一个类别。
 
 派生指标规则：
+- 先把用户问题拆成 analysisGoals，再绑定字段和生成执行合同。analysisGoals 表达用户要完成的分析任务，不表达 SQL：SUMMARY=汇总值，DETAIL=明细，BREAKDOWN=按维度拆解，COMPOSITION=各分组值占全部分组总值，RANKING=排名，TREND=时间趋势，PERIOD_COMPARISON=周期对比，ATTRIBUTION=归因，MULTI_STAGE=多阶段分析。
+- 一个问题可以包含多个目标，例如“某期间按某维度计算指标构成并找出最高项”应提交 COMPOSITION 和 RANKING；目标中的 measure 必须引用 metricFields，groupBy 必须引用 dimensionFields。平台会把目标编译为数学算子并检查粒度、分母范围和完整结果集。
 - 比率、占比、增长率、差额、百分点变化、求和和均值必须通过 derivedMetrics 提交结构化公式。
+- 分组构成分析必须提交 COMPOSITION 目标；平台会将其编译为 SHARE_OF_TOTAL。RATIO 只用于两个独立业务度量相除，分子和分母引用同一个结果列会被门禁拒绝。
 - RATIO 使用 left/right 或 numerator/denominator；GROWTH_RATE 使用本期 left 与上期 right；不得直接提交 SQL、代码或格式化后的字符串。
 - “A占整体B的比例”必须先在 metricFields 中分别建立 A 和整体 B 两个计算口径，二者使用唯一 outputField；分子绑定业务过滤条件，分母只绑定 SCOPE 条件，不绑定该业务过滤条件。RATIO 的 numerator/denominator 引用这两个 outputField。
 - 计数指标只选择一个 IDENTIFIER 字段，用 COUNT_DISTINCT 统计去重数量；不得把多个标识字段、名称或编号同时提交为同一个计数指标。
