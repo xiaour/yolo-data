@@ -114,6 +114,7 @@ function positionCustomSelectMenu(wrapper) {
     return;
   }
   const rect = trigger.getBoundingClientRect();
+  parts.anchorRect = rect;
   const menuWidth = wrapper.classList.contains('is-icon-only')
     ? Math.max(220, menu.scrollWidth)
     : Math.max(rect.width, menu.scrollWidth, 180);
@@ -244,7 +245,7 @@ function enhanceCustomSelect(select) {
     if (opening) {
       rebuildCustomSelectMenu(select, wrapper);
       syncCustomSelect(select, wrapper);
-      requestAnimationFrame(() => positionCustomSelectMenu(wrapper));
+      positionCustomSelectMenu(wrapper);
     }
   });
   trigger.addEventListener('keydown', (event) => {
@@ -276,6 +277,14 @@ window.addEventListener('resize', () => closeCustomSelects());
 window.addEventListener('scroll', (event) => {
   // Scrolling a long option list must not dismiss its own popup.
   if (event.target instanceof Element && event.target.closest('.ui-select-menu')) return;
+  if (event.target === document) {
+    const parts = customSelectParts(document.querySelector('.ui-select.is-open'));
+    const rect = parts?.trigger?.getBoundingClientRect();
+    const anchor = parts?.anchorRect;
+    // The trigger click can follow viewport scrolling before its queued scroll
+    // event arrives. Keep the popup if it is already anchored at that position.
+    if (rect && anchor && ['top', 'left', 'width', 'height'].every(key => rect[key] === anchor[key])) return;
+  }
   closeCustomSelects();
 }, true);
 
