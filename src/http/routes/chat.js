@@ -39,6 +39,11 @@ export function registerChatRoutes(table) {
         writeEvent({
           type: 'stream_error',
           message: error.message ?? 'query failed',
+          code: error.code ?? null,
+          statusCode: error.statusCode ?? null,
+          providerStatus: error.providerStatus ?? null,
+          providerDetail: error.providerDetail ?? null,
+          recovery: error.recovery ?? null,
         });
       } finally {
         request.off('aborted', abortOnClose);
@@ -72,6 +77,7 @@ export function registerChatRoutes(table) {
         modelId: body.modelId ? Number(body.modelId) : null,
         attachmentArtifactIds: body.attachmentArtifactIds,
         forceNewTask: Boolean(body.forceNewTask),
+        signal: ctx.signal ?? null,
       });
       sendJson(response, 200, result);
     },

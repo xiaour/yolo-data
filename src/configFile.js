@@ -65,6 +65,7 @@ export const CONFIG_FILE_MAP = {
   'reflection.enabled': 'REFLECTION_ENABLED',
   'reflection.maxReplan': 'REFLECTION_MAX_REPLAN',
   'reflection.judgeTimeoutMs': 'REFLECTION_JUDGE_TIMEOUT_MS',
+  'recovery.maxAttempts': 'AGENT_RECOVERY_MAX_ATTEMPTS',
 
   'codeExecution.root': 'CODE_EXECUTION_ROOT',
   'codeExecution.pythonBin': 'PYTHON_BIN',

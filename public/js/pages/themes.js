@@ -137,7 +137,11 @@ async function renderThemeEditorPage(root, theme) {
     return;
   }
   root.innerHTML = '<div class="loading-state"><span class="spinner"></span>正在加载智能体配置</div>';
-  const models = await api('/api/models');
+  const [models, indicatorResult] = await Promise.all([
+    api('/api/models'),
+    isAdminUser() ? api('/api/local-indicators?limit=2000').catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
+  ]);
+  const availableIndicators = indicatorResult.items ?? [];
   const selectedSkillCodes = new Set(
     theme?.skillCodes
       ?? state.skills.filter((skill) => skill.defaultEnabled).map((skill) => skill.code),
@@ -227,7 +231,7 @@ async function renderThemeEditorPage(root, theme) {
                 `).join('') || '<div class="muted">暂无模型配置，请先在模型管理中新增模型。</div>'}
               </div>
             </div>
-            <div class="form-field">
+            <div class="form-field span-2">
               <label for="themeDefaultModel">默认模型</label>
               <select class="select" id="themeDefaultModel">
                 ${models.map((model) => `<option value="${model.id}"${Number(effectiveDefaultModelId) === Number(model.id) ? ' selected' : ''}>${escapeHtml(model.name)}</option>`).join('')}
@@ -261,6 +265,18 @@ async function renderThemeEditorPage(root, theme) {
               <p>限定智能体可检索的指标语义数据集、业务数据库数据集和可用维度；点击数据集右侧「字段」可直接启用或禁用字段。</p>
             </div>
           </header>
+          <div class="form-grid">
+            <div class="form-field span-2">
+              <label>指标范围</label>
+              <div class="theme-indicator-config-control">
+                <button class="btn btn-primary" type="button" id="configureThemeIndicatorsBtn">
+                  ${icon('settings', '配置指标')}配置指标
+                </button>
+                <span class="theme-indicator-selection-summary" id="themeIndicatorSelectionSummary">${configuredIndicatorIds.size ? `已选择 ${configuredIndicatorIds.size} 个指标` : '未限定指标范围'}</span>
+              </div>
+              <small>配置后，问数时该智能体将只检索所选指标；用户指标权限仍会继续生效。未选择表示不按主题限定指标。</small>
+            </div>
+          </div>
           <div class="form-grid">
           <div class="form-field span-2">
               <label>业务数据库数据集</label>
@@ -323,7 +339,7 @@ async function renderThemeEditorPage(root, theme) {
           <header class="theme-config-section-head">
             <span class="theme-config-index">06</span>
             <div>
-              <h3>指标与 Skills</h3>
+              <h3>Skills</h3>
               <p>控制智能体可访问的指标白名单，以及分析过程中可启用的能力。</p>
             </div>
           </header>
@@ -395,6 +411,38 @@ async function renderThemeEditorPage(root, theme) {
   ));
   modal.querySelector('#themeForm').addEventListener('submit', (event) => {
     event.preventDefault();
+  });
+  const selectedIndicatorIds = new Set(configuredIndicatorIds);
+  const indicatorButton = modal.querySelector('#configureThemeIndicatorsBtn');
+  indicatorButton?.addEventListener('click', () => {
+    const picker = openModal({
+      title: '配置智能体可用指标',
+      wide: true,
+      body: `
+        <p class="muted">勾选此智能体问数时可使用的指标。未选择任何指标时不启用主题级指标限制。</p>
+        <div class="check-grid theme-indicator-picker">
+          ${availableIndicators.map((indicator) => `
+            <label class="check-item">
+              <input type="checkbox" name="themeIndicatorPicker" value="${escapeAttr(indicator.id)}"${selectedIndicatorIds.has(String(indicator.id)) ? ' checked' : ''} />
+              <span>
+                <strong>${escapeHtml(indicator.bizName || indicator.name)}</strong>
+                <small class="muted">${escapeHtml(indicator.name)}${indicator.typeName ? ` · ${escapeHtml(indicator.typeName)}` : ''}${indicator.businessCaliber ? ` · ${escapeHtml(indicator.businessCaliber)}` : ''}</small>
+              </span>
+            </label>
+          `).join('') || '<div class="muted">暂无本地指标，请先在指标管理中新增指标。</div>'}
+        </div>
+      `,
+      footer: '<button class="btn" type="button" data-close-modal>取消</button><button class="btn btn-primary" type="button" id="applyThemeIndicatorSelection">应用选择</button>',
+    });
+    picker.querySelector('#applyThemeIndicatorSelection').addEventListener('click', () => {
+      selectedIndicatorIds.clear();
+      picker.querySelectorAll('[name="themeIndicatorPicker"]:checked')
+        .forEach((input) => selectedIndicatorIds.add(String(input.value)));
+      modal.querySelector('#themeIndicatorSelectionSummary').textContent = selectedIndicatorIds.size
+        ? `已选择 ${selectedIndicatorIds.size} 个指标`
+        : '未限定指标范围';
+      closeModal();
+    });
   });
   // 顶部状态开关是真实开关：点击即调用状态接口启用/停用，不影响表单里未保存的其它编辑。
   mountThemeStatusBadge(modal);
@@ -624,6 +672,7 @@ async function renderThemeEditorPage(root, theme) {
         .filter(Boolean),
       businessDatasetIds: [...modal.querySelectorAll('[name="themeBusinessDataset"]:checked')]
         .map((input) => Number(input.value)),
+      indicatorIds: [...selectedIndicatorIds],
       primaryBusinessDatasetId: null,
       modelIds: [...modal.querySelectorAll('[name="themeModel"]:checked')]
         .map((input) => Number(input.value)),

@@ -175,6 +175,8 @@ test('indicator value domains do not consume 本地指标目录 description meta
 test('dataset value domains cache complete source snapshots without re-scanning', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-values-dataset-'));
   const database = new PlatformDatabase(path.join(directory, 'test.db'));
+  // Production MySQL/SQLite async repositories return a Promise here.
+  database.listSemanticValueOverridesAsync = async () => [];
   const registry = new SemanticValueRegistry(database);
   const themeId = database.listThemes()[0].id;
   const fieldKey = semanticValueFieldKey(

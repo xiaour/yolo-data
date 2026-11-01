@@ -36,9 +36,19 @@ function formatNumber(value) {
 }
 
 function formatValue(value, column) {
-  return column?.presentationType
-    ? formatPresentationCell(value, column)
-    : formatNumber(value);
+  if (column?.presentationType) {
+    return formatPresentationCell(value, column);
+  }
+  if (String(column?.dataFormatType ?? '').toLowerCase() === 'percent') {
+    const number = Number(value);
+    const decimals = Number.isInteger(Number(column?.displayDecimals))
+      ? Math.max(0, Math.min(6, Number(column.displayDecimals)))
+      : 2;
+    return Number.isFinite(number)
+      ? `${(number * 100).toFixed(decimals)}%`
+      : String(value ?? '');
+  }
+  return formatNumber(value);
 }
 
 function sentence(text) {
@@ -51,6 +61,19 @@ function emphasizeFirstNumber(text) {
 }
 
 function resolveMetric(columns, contract) {
+  const goalOutput = (contract?.analysisGoals ?? [])
+    .map((goal) => goal.outputField)
+    .find((key) => findColumn(columns, key));
+  if (goalOutput) {
+    return findColumn(columns, goalOutput);
+  }
+  const derivedOutput = (contract?.derivedMetrics ?? [])
+    .filter((metric) => metric.internal !== true)
+    .map((metric) => metric.outputField)
+    .find((key) => findColumn(columns, key));
+  if (derivedOutput) {
+    return findColumn(columns, derivedOutput);
+  }
   const key = (contract?.metrics ?? []).find((item) => findColumn(columns, item));
   return (key ? findColumn(columns, key) : null)
     ?? (columns ?? []).find(isNumericColumn)

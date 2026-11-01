@@ -2,6 +2,7 @@ import { normalizeDerivedOperand } from './scopedMetrics.js';
 
 const DERIVED_TYPES = new Set([
   'RATIO',
+  'SHARE_OF_TOTAL',
   'DIFFERENCE',
   'GROWTH_RATE',
   'PERCENTAGE_POINT',
@@ -81,18 +82,6 @@ function computeExpression(expression, row) {
     return right === 0 ? null : left / right;
   }
   return null;
-}
-
-function roundValue(value, precision) {
-  if (value === null || value === undefined) {
-    return value;
-  }
-  const number = Number(value);
-  if (!Number.isFinite(number) || !Number.isInteger(precision)) {
-    return value;
-  }
-  const factor = 10 ** Math.max(0, Math.min(12, precision));
-  return Math.round(number * factor) / factor;
 }
 
 export function normalizeDerivedMetricDefinition(
@@ -202,7 +191,7 @@ export function normalizeDerivedMetricDefinition(
     (type === 'EXPRESSION' && !expression)
     || (type !== 'EXPRESSION' && (
       !resolvedLeft
-      || (right.field && !resolvedRight)
+      || (type !== 'SHARE_OF_TOTAL' && right.field && !resolvedRight)
     ))
   ) {
     return null;
@@ -319,16 +308,36 @@ export function applyDerivedMetrics({
       dataFormatType: definition.outputFormat === 'PERCENT'
         ? 'percent'
         : null,
+      displayDecimals: definition.precision,
       derived: true,
       derivedType: definition.type,
     }));
+  const shareTotals = new Map(
+    definitions
+      .filter((definition) => definition.type === 'SHARE_OF_TOTAL')
+      .map((definition) => [
+        definition.outputField,
+        (rows ?? []).reduce((total, row) => {
+          const value = numericValue(row?.[definition.left.field]);
+          return value === null ? total : total + value;
+        }, 0),
+      ]),
+  );
   const derivedRows = (rows ?? []).map((row) => {
     const next = { ...row };
     for (const definition of definitions) {
-      next[definition.outputField] = roundValue(
-        computeDefinition(definition, next),
-        definition.precision,
-      );
+      const value = definition.type === 'SHARE_OF_TOTAL'
+        ? (() => {
+          const numerator = numericValue(next?.[definition.left.field]);
+          const denominator = shareTotals.get(definition.outputField);
+          return numerator !== null && denominator !== 0
+            ? numerator / denominator
+            : null;
+        })()
+        : computeDefinition(definition, next);
+      // Precision belongs to presentation. Rounding the stored value here
+      // changes later formulas and can turn 36.59% into 40%.
+      next[definition.outputField] = value;
     }
     return next;
   });

@@ -519,7 +519,14 @@ async function streamApi(path, options = {}, onEvent) {
     }
     const event = JSON.parse(text);
     if (event.type === 'stream_error') {
-      throw new Error(event.message ?? 'query failed');
+      const error = new Error(event.message ?? 'query failed');
+      error.code = event.code ?? null;
+      error.statusCode = event.statusCode ?? null;
+      error.providerStatus = event.providerStatus ?? null;
+      error.providerDetail = event.providerDetail ?? null;
+      error.recovery = event.recovery ?? null;
+      onEvent?.(event);
+      throw error;
     }
     if (event.type === 'final') {
       finalAnswer = event.answer;

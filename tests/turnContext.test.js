@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import {
   TURN_TYPES,
@@ -30,6 +32,42 @@ function completedHistory(context, content = '查询已完成') {
     },
   ];
 }
+
+test('fixed query-context evaluation cases preserve task boundaries', () => {
+  const cases = JSON.parse(fs.readFileSync(
+    path.join(process.cwd(), 'eval/query-context-cases.json'),
+    'utf8',
+  ));
+  assert.deepEqual(cases.map((item) => item.kind).sort(), [
+    'clarification', 'follow_up', 'new_question', 'result_operation',
+  ]);
+  for (const item of cases) {
+    const previous = createTurnContext({ question: item.previousQuestion });
+    const history = completedHistory(previous);
+    if (item.expectedArtifactId) {
+      history[1].result.taskState.result = { artifactId: item.expectedArtifactId };
+    }
+    const current = createTurnContext({
+      question: item.question,
+      history,
+      turnType: TURN_TYPES[item.turnType],
+      referencesResult: Boolean(item.referencesResult),
+    });
+    assert.equal(current.turnType, item.turnType, item.id);
+    for (const key of item.mustNotInherit ?? []) {
+      assert.equal(current.inheritedSlots[key], undefined, `${item.id} leaked ${key}`);
+    }
+    for (const key of item.mustInherit ?? []) {
+      assert.ok(current.inheritedSlots[key]?.length, `${item.id} lost ${key}`);
+    }
+    for (const key of item.mustBeExplicit ?? []) {
+      assert.ok(current.explicitSlots[key]?.length, `${item.id} did not capture ${key}`);
+    }
+    if (item.expectedArtifactId) {
+      assert.equal(current.referencedArtifactId, item.expectedArtifactId, item.id);
+    }
+  }
+});
 
 for (const time of [
   '2026年1月1日至2026年3月31日',

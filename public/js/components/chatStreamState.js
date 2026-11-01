@@ -11,6 +11,7 @@ export function createChatStreamState() {
     answerText: '',
     answerStarted: false,
     answerDone: false,
+    error: null,
     startedAt: Date.now(),
     lastEventAt: Date.now(),
   };
@@ -40,6 +41,17 @@ export function applyChatStreamEvent(stream, event) {
     if (next.progress.length > 40) {
       next.progress.splice(0, next.progress.length - 40);
     }
+    return next;
+  }
+  if (event.type === 'error' || event.type === 'stream_error') {
+    next.error = {
+      message: String(event.message ?? '本轮查询失败'),
+      code: event.code ?? null,
+      statusCode: event.statusCode ?? null,
+      providerStatus: event.providerStatus ?? null,
+      providerDetail: event.providerDetail ?? null,
+      recovery: event.recovery ?? null,
+    };
     return next;
   }
   if (event.type === 'assistant_answer_start') {

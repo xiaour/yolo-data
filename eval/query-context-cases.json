@@ -1,0 +1,37 @@
+[
+  {
+    "id": "new-task-no-context-leak",
+    "kind": "new_question",
+    "question": "上个月的销售额是多少",
+    "turnType": "NEW_TASK",
+    "previousQuestion": "本月华东销售额按渠道分组",
+    "mustNotInherit": ["filters", "dimensions"]
+  },
+  {
+    "id": "follow-up-add-dimension",
+    "kind": "follow_up",
+    "question": "按省区分组呢",
+    "turnType": "CONTINUATION",
+    "previousQuestion": "查询本月含税销售金额，只看华东",
+    "mustInherit": ["time", "filters"],
+    "mustBeExplicit": ["dimensions"]
+  },
+  {
+    "id": "result-operation-keeps-artifact-reference",
+    "kind": "result_operation",
+    "question": "改成折线图",
+    "turnType": "RESULT_OPERATION",
+    "previousQuestion": "查询本月含税销售金额",
+    "referencesResult": true,
+    "expectedArtifactId": "artifact-query-42"
+  },
+  {
+    "id": "clarification-answer-fills-time-only",
+    "kind": "clarification",
+    "question": "2026-01-01",
+    "turnType": "CLARIFICATION_ANSWER",
+    "previousQuestion": "销售额，只看华东",
+    "mustBeExplicit": ["time"],
+    "mustInherit": ["filters"]
+  }
+]

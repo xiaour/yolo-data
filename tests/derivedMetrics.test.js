@@ -71,6 +71,53 @@ test('derived metric renderer computes columns without changing raw values', () 
   assert.equal(result.columns.at(-1).dataFormatType, 'percent');
 });
 
+test('share-of-total divides each grouped value by the complete result total', () => {
+  const definitions = normalizeDerivedMetrics([{
+    name: '业绩占比',
+    type: 'SHARE_OF_TOTAL',
+    metric: 'sale_amt',
+    outputField: 'sale_amt_share',
+    outputFormat: 'PERCENT',
+    precision: 6,
+  }], (field) => field);
+  const result = applyDerivedMetrics({
+    columns: [
+      { name: '业务类型', bizName: 'business_type_name', showType: 'CATEGORY' },
+      { name: '含税销售额', bizName: 'sale_amt', showType: 'NUMBER' },
+    ],
+    rows: [
+      { business_type_name: '业务一', sale_amt: 60 },
+      { business_type_name: '业务二', sale_amt: 30 },
+      { business_type_name: '业务三', sale_amt: 10 },
+    ],
+    definitions,
+  });
+
+  assert.deepEqual(
+    result.rows.map((row) => row.sale_amt_share),
+    [0.6, 0.3, 0.1],
+  );
+  assert.equal(result.columns.at(-1).dataFormatType, 'percent');
+});
+
+test('derived metric precision controls display metadata without rounding raw values', () => {
+  const result = applyDerivedMetrics({
+    columns: [{ name: '销售额', bizName: 'sale_amt', showType: 'NUMBER' }],
+    rows: [{ sale_amt: 337270.482898 }, { sale_amt: 280335.657758 }],
+    definitions: [{
+      name: '占比',
+      type: 'SHARE_OF_TOTAL',
+      outputField: 'sale_share',
+      outputFormat: 'PERCENT',
+      precision: 1,
+      left: { field: 'sale_amt' },
+    }],
+  });
+
+  assert.ok(Math.abs(result.rows[0].sale_share - 0.5460931501) < 1e-9);
+  assert.equal(result.columns.at(-1).displayDecimals, 1);
+});
+
 test('derived metric filters run after derived values are calculated', () => {
   const rows = applyDerivedMetricFilters({
     rows: [

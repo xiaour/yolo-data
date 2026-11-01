@@ -26,6 +26,12 @@ function truncate(value, maxLength = 240) {
   return text.length <= maxLength ? text : `${text.slice(0, maxLength)}...`;
 }
 
+function safeProviderDetail(value) {
+  return truncate(value, 240)
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
+    .replace(/(?:api[_ -]?key|token|secret)\s*[:=]\s*[^\s,;)]+/gi, '$1=[redacted]');
+}
+
 // 上游状态码对应的可执行处理建议。业务用户不需要理解 HTTP 语义，只需要知道去哪里修。
 const PROVIDER_STATUS_HINTS = {
   400: '请求参数不被模型服务接受，请检查「模型管理」里的模型名和 Base URL。',
@@ -42,7 +48,7 @@ function providerErrorMessage(status, payload, responseText) {
     return `模型服务返回了 HTML 页面（HTTP ${status}），请检查 Base URL 是否包含正确的 API 路径。`;
   }
   const detail = payload?.error?.message ?? payload?.message ?? text;
-  const cleaned = String(detail)
+  const cleaned = safeProviderDetail(String(detail))
     .replace(/<[^>]*>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -51,7 +57,10 @@ function providerErrorMessage(status, payload, responseText) {
       ? '上游模型服务暂时不可用，请稍后重试。'
       : '请检查「模型管理」中的模型配置。');
   const providerMismatch = /has no provider supported|no (?:endpoint|provider)s? found|provider supported/i.test(cleaned);
-  const actionableHint = providerMismatch
+  const freeTierExhausted = /free quota exhausted|use free tier only|free.?tier/i.test(cleaned);
+  const actionableHint = freeTierExhausted
+    ? '当前 API Key 的免费额度已用尽，请在模型服务商控制台充值、关闭“仅使用免费额度”，或切换到仍有额度的模型/API Key。'
+    : providerMismatch
     ? '当前 Base URL 没有可用的该模型 provider；请使用模型服务商提供的 Base URL 和完整模型标识，并确认该模型支持工具调用。'
     : hint;
   const suffix = cleaned ? `（上游返回：${truncate(cleaned, 160)}）` : '';
@@ -308,7 +317,15 @@ export class OpenAICompatibleDeepSeekHarness {
         payload = { raw: text };
       }
       if (!response.ok) {
-        throw new Error(providerErrorMessage(response.status, payload, text));
+        throw Object.assign(
+          new Error(providerErrorMessage(response.status, payload, text)),
+          {
+            statusCode: Number(response.status),
+            code: 'MODEL_PROVIDER_ERROR',
+            providerStatus: Number(response.status),
+            providerDetail: safeProviderDetail(payload?.error?.message ?? payload?.message ?? text),
+          },
+        );
       }
       await this.onCall?.({
         ...metadata,
@@ -326,6 +343,9 @@ export class OpenAICompatibleDeepSeekHarness {
       });
       return payload;
     } catch (error) {
+      const reportedError = timeoutController.signal.aborted && !metadata.signal?.aborted
+        ? new Error(`模型服务请求超时（${this.timeoutMs} 毫秒），请检查所选模型的超时设置或上游响应速度。`)
+        : error;
       await this.onCall?.({
         ...metadata,
         callType: metadata.callType ?? 'AGENT_TOOL_ROUND',
@@ -336,9 +356,9 @@ export class OpenAICompatibleDeepSeekHarness {
         tokenUsage: {},
         latencyMs: Date.now() - startedAt,
         success: false,
-        errorMessage: error.message,
+        errorMessage: reportedError.message,
       });
-      throw error;
+      throw reportedError;
     } finally {
       clearTimeout(timeout);
     }
@@ -780,7 +800,15 @@ export class HarnessFactory {
   }
 
   forTheme(themeConfig = {}) {
-    const storedApiKey = themeConfig.apiKeyEncrypted && this.credentialCrypto
+    const environmentApiKey = String(
+      (themeConfig.apiKeyEnv && process.env[themeConfig.apiKeyEnv])
+      || process.env.API_KEY
+      || this.baseConfig.apiKey
+      || '',
+    ).trim();
+    // Environment credentials deliberately override persisted ENC values so
+    // deployments can keep secrets in .env without sharing the encryption key.
+    const storedApiKey = !environmentApiKey && themeConfig.apiKeyEncrypted && this.credentialCrypto
       ? this.credentialCrypto.decrypt(themeConfig.apiKeyEncrypted)
       : '';
     const merged = {
@@ -794,10 +822,7 @@ export class HarnessFactory {
       maxToolRounds: Number(
         themeConfig.maxToolRounds ?? this.baseConfig.maxToolRounds ?? 12,
       ),
-      apiKey: String(storedApiKey || '').trim()
-        || (themeConfig.apiKeyEnv
-          ? String(process.env[themeConfig.apiKeyEnv] ?? '').trim()
-          : this.baseConfig.apiKey),
+      apiKey: environmentApiKey || String(storedApiKey || '').trim(),
       provider: themeConfig.provider || 'deepseek',
       rateLimitMs: themeConfig.isDefaultConfModel === true ? 1000 : 0,
     };

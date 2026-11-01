@@ -80,6 +80,7 @@ export function renderLiveExecution(stream, { renderExecutionDetails }) {
     ?? '正在启动 DataAgent 工作流';
   const detail = compactDetail(activeProgress?.detail ?? activeStage?.summary ?? '');
   const hasAnswer = stream?.answerStarted || Boolean(stream?.answerText);
+  const streamError = stream?.error;
   return `
     <div class="live-agent-stream">
       <div class="live-agent-head">
@@ -107,6 +108,14 @@ export function renderLiveExecution(stream, { renderExecutionDetails }) {
           <span>Agent 正在执行，结果会在这里实时输出</span>
         </div>
       `}
+      ${streamError ? `
+        <div class="live-agent-error" role="alert">
+          <strong>${escapeHtml(streamError.message)}</strong>
+          ${streamError.providerDetail && streamError.providerDetail !== streamError.message
+            ? `<small>上游返回：${escapeHtml(streamError.providerDetail)}</small>` : ''}
+          ${streamError.statusCode ? `<small>模型服务 HTTP ${escapeHtml(streamError.statusCode)}</small>` : ''}
+        </div>
+      ` : ''}
       ${(stream?.warnings ?? []).map((warning) => `
         <div class="live-warning">${escapeHtml(warning.message)}</div>
       `).join('')}

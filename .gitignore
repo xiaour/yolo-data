@@ -6,6 +6,7 @@ data/*
 # kept ignored so a leftover file with real credentials can never be committed by accident.
 .env
 .env.*
+!.env.example
 
 node_modules/
 .venv/

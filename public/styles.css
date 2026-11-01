@@ -5982,6 +5982,24 @@ body.is-auth .main-content {
   line-height: 1.5;
 }
 
+.live-agent-error {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #efcaca;
+  border-radius: 8px;
+  color: #9b2226;
+  background: #fff5f5;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.live-agent-error small {
+  color: #7d4c4f;
+  overflow-wrap: anywhere;
+}
+
 .live-agent-typing {
   display: inline-flex;
   align-items: center;

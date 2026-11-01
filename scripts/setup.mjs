@@ -14,6 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensurePythonAnalysisRuntime } from './python-setup.mjs';
 import { resolveConfPath } from './confFileEdit.mjs';
+import { loadEnvFile } from '../src/envFile.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MIN_NODE_MAJOR = 22;
@@ -98,6 +99,7 @@ function setupPythonRuntime(confPath) {
 }
 
 console.log('\nYOLO Data 环境初始化\n');
+loadEnvFile({ projectRoot });
 assertNodeVersion();
 installDependencies();
 const confPath = ensureConfigFile();

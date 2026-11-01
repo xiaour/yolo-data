@@ -142,6 +142,8 @@ docker compose up -d --build
 
 服务启动后访问 [http://localhost:8088/](http://localhost:8088/)。按需在 `yolo-conf.yaml` 中配置模型和数据源；首次登录后请修改默认口令。详细配置见下方配置说明。
 
+本机账号、密码和 API Key 建议放在 `.env`（从 `.env.example` 复制），不要提交；优先级为进程环境变量 > `.env` > `yolo-conf.yaml`。
+
 PostgreSQL 数据源接入方式见 [PostgreSQL 接入文档](docs/postgresql.md)。
 
 

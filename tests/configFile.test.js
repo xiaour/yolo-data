@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { loadEnvFile, parseEnvFile } from '../src/envFile.js';
 import {
   CONFIG_FILE_MAP,
   applyConfigFile,
@@ -76,6 +77,31 @@ models:
   assert.equal(target.API_KEY, 'env-key', '机密以环境变量为准');
   assert.deepEqual(result.applied.sort(), ['MODEL']);
   assert.deepEqual(result.skipped, ['PORT', 'API_KEY']);
+});
+
+test('.env 解析：支持注释、export 和带特殊字符的引号值', () => {
+  assert.deepEqual(parseEnvFile(`
+# comment
+export API_KEY = "secret value # kept"
+PLATFORM_DB_PASSWORD='p@ss word'
+PORT=8088 # inline comment
+`), {
+    API_KEY: 'secret value # kept',
+    PLATFORM_DB_PASSWORD: 'p@ss word',
+    PORT: '8088',
+  });
+});
+
+test('.env 优先于 yolo-conf，但不覆盖进程环境变量', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'yolo-env-'));
+  const file = path.join(dir, '.env');
+  fs.writeFileSync(file, 'PLATFORM_DB_HOST=from-env-file\nPLATFORM_DB_PASSWORD=local-secret\n', 'utf8');
+  const target = { PLATFORM_DB_HOST: '', PLATFORM_DB_PASSWORD: 'process-secret' };
+  const result = loadEnvFile({ projectRoot: dir, filePath: file, target });
+  assert.equal(target.PLATFORM_DB_HOST, 'from-env-file');
+  assert.equal(target.PLATFORM_DB_PASSWORD, 'process-secret');
+  assert.deepEqual(result.loaded, ['PLATFORM_DB_HOST']);
+  assert.deepEqual(result.skipped, ['PLATFORM_DB_PASSWORD']);
 });
 
 test('配置文件：文件缺失时安静返回', () => {

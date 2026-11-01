@@ -40,6 +40,7 @@ import {
   splitQuestionClauses,
   validateBindingSources,
 } from './semanticCoverage.js';
+import { compileAnalysisGoals } from './analysisGoals.js';
 
 const CONDITION_KINDS = new Set([
   'METRIC',
@@ -65,6 +66,7 @@ const RESULT_ACTION_PATTERN =
   /导出|下载|输出|保存|生成|excel|xlsx|csv|cel|表格|文件/i;
 const PRESENTATION_PATTERN =
   /趋势|走势|折线图|折线展示|图形展示|可视化/;
+
 function normalizePostProcessing(postProcessing) {
   return postProcessing && typeof postProcessing === 'object'
     ? JSON.parse(JSON.stringify(postProcessing))
@@ -1719,6 +1721,15 @@ export class QueryContractCompiler {
         ];
       }
     }
+    const compiledAnalysis = compileAnalysisGoals({
+      goals: draft.analysisGoals,
+      metricFields,
+      dimensionFields,
+      derivedMetrics,
+      issues,
+    });
+    const analysisGoals = compiledAnalysis.goals;
+    derivedMetrics = compiledAnalysis.derivedMetrics;
     const derivedFilterFields = derivedMetrics.map((definition) => ({
       fieldName: definition.outputField,
       displayName: definition.name,
@@ -1868,10 +1879,14 @@ export class QueryContractCompiler {
       && businessDimensionCount >= 1
       && dimensionFields.some((dimension) => dimension.isTime === true)
       && timeWindows.length >= 1;
+    const groupedShare = derivedMetrics.some((metric) => (
+      metric.type === 'SHARE_OF_TOTAL'
+    ));
     const needsCompleteRows = !explicitTopN && (
       attributionBreakdown
       || businessDimensionCount >= 2
       || crossTrend
+      || groupedShare
       || (
         analysisMode.mode === 'ATTRIBUTION'
         && businessDimensionCount >= 1
@@ -2142,6 +2157,7 @@ export class QueryContractCompiler {
         .filter((field) => field.internal === true)
         .map((field) => field.outputField || field.field),
       derivedMetrics,
+      analysisGoals,
       dimensionFields,
       filterFields,
       scopeModifiers,

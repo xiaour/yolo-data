@@ -665,6 +665,51 @@ test('empty results explicitly report that the platform did not move the range',
   assert.doesNotMatch(summary, /2026-09-15 至 2026-09-21/);
 });
 
+test('composition summaries prefer the derived share instead of repeating base amounts', () => {
+  const contract = buildQueryContract({
+    indicatorId: 'dataset:2',
+    metrics: ['sale_amt'],
+    dimensions: ['business_type_name'],
+    derivedMetrics: [{
+      name: '业绩占比',
+      type: 'SHARE_OF_TOTAL',
+      outputField: 'sale_amt_share',
+      outputFormat: 'PERCENT',
+      left: { field: 'sale_amt' },
+    }],
+    analysisGoals: [{
+      id: 'composition',
+      type: 'COMPOSITION',
+      measure: 'sale_amt',
+      groupBy: ['business_type_name'],
+      outputField: 'sale_amt_share',
+      conditionIds: [],
+    }],
+  });
+  const summary = buildDeterministicSummary({
+    subjectName: '销售明细',
+    question: '上个月各业务类型的业绩占比是多少',
+    contract,
+    columns: [
+      { name: '业务类型', bizName: 'business_type_name', showType: 'CATEGORY' },
+      { name: '含税销售额', bizName: 'sale_amt', showType: 'NUMBER' },
+      { name: '业绩占比', bizName: 'sale_amt_share', showType: 'NUMBER', dataFormatType: 'percent' },
+    ],
+    rows: [
+      { business_type_name: '日配到家', sale_amt: 337270.48, sale_amt_share: 0.36593 },
+      { business_type_name: '社区团购', sale_amt: 280335.66, sale_amt_share: 0.304157 },
+      { business_type_name: '机构直供', sale_amt: 207101.35, sale_amt_share: 0.2247 },
+      { business_type_name: '商超直供', sale_amt: 96972.26, sale_amt_share: 0.105213 },
+    ],
+  });
+
+  assert.match(summary, /日配到家.*36\.59%/);
+  assert.match(summary, /社区团购.*30\.42%/);
+  assert.match(summary, /机构直供.*22\.47%/);
+  assert.match(summary, /商超直供.*10\.52%/);
+  assert.doesNotMatch(summary, /337,270/);
+});
+
 test('public result projection hides formula dependency fields', () => {
   const result = selectPublicResult({
     columns: [

@@ -7,7 +7,7 @@ import {
   requiresGroundedAnswer,
 } from '../src/answerEvidence.js';
 
-test('answer evidence requires a contract, rows, fingerprint and data hash', () => {
+test('answer evidence requires a contract, fingerprint and data hash', () => {
   const complete = buildAnswerEvidence({
     semanticParse: { queryContract: { id: 'contract-1' } },
     data: { columns: [{ name: 'value' }], rows: [{ value: 1 }] },
@@ -18,6 +18,12 @@ test('answer evidence requires a contract, rows, fingerprint and data hash', () 
   assert.equal(complete.rowCount, 1);
   assert.equal(complete.columnCount, 1);
   assert.equal(buildAnswerEvidence({ data: { rows: [{ value: 1 }] } }).grounded, false);
+  assert.equal(buildAnswerEvidence({
+    semanticParse: { queryContract: { id: 'contract-empty' } },
+    data: { columns: [{ name: 'value' }], rows: [] },
+    queryFingerprint: 'fingerprint-empty',
+    dataHash: 'hash-empty',
+  }).grounded, true);
 });
 
 test('grounding only applies to data analysis turns with no clarification', () => {
