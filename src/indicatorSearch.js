@@ -11,9 +11,8 @@ export function normalizeBusinessTerm(value) {
   return compactText(value);
 }
 
-// Chinese business terms often differ by one character (for example
-// “销售额” and “销售金额”). Keep this deterministic and explainable instead
-// of requiring an embedding/vector service for a small lexical variation.
+// Business terms can differ by one character. Keep small lexical
+// variations deterministic instead of requiring an embedding service.
 function longestCommonSubstringLength(left, right) {
   const a = normalizeBusinessTerm(left);
   const b = normalizeBusinessTerm(right);
@@ -85,8 +84,8 @@ export function scoreIndicator(indicator, question, lexicon = null, prompt = '')
   const text = normalizeBusinessTerm(question);
   const values = indicatorValues(indicator);
   for (const { alias, target } of promptMetricAliases(prompt)) {
-    // Require an exact configured target to avoid treating "不含税..." as
-    // the configured "含税..." metric merely because it contains the text.
+    // Require the exact configured target; a substring may have a conflicting
+    // qualifier and represent a different metric.
     if (text.includes(alias) && values.some((value) => value === target)) {
       values.push(alias);
     }
@@ -118,8 +117,7 @@ export function scoreIndicator(indicator, question, lexicon = null, prompt = '')
         ? (noTaxRequested ? 18 : 5)
         : (noTaxRequested ? 5 : 18);
     }
-    // Fuzzy-match the metric core so common variants such as “销售额” /
-    // “销售金额” still resolve, while preserving the tax preference.
+    // Fuzzy-match the metric core while preserving the tax preference.
     if (coreValue && !text.includes(coreValue)) {
       const overlap = fuzzyTermMatch(text, coreValue);
       if (overlap > 0) {

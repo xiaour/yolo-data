@@ -273,7 +273,11 @@ function enhanceCustomSelects(root = document) {
 
 document.addEventListener('click', () => closeCustomSelects());
 window.addEventListener('resize', () => closeCustomSelects());
-window.addEventListener('scroll', () => closeCustomSelects(), true);
+window.addEventListener('scroll', (event) => {
+  // Scrolling a long option list must not dismiss its own popup.
+  if (event.target instanceof Element && event.target.closest('.ui-select-menu')) return;
+  closeCustomSelects();
+}, true);
 
 function escapeHtml(value) {
   return String(value ?? '')
