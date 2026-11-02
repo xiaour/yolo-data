@@ -77,7 +77,7 @@ jobs:
         env:
           YOLO_PERMISSION_BROWSER_TEST: '1'
           YOLO_PERMISSION_BROWSER_ARTIFACT_DIR: artifacts/permission-browser
-        run: node --test tests/postgresql.permissions.browser.test.js
+        run: node --test tests/customSelect.browser.test.js tests/postgresql.permissions.browser.test.js
       - name: Browser Skill catalog acceptance
         env:
           YOLO_SKILL_BROWSER_TEST: '1'

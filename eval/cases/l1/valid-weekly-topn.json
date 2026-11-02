@@ -43,6 +43,6 @@
     "contract.filterFields.0.field": "business_type_name",
     "contract.limit": 10,
     "contract.gateSummary.blocking": 0,
-    "contract.compilerVersion": "1.0.0"
+    "contract.compilerVersion": "1.1.0"
   }
 }
