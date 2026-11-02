@@ -1,11 +1,9 @@
 import path from 'node:path';
 
-function commandArguments(commandLine, platform) {
+function windowsCommandArguments(commandLine) {
   let remaining = String(commandLine ?? '').trim();
   const args = [];
-  const pattern = platform === 'win32'
-    ? /^(?:"([^"]*)"|([^\s"]+))(?=\s|$)/
-    : /^(?:"([^"]*)"|'([^']*)'|([^\s"']+))(?=\s|$)/;
+  const pattern = /^(?:"([^"]*)"|([^\s"]+))(?=\s|$)/;
   while (remaining) {
     const match = remaining.match(pattern);
     if (!match) return [];
@@ -17,7 +15,10 @@ function commandArguments(commandLine, platform) {
 
 export function isProjectServer(owner, { projectRoot, serverEntry, platform = process.platform }) {
   const paths = platform === 'win32' ? path.win32 : path.posix;
-  const args = commandArguments(owner.commandLine, platform);
+  // ps renders argv as unquoted text, losing boundaries around paths with
+  // spaces. POSIX ownership requires the original OS-provided argument array.
+  const args = platform === 'win32' ? windowsCommandArguments(owner.commandLine)
+    : Array.isArray(owner.argv) && owner.argv.every(arg => typeof arg === 'string') ? [...owner.argv] : [];
   const executable = paths.basename(args.shift() ?? '').toLowerCase();
   const nodeNames = ['node', 'node.exe', 'nodejs'];
   if (!nodeNames.includes(executable)) return false;

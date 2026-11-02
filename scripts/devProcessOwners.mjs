@@ -1,7 +1,28 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import fs from 'node:fs/promises';
 
 const execFileAsync = promisify(execFile);
+
+export function parsePortOwnerOutput(stdout) {
+  const output = stdout.trim().replace(/^\uFEFF/, '');
+  if (!output) return [];
+  return output.startsWith('[') ? JSON.parse(output)
+    : output.split(/\r?\n/).filter(Boolean).map(line => JSON.parse(line));
+}
+
+export async function readProcessArguments(pid, { platform = process.platform, readFile = fs.readFile } = {}) {
+  if (platform !== 'linux' || !/^\d+$/.test(String(pid))) return null;
+  try {
+    const raw = await readFile(`/proc/${pid}/cmdline`, 'utf8');
+    const args = raw.split('\0');
+    if (args.at(-1) === '') args.pop();
+    return args.length ? args : null;
+  } catch {
+    // No reliable argv means no automatic termination of this owner.
+    return null;
+  }
+}
 
 export async function findPortOwners(port) {
   if (process.platform === 'win32') {
@@ -16,9 +37,7 @@ export async function findPortOwners(port) {
     const { stdout } = await execFileAsync('powershell.exe', [
       '-NoProfile', '-NonInteractive', '-Command', script,
     ], { windowsHide: true, maxBuffer: 1024 * 1024 });
-    const output = stdout.trim().replace(/^\uFEFF/, '');
-    if (!output) return [];
-    return (output.startsWith('[') ? JSON.parse(output) : [JSON.parse(output)]);
+    return parsePortOwnerOutput(stdout);
   }
 
   const { stdout } = await execFileAsync('lsof', [
@@ -31,7 +50,7 @@ export async function findPortOwners(port) {
   const owners = [];
   for (const pid of pids) {
     const { stdout: commandLine } = await execFileAsync('ps', ['-p', pid, '-o', 'args=']);
-    owners.push({ pid: Number(pid), commandLine: commandLine.trim() });
+    owners.push({ pid: Number(pid), commandLine: commandLine.trim(), argv: await readProcessArguments(pid) });
   }
   return owners;
 }
