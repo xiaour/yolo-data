@@ -23,6 +23,14 @@ export function configuredPool(service, source) {
     pool = null;
   }
   if (!pool) {
+    // Another process can rename the persisted code without invalidating
+    // this process's old cache key. Scan only on a miss, keeping reuse O(1).
+    for (const [code, cached] of service.pools) {
+      const previous = configurations.get(cached);
+      if (code !== source.code && previous && String(previous[0]) === String(source.id)) {
+        service.closePool(code);
+      }
+    }
     pool = service.createPool(source);
     configurations.set(pool, structuredClone(configuration));
     service.pools.set(source.code, pool);
