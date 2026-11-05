@@ -1,3 +1,5 @@
+import { sanitize, summarize } from './auditPayload.js';
+
 // MCP 审计与错误翻译。审计复用现有 database.addAuditLog（与全站审计同一张表），
 // 字段对齐设计中的 McpAuditEntry（入参脱敏 / 出参摘要 / 耗时）。错误不抛栈、
 // 不暴露表名 / 不泄露内部实现。
@@ -12,38 +14,6 @@ export const MCP_ERROR = {
   EXECUTION_FAILED: -32020,
   INTERNAL: -32603,
 };
-
-function sanitize(value) {
-  if (value == null) return value;
-  if (typeof value === 'string') {
-    return value.length > 200 ? `${value.slice(0, 200)}…` : value;
-  }
-  if (Array.isArray(value)) return value.slice(0, 20).map(sanitize);
-  if (typeof value === 'object') {
-    const out = {};
-    for (const [key, val] of Object.entries(value)) {
-      if (/key|secret|token|password|authorization/i.test(key)) {
-        out[key] = '***';
-        continue;
-      }
-      out[key] = val && typeof val === 'object' ? sanitize(val) : (
-        typeof val === 'string' && val.length > 200 ? `${val.slice(0, 200)}…` : val
-      );
-    }
-    return out;
-  }
-  return value;
-}
-
-function summarize(result) {
-  if (!result || !Array.isArray(result.content)) return undefined;
-  try {
-    const text = result.content.map((c) => c?.text ?? '').join(' ');
-    return text.length > 300 ? `${text.slice(0, 300)}…` : text;
-  } catch {
-    return undefined;
-  }
-}
 
 // 包裹一次工具调用：成功/失败均写审计，异常原样上抛（由上层翻译）。
 export async function auditToolCall(database, meta, fn) {
