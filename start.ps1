@@ -22,15 +22,26 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-$NodeReady = (Test-Path (Join-Path $ProjectRoot 'node_modules'))
+$NodeReady = Test-Path (Join-Path $ProjectRoot 'node_modules')
+if ($NodeReady) {
+    $MissingDeps = (& node -e 'const fs=require("fs");const deps=Object.keys(require("./package.json").dependencies||{});console.log(deps.filter((name)=>!fs.existsSync(`node_modules/${name}`)).join(" "));').Trim()
+    $NodeReady = $LASTEXITCODE -eq 0 -and [string]::IsNullOrWhiteSpace($MissingDeps)
+    if (-not $NodeReady -and $MissingDeps) { Write-Host "检测到缺失的 Node 依赖：$MissingDeps" }
+}
 $VenvPython = Join-Path $ProjectRoot '.venv\Scripts\python.exe'
 $PythonReady = $false
 if (Test-Path $VenvPython) {
     & $VenvPython -c 'import pandas, openpyxl' 2>$null
     $PythonReady = $LASTEXITCODE -eq 0
 }
+$CodexBin = Join-Path $ProjectRoot 'node_modules\.bin\codex.cmd'
+$CodexReady = $false
+if (Test-Path $CodexBin) {
+    & $CodexBin --version *> $null
+    $CodexReady = $LASTEXITCODE -eq 0
+}
 
-if ($NodeReady -and $PythonReady) {
+if ($NodeReady -and $PythonReady -and $CodexReady) {
     Write-Host '项目已初始化，跳过依赖安装。'
 } else {
     Write-Host '首次启动或检测到运行环境未就绪，需要初始化。'

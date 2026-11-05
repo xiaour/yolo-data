@@ -1,5 +1,6 @@
 import { isNumericColumn } from './numericPresentation.js';
 import { buildCacheKey, RuntimeCache } from './runtimeCache.js';
+import { responseOutputText } from './harness.js';
 import { buildThemeColumnRules } from './themePresentationRules.js';
 import {
   buildOnlineTemplateRules,
@@ -385,10 +386,7 @@ export class PresentationPlanner {
         deterministic,
       );
     }
-    const planned = extractJson(
-      response?.choices?.[0]?.message?.content
-      ?? response?.content,
-    );
+    const planned = extractJson(responseOutputText(response));
     if (!planned) {
       return mergeDeterministicFallbacks(
         emptyPresentationContract([{

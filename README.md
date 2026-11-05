@@ -8,6 +8,8 @@ YOLO Data Agent把智能体、指标和业务数据集、权限及分析工作�
 
 平台不会把“模型生成一段 SQL”当作分析结果：查询范围、指标口径和权限由平台配置并在执行时校验；结果、会话和分析产物可以留存，便于继续工作与审计。
 
+YOLO 深度集成开源 Codex Runtime 作为复杂问题的智能体执行底座。简单问数仍走低延迟链路；复杂分析由 YOLO 自动交给 Codex，使用持久会话、任务规划、工具编排、多步执行与异常恢复能力完成，不要求用户登录个人 Codex 账号。平台模型调用统一使用 Responses API。
+
 ## 与通用 Agent 有什么不同
 
 通用 Agent 通常面向开放任务，通过模型临场选择工具和行动；YOLO Data Agent 聚焦企业数据分析，把模型能力放进管理员配置的业务语义、数据范围和执行规则中。模型负责理解问题、组织分析与解释结果，平台负责决定“能查什么、按什么口径查、结果如何执行”。
@@ -78,7 +80,8 @@ flowchart LR
   USER["业务用户 / 管理员"] --> UI["问数与管理界面"]
   UI --> AGENT["智能体与分析流程"]
   ADMIN["主题、模型、数据集、权限配置"] --> AGENT
-  AGENT --> LLM["兼容模型"]
+  AGENT --> CODEX["开源 Codex Runtime"]
+  CODEX --> LLM["Responses API 兼容模型"]
   AGENT --> GATE["口径解析与权限校验"]
   GATE --> DATA["指标服务 / 业务数据源"]
   AGENT --> MEMORY["会话与长期记忆"]
@@ -92,7 +95,7 @@ flowchart LR
 
 部署并完成初始化后，建议按下面顺序配置：
 
-1. **配置模型**：在“模型管理”中添加可用的 OpenAI 兼容模型，并选择平台或主题默认模型。
+1. **配置模型**：在“模型管理”中添加可用的 Responses API 兼容模型，并选择平台或主题默认模型。
 2. **接入数据**：接入指标服务，或在“数据集管理”配置 MySQL、TiDB、Doris、PostgreSQL 数据源并同步字段。
 3. **整理业务语义**：为数据集字段设置业务名称、指标/维度/时间角色及聚合方式；也可以使用“智能识别”生成建议后由管理员确认。
 4. **配置智能体与权限**：按业务主题配置提示词、数据范围、模型、Skills 和用户授权。先用管理员账号验证，再授权给业务用户。
@@ -115,13 +118,14 @@ flowchart LR
 ## 环境要求
 
 - Node.js `>= 22.5`
+- Codex CLI：由 `npm run setup` 自动安装到项目依赖，无需全局安装或个人账号登录
 - 平台配置： MySQL（默认）或SQLite；通过 `PLATFORM_DB_BACKEND` 选择。MySQL 模式还需配置 `PLATFORM_DB_*`相关参数。
 - npm 或 pnpm
 - Python 3.11+： 必须是python3.11以上，用于高级数据处理和文件生成。`npm run setup` 会自动初始化环境
 - 或：Docker + Docker Compose，一条命令启动完整平台，无需本机 Node/Python（见 [Docker 一键部署](#docker-一键部署)）
 - 可选外部服务：
   - Doris 或 MySQL 兼容业务数据库
-  - DeepSeek 或其他 OpenAI 兼容模型服务
+  - DeepSeek 或其他 Responses API 兼容模型服务
 
 ## 快速部署
 
@@ -134,13 +138,23 @@ cd yolo-data
 ```
 Windows PowerShell 运行 `./start.ps1`。启动脚本会引导完成首次初始化，之后再次运行即可启动。
 
+Codex 默认使用本地 Ollama，不需要执行 `codex login`：
+
+```bash
+ollama pull gpt-oss:20b
+ollama serve
+```
+
+也可以通过 `CODEX_PROVIDER=custom`、`CODEX_PROVIDER_BASE_URL`、`CODEX_PROVIDER_API_KEY` 接入企业 Responses 兼容网关。Codex 规划运行时默认开启，YOLO 会自动选择执行路径；临时关闭可设置 `CODEX_RUNTIME_ENABLED=false`。
+如果本地模型服务或指定模型未就绪，YOLO 会将 Codex 标记为不可用并自动保留原有快速问数链路。
+
 ### 方式二：Docker Compose
 
 ```bash
 docker compose up -d --build
 ```
 
-服务启动后访问 [http://localhost:8088/](http://localhost:8088/)。按需在 `yolo-conf.yaml` 中配置模型和数据源；首次登录后请修改默认口令。详细配置见下方配置说明。
+Docker 部署需让容器能够访问 Ollama，或配置 Responses 兼容网关。服务启动后访问 [http://localhost:8088/](http://localhost:8088/)，按需在 `yolo-conf.yaml` 中配置模型和数据源；首次登录后请修改默认口令。
 
 本机账号、密码和 API Key 建议放在 `.env`（从 `.env.example` 复制），不要提交；优先级为进程环境变量 > `.env` > `yolo-conf.yaml`。
 
@@ -153,9 +167,9 @@ PostgreSQL 数据源接入方式见 [PostgreSQL 接入文档](docs/postgresql.md
 
 根目录的 `yolo-conf.yaml` 是配置文件，字段说明见文件内注释。
 
-### OpenAI 兼容模型（推荐 DeepSeek）
+### Responses API 兼容模型
 
-- 智能体可以选择一个或多个模型，并指定默认模型。
+- 智能体可以选择一个或多个模型，并指定默认模型。模型服务必须提供 `/responses` 接口；平台不再调用 Completions 或 Chat Completions API。
 
 ### 业务数据集
 支持 MySQL、Doris、PostgreSQL以及TiDB数据源（需安装可选驱动 `pg`，参见 [PostgreSQL 接入](docs/postgresql.md)）。查询由平台根据字段语义编译，模型不会直接提交原始 SQL。

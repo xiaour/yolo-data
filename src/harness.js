@@ -1,6 +1,13 @@
 import crypto from 'node:crypto';
 
 import { getPlatformLexicon, lexiconPattern } from './businessLexicon.js';
+import {
+  normalizeResponsesInput,
+  normalizeResponsesTools,
+  responseFunctionCalls,
+  responseOutputText,
+} from './responsesApi.js';
+export { responseOutputText } from './responsesApi.js';
 
 function parseToolArguments(value) {
   if (!value) {
@@ -137,7 +144,7 @@ function selectBusinessDataset(question, datasets) {
   return ranked[0].dataset;
 }
 
-export class OpenAICompatibleDeepSeekHarness {
+export class ResponsesApiHarness {
   constructor({
     baseUrl,
     apiKey,
@@ -164,7 +171,7 @@ export class OpenAICompatibleDeepSeekHarness {
     this.rateLimitMs = Math.max(0, Number(rateLimitMs) || 0);
     this.rateLimitTail = Promise.resolve();
     this.lastRequestAt = 0;
-    this.mode = 'deepseek';
+    this.mode = 'responses';
     this.capabilities = {
       toolCalling: true,
       multiTurn: true,
@@ -192,36 +199,37 @@ export class OpenAICompatibleDeepSeekHarness {
         toolCount: tools?.length ?? 0,
       });
       const response = await this.chat(conversation, tools, metadata);
-      const choice = response?.choices?.[0]?.message;
-      if (!choice) {
-        throw new Error('DeepSeek returned an empty response');
+      const content = responseOutputText(response);
+      const toolCalls = responseFunctionCalls(response);
+      if (!content && toolCalls.length === 0) {
+        throw new Error('模型服务返回了空的 Responses API 结果');
       }
       onEvent?.({
         type: 'llm_response',
         round: round + 1,
         provider: this.provider,
         model: this.model,
-        content: truncate(choice.content, 500),
-        toolCalls: (choice.tool_calls ?? []).map((toolCall) => ({
-          name: toolCall.function?.name,
-          args: parseToolArguments(toolCall.function?.arguments),
+        content: truncate(content, 500),
+        toolCalls: toolCalls.map((toolCall) => ({
+          name: toolCall.name,
+          args: parseToolArguments(toolCall.arguments),
         })),
         usage: response.usage ?? null,
       });
-      conversation.push(choice);
-
-      const toolCalls = choice.tool_calls ?? [];
+      conversation.push(...(response.output ?? (
+        content ? [{ role: 'assistant', content }] : []
+      )));
       if (toolCalls.length === 0) {
         return {
-          content: choice.content ?? '',
+          content,
           trace,
           usage: response.usage ?? null,
         };
       }
 
       for (const toolCall of toolCalls) {
-        const name = toolCall.function?.name;
-        const args = parseToolArguments(toolCall.function?.arguments);
+        const name = toolCall.name;
+        const args = parseToolArguments(toolCall.arguments);
         trace.push({ type: 'tool_call', name, args });
         try {
           const result = await executeTool(name, args);
@@ -239,9 +247,9 @@ export class OpenAICompatibleDeepSeekHarness {
             };
           }
           conversation.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify(result),
+            type: 'function_call_output',
+            call_id: toolCall.call_id ?? toolCall.id,
+            output: JSON.stringify(result),
           });
         } catch (error) {
           const result = { error: error.message };
@@ -255,9 +263,9 @@ export class OpenAICompatibleDeepSeekHarness {
             };
           }
           conversation.push({
-            role: 'tool',
-            tool_call_id: toolCall.id,
-            content: JSON.stringify(result),
+            type: 'function_call_output',
+            call_id: toolCall.call_id ?? toolCall.id,
+            output: JSON.stringify(result),
           });
         }
       }
@@ -293,7 +301,8 @@ export class OpenAICompatibleDeepSeekHarness {
       ? AbortSignal.any([timeoutController.signal, metadata.signal])
       : timeoutController.signal;
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+      const normalizedTools = normalizeResponsesTools(tools);
+      const response = await this.fetchImpl(`${this.baseUrl}/responses`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -301,11 +310,16 @@ export class OpenAICompatibleDeepSeekHarness {
         },
         body: JSON.stringify({
           model: this.model,
-          messages,
-          tools,
-          tool_choice: 'auto',
+          input: normalizeResponsesInput(messages),
+          ...(normalizedTools.length > 0 ? {
+            tools: normalizedTools,
+            tool_choice: 'auto',
+          } : {}),
           temperature: this.temperature,
-          ...(Number(this.maxTokens) > 0 ? { max_tokens: Number(this.maxTokens) } : {}),
+          store: false,
+          ...(Number(this.maxTokens) > 0
+            ? { max_output_tokens: Number(this.maxTokens) }
+            : {}),
         }),
         signal,
       });
@@ -333,9 +347,7 @@ export class OpenAICompatibleDeepSeekHarness {
         provider: this.provider,
         model: this.model,
         messages,
-        response: payload?.choices?.[0]?.message?.content
-          ?? payload?.choices?.[0]?.message?.tool_calls
-          ?? '',
+        response: responseOutputText(payload) || responseFunctionCalls(payload),
         tokenUsage: payload?.usage ?? {},
         latencyMs: Date.now() - startedAt,
         success: true,
@@ -780,7 +792,7 @@ function extractDateRange(question) {
 
 export function createHarness(deepseekConfig) {
   if (deepseekConfig.apiKey) {
-    return new OpenAICompatibleDeepSeekHarness(deepseekConfig);
+    return new ResponsesApiHarness(deepseekConfig);
   }
   return new RuleBasedHarness();
 }
@@ -847,7 +859,7 @@ export class HarnessFactory {
         .slice(0, 16),
     });
     if (!this.cache.has(cacheKey)) {
-      this.cache.set(cacheKey, new OpenAICompatibleDeepSeekHarness({
+      this.cache.set(cacheKey, new ResponsesApiHarness({
         ...merged,
         fetchImpl: this.fetchImpl,
         onCall: this.onCall,

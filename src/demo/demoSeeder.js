@@ -153,9 +153,9 @@ export async function seedDemoSales({
       status: 1,
     });
   } else {
-    await database.saveBusinessDatasetAsync({ ...dataset, status: 1, config }, dataset.id);
-    await businessDatasets.syncDatasetFields(dataset.id);
-    dataset = await businessDatasets.getDatasetAsync(dataset.id);
+    // Bootstrap is create-only: an administrator may have changed the dataset,
+    // field semantics or status after the first start. Reuse it verbatim.
+    dataset = await businessDatasets.getDatasetAsync(dataset.id) ?? dataset;
   }
   return { ok: true, dataset, inserted, rowCount };
 }

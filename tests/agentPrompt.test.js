@@ -77,3 +77,29 @@ test('dataset semantic confirmation does not block unfiltered metric aggregation
   assert.match(prompt, /“上个月\/上月”表示上一完整自然月/);
   assert.match(prompt, /本地指标已确认后，若所选数据集存在同名\/同义的 METRIC 字段/);
 });
+
+test('analysis report prompt requires code execution after the evidence snapshot', () => {
+  const prompt = buildSystemPrompt({
+    user: { displayName: 'Tester', username: 'tester' },
+    theme: {
+      name: 'Test theme', systemPrompt: '', description: '', examples: [], semanticPolicy: {},
+    },
+    scope: { rowPolicies: [] },
+    indicators: [],
+    skills: [],
+    analysisMode: { mode: 'METRIC_QUERY' },
+    analysisRequest: {
+      taskKind: 'ANALYSIS',
+      purposes: ['COMPARE', 'DIAGNOSE', 'OPPORTUNITY'],
+      requiresReport: true,
+      stages: ['VALIDATE_SCOPE', 'LOCK_EVIDENCE', 'PERIOD_COMPARISON', 'REPORT'],
+    },
+    clarificationPolicy: { allowed: true },
+    taskState: null,
+    question: '与去年同期对比，哪些客户下降比较多？有什么机会点',
+  });
+  assert.match(prompt, /本轮任务类型：ANALYSIS/);
+  assert.match(prompt, /查询只负责形成可复现的证据快照，不是本轮终点/);
+  assert.match(prompt, /execute_analysis_code/);
+  assert.match(prompt, /HYPOTHESIS/);
+});

@@ -1,4 +1,4 @@
-import { OpenAICompatibleDeepSeekHarness } from '../../harness.js';
+import { ResponsesApiHarness, responseOutputText } from '../../harness.js';
 
 export function registerModelRoutes(table) {
   table.add({
@@ -77,14 +77,20 @@ export function registerModelRoutes(table) {
       }
 
       const startedAt = Date.now();
-      const harness = new OpenAICompatibleDeepSeekHarness(config);
-      const result = await harness.chat([
-        { role: 'user', content: 'Reply with OK.' },
-      ]);
+      const harness = new ResponsesApiHarness(config);
+      let result;
+      try {
+        result = await harness.chat([
+          { role: 'user', content: 'Reply with OK.' },
+        ]);
+      } catch (error) {
+        error.statusCode = 400;
+        throw error;
+      }
       sendJson(response, 200, {
         success: true,
         latencyMs: Date.now() - startedAt,
-        message: String(result?.choices?.[0]?.message?.content ?? '').trim().slice(0, 120),
+        message: responseOutputText(result).trim().slice(0, 120),
       });
     },
   });

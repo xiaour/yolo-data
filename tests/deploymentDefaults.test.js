@@ -18,6 +18,25 @@ test('compose defaults to session auth on the loopback interface', () => {
   assert.match(compose, /AUTH_MODE:\s*\$\{AUTH_MODE:-session\}/);
   assert.match(compose, /HOST_BIND:-127\.0\.0\.1/);
   assert.doesNotMatch(compose, /AUTH_MODE:\s*dev/);
+  assert.match(compose, /CODEX_RUNTIME_ENABLED:\s*\$\{CODEX_RUNTIME_ENABLED:-true\}/);
+  assert.match(compose, /CODEX_PROVIDER:\s*\$\{CODEX_PROVIDER:-ollama\}/);
+});
+
+test('Codex runtime is enabled by default and can be explicitly disabled', () => {
+  const enabled = loadConfig({});
+  const disabled = loadConfig({ CODEX_RUNTIME_ENABLED: 'false' });
+  assert.equal(enabled.agentRuntime.codex.enabled, true);
+  assert.equal(disabled.agentRuntime.codex.enabled, false);
+  assert.equal(enabled.agentRuntime.codex.provider, 'ollama');
+  assert.equal(enabled.agentRuntime.codex.model, 'gpt-oss:20b');
+  assert.match(enabled.agentRuntime.codex.command, /node_modules[\\/]\.bin[\\/]codex(?:\.cmd)?$/);
+});
+
+test('Docker image installs and verifies the project-local Codex CLI', () => {
+  const dockerfile = fs.readFileSync(new URL('../Dockerfile', import.meta.url), 'utf8');
+  const packageJson = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(typeof packageJson.dependencies['@openai/codex'], 'string');
+  assert.match(dockerfile, /node_modules\/\.bin\/codex --version/);
 });
 
 test('Docker persisted-state probe reads and closes a real SQLite database', t => {

@@ -36,7 +36,7 @@ export class SkillRepository {
     return skills.find((skill) => skill.code === String(code)) ?? null;
   }
 
-  async syncExternalSkills(skills = []) {
+  async syncExternalSkills(skills = [], { createOnly = false } = {}) {
     const timestamp = nowIso();
     const normalized = (skills ?? []).map((skill) => ({
       code: String(skill.code ?? '').trim(),
@@ -52,6 +52,21 @@ export class SkillRepository {
       kind: String(skill.kind ?? 'INSTRUCTION').trim().toUpperCase(),
       toolName: skill.toolName ? String(skill.toolName).trim() : null,
     })).filter((skill) => skill.code && skill.name);
+    const insertOnlySql = this.asyncStore.backend === 'mysql' ? `
+        INSERT IGNORE INTO skills
+          (code, name, description, category, kind, tool_name, instruction,
+           default_enabled, status, source, source_path, metadata_json,
+           phase_tags_json, content, content_hash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1,
+                'SKILL_MD', ?, ?, ?, ?, ?, ?, ?)
+      ` : `
+        INSERT OR IGNORE INTO skills
+          (code, name, description, category, kind, tool_name, instruction,
+           default_enabled, status, source, source_path, metadata_json,
+           phase_tags_json, content, content_hash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1,
+                'SKILL_MD', ?, ?, ?, ?, ?, ?, ?)
+      `;
     const upsertSql = this.asyncStore.backend === 'mysql' ? `
         INSERT INTO skills
           (code, name, description, category, kind, tool_name, instruction,
@@ -91,9 +106,10 @@ export class SkillRepository {
         WHERE skills.source = 'SKILL_MD'
       `;
 
+    let inserted = 0;
     await this.asyncStore.transaction(async (tx) => {
       for (const skill of normalized) {
-        await tx.execute(upsertSql, [
+        const result = await tx.execute(createOnly ? insertOnlySql : upsertSql, [
           skill.code,
           skill.name,
           skill.description,
@@ -109,7 +125,9 @@ export class SkillRepository {
           timestamp,
           timestamp,
         ]);
+        inserted += Number(result?.affectedRows ?? result?.changes ?? 0);
       }
+      if (createOnly) return;
       const codes = normalized.map((skill) => skill.code);
       if (codes.length === 0) {
         await tx.execute("DELETE FROM skills WHERE source = 'SKILL_MD'");
@@ -121,7 +139,7 @@ export class SkillRepository {
         `, codes);
       }
     });
-    return normalized.length;
+    return createOnly ? inserted : normalized.length;
   }
 }
 

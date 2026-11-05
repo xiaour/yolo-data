@@ -169,6 +169,9 @@ export async function startServer(configOverride) {
       }
     });
   });
+  server.once('close', () => {
+    application.codexHarness?.close?.();
+  });
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);

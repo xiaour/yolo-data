@@ -8,6 +8,8 @@ YOLO Data is a self-service analytics platform for business teams. Users can ask
 
 It brings language models, metric definitions, business datasets, data permissions, conversation memory, workspace artifacts, feedback, and audit records into a governed analytics workflow.
 
+YOLO deeply integrates the open-source Codex Runtime as the execution foundation for complex questions. Low-latency queries keep the fast path, while YOLO automatically routes complex analysis to Codex for persistent threads, task planning, tool orchestration, multi-step execution, and recovery. This embedded runtime does not require a personal Codex login. Model calls use the Responses API throughout.
+
 ## How It Differs from a General-Purpose Agent
 
 General-purpose agents are designed for open-ended tasks and may choose among tools dynamically. YOLO Data focuses on governed business-data analysis: the model interprets and explains, while the platform controls the available semantics, data scope, query validation, and execution.
@@ -109,7 +111,8 @@ flowchart LR
   AGENT --> MEMORY
   AGENT --> CONTRACT["Contract compilation and deterministic gates"]
   AGENT --> SKILL["Skills"]
-  AGENT --> HARNESS["OpenAI-compatible model harness"]
+  AGENT --> CODEX["Open-source Codex Runtime"]
+  AGENT --> HARNESS["Responses API model harness"]
   CONTRACT --> SOURCES["Metric system / business datasets"]
   AGENT --> OUTPUT["Workspace, charts, and analysis results"]
   AGENT --> REFLECT["Answer reflection"]
@@ -118,7 +121,8 @@ flowchart LR
   AGENT --> SANDBOX["Code analysis sandbox"]
   AGENT --> EVAL["Evaluation and regression"]
 
-  HARNESS --> LLM["DeepSeek or compatible LLM"]
+  CODEX --> LLM["Responses-compatible LLM"]
+  HARNESS --> LLM
   SOURCES --> PLATFORM["Data source schemas"]
   API --> DB["Platform database"]
   AGENT --> DB
@@ -128,10 +132,11 @@ flowchart LR
 ## Requirements
 
 - Node.js `>= 22.5` (`node:sqlite` is used, so no separate platform database is required for a single-node setup)
+- Codex CLI is installed as a project dependency by `npm run setup`; no global install or personal Codex login is required
 - npm or pnpm
 - Python 3 for advanced analysis and file generation. `npm run setup` creates `.venv` and installs `pandas` + `openpyxl`
 - Alternatively: Docker and Docker Compose for a complete environment without local Node.js or Python
-- Optional external services: a metric platform, Doris/MySQL-compatible business database, and DeepSeek or another OpenAI-compatible model service
+- Optional external services: a metric platform, Doris/MySQL-compatible business database, and a Responses API-compatible model service
 
 ## Quick Start
 
@@ -145,13 +150,23 @@ cd yolo-data
 
 On Windows PowerShell, run `./start.ps1`. The launcher guides first-time setup; run it again to start the app.
 
+Codex uses a local Ollama provider by default and does not require `codex login`:
+
+```bash
+ollama pull gpt-oss:20b
+ollama serve
+```
+
+For an enterprise gateway, set `CODEX_PROVIDER=custom`, `CODEX_PROVIDER_BASE_URL`, and `CODEX_PROVIDER_API_KEY`; the gateway must support the Responses API. The runtime is enabled by default, and YOLO selects the execution path automatically. Set `CODEX_RUNTIME_ENABLED=false` to disable it temporarily.
+If the configured local provider or model is unavailable, YOLO marks Codex unavailable and keeps the existing fast query path active.
+
 ### Option 2: Docker Compose
 
 ```bash
 docker compose up -d --build
 ```
 
-Open [http://localhost:8088/](http://localhost:8088/) after startup. Configure model and data-source settings in `yolo-conf.yaml` as needed; change the default password after your first login. See Configuration below for details.
+The container must be able to reach Ollama or a configured Responses-compatible gateway. Open [http://localhost:8088/](http://localhost:8088/) after startup. Configure model and data-source settings in `yolo-conf.yaml` as needed; change the default password after your first login.
 
 Keep machine-local passwords and API keys in `.env` (copy `.env.example`); do not commit it. Precedence is process environment > `.env` > `yolo-conf.yaml`.
 
@@ -169,9 +184,9 @@ Administrators manage the platform. Analysts can access and query only the DataA
 
 The root `yolo-conf.yaml` is the configuration file; its bilingual comments describe available settings. Non-empty environment variables override YAML, and built-in defaults are used otherwise. `.env` files are not loaded; provide secrets through environment variables. Set `YOLO_CONF_FILE` to use another configuration file.
 
-### OpenAI-compatible models
+### Responses API-compatible models
 
-A DataAgent may use one or more models and select a default model. DeepSeek is recommended but not required.
+A DataAgent may use one or more models and select a default model. The model service must expose `/responses`; Completions and Chat Completions are no longer called.
 
 ### Business datasets
 

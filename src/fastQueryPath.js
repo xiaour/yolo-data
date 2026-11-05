@@ -22,8 +22,19 @@ function promptMetricSynonyms(prompt) {
   return mappings;
 }
 
-function promptDefaultsToTaxIncluded(prompt) {
-  return /(?:未指定|未说明|未明确)[^\n。；;]{0,16}(?:默认|按)[^\n。；;]{0,8}含税|含税[^\n。；;]{0,8}(?:默认口径|默认)/.test(String(prompt ?? ''));
+function escapePattern(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function promptDefaultsToIncludedPrefix(prompt, prefixes) {
+  const source = String(prompt ?? '');
+  return (prefixes ?? []).some((prefix) => {
+    const term = escapePattern(prefix);
+    return new RegExp(
+      `(?:未指定|未说明|未明确)[^\\n。；;]{0,16}(?:默认|按)[^\\n。；;]{0,8}${term}`
+      + `|${term}[^\\n。；;]{0,8}(?:默认口径|默认)`,
+    ).test(source);
+  });
 }
 
 function metricFieldName(field) {
@@ -64,6 +75,10 @@ function matchPromptMetric(question, theme, datasetFields) {
   const taxPrefixes = (lexicon.taxPrefixes?.all ?? [])
     .map(normalizeTerm)
     .sort((left, right) => right.length - left.length);
+  const excludedPrefixes = new Set(
+    (lexicon.taxPrefixes?.excluded ?? []).map(normalizeTerm),
+  );
+  const includedPrefixes = taxPrefixes.filter((prefix) => !excludedPrefixes.has(prefix));
   const matched = metricFields.flatMap((field) => {
     const name = metricFieldName(field);
     const prefix = taxPrefixes.find((item) => name.startsWith(item)) ?? '';
@@ -72,9 +87,8 @@ function matchPromptMetric(question, theme, datasetFields) {
     return [{ field, core, prefix }];
   });
   if (matched.length === 1) return { field: matched[0].field, sourceText: matched[0].core };
-  if (matched.length > 1 && promptDefaultsToTaxIncluded(prompt)) {
-    const includedPrefix = taxPrefixes.find((item) => item === '含税');
-    const included = matched.filter((item) => item.prefix === includedPrefix);
+  if (matched.length > 1 && promptDefaultsToIncludedPrefix(prompt, includedPrefixes)) {
+    const included = matched.filter((item) => includedPrefixes.includes(item.prefix));
     const uniqueCores = new Set(included.map((item) => item.core));
     if (included.length === 1 && uniqueCores.size === 1) {
       return { field: included[0].field, sourceText: included[0].core };

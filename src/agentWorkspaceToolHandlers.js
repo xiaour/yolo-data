@@ -13,6 +13,8 @@ export function createAgentWorkspaceToolHandlers({
   generatedWorkspaceArtifactIds,
   emit,
   validateAnalysisOutputsAsync,
+  onAnalysisValidated = null,
+  requireAnalysisReport = false,
 }) {
   return {
     async listWorkspaceArtifacts() {
@@ -92,7 +94,15 @@ export function createAgentWorkspaceToolHandlers({
         generatedWorkspaceArtifactIds.push(output.artifactId);
         emit({ type: 'workspace_updated', workspaceId: workspace.id, artifactId: output.artifactId });
       }
-      const analysis = await validateAnalysisOutputsAsync({ workspace, outputs: result.outputs });
+      const analysis = await validateAnalysisOutputsAsync({
+        workspace: workspaceService,
+        outputs: result.outputs,
+        userId: user.id,
+        requireReport: requireAnalysisReport,
+      });
+      if (analysis?.valid) {
+        onAnalysisValidated?.(analysis);
+      }
       if (analysis && !analysis.valid) {
         emit({
           type: 'warning',

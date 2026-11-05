@@ -1,27 +1,11 @@
-// 分析结果契约（Analysis Result Contract）
-//
-// 设计立场：**平台不实现任何分析方法**。
-// 归因、趋势、结构、量价拆解……这些分析方法由大模型生成 Python 代码，
-// 在沙箱里作用于已锁定的结果快照来完成。平台只负责三件事：
-//
-//   1. 约定代码产物的形状（本文件的契约），让结果可被机器消费；
-//   2. 对产物做确定性校验——尤其是模型"自报的断言（claims）"是否在数学上成立；
-//   3. 校验不通过时给出可执行的修正意见，让模型改代码重跑，而不是平台替它猜一个答案。
-//
-// 因此这里不出现任何业务词，也不出现"归因 / 贡献 / 拉动"等方法的实现。
-// 平台对 kind 字段不做语义解释，kind 只是给展示层与审计用的自报标签。
-//
-// 与既有架构的关系：
-//   - 契约产物由 execute_analysis_code 生成，落在沙箱 output/analysis.json；
-//   - 校验发生在 RESULT_VALIDATION 阶段（模型提议，平台裁决）；
-//   - 校验结果进入工作流证据与审计，可复现、可复检。
+import { ANALYSIS_REPORT_PROMPT_RULES, analysisReportPromptShape,
+  normalizeAnalysisReport, summarizeAnalysisReport,
+  validateAnalysisReport } from './analysisReportContract.js';
+// 沙箱分析的通用数值契约。报告字段与证据校验位于 analysisReportContract.js。
+export const ANALYSIS_CONTRACT_VERSION = 2;
 
-export const ANALYSIS_CONTRACT_VERSION = 1;
-
-// 沙箱内约定的结果文件名：生成代码必须把契约 JSON 写到 output/analysis.json。
 export const ANALYSIS_RESULT_FILE = 'analysis.json';
 
-// 数值比较容差：1e-6 足以吸收浮点误差，又不会放过"差了一个量级"的错误。
 export const ANALYSIS_TOLERANCE = 1e-6;
 
 export const MAX_ANALYSIS_ROWS = 200;
@@ -82,8 +66,11 @@ export function normalizeAnalysisResult(payload) {
         base: toNumber(item.base),
         current: toNumber(item.current),
         delta: toNumber(item.delta),
+        changeRate: toNumber(item.changeRate),
         contribution: toNumber(item.contribution),
         share: toNumber(item.share),
+        rank: toNumber(item.rank),
+        segment: toText(item.segment, 60) || null,
         direction: toText(item.direction, 24) || null,
         note: toText(item.note, 400),
       };
@@ -121,6 +108,7 @@ export function normalizeAnalysisResult(payload) {
         }
         : { code: toText(claim, 40).toUpperCase(), row: null, total: null, scale: 1 }))
       .filter((claim) => claim.code),
+    ...normalizeAnalysisReport(source),
     notes: (Array.isArray(source.notes) ? source.notes : []).map((note) => toText(note, 400)).filter(Boolean),
   };
 }
@@ -182,7 +170,9 @@ function checkClaim(result, claim, tolerance) {
 
 // 确定性校验。返回 { valid, issues, claims, normalized }。
 // valid=false 表示必须修正后重跑；warning 不阻断，但会进入证据。
-const NUMERIC_ROW_FIELDS = ['base', 'current', 'delta', 'contribution', 'share'];
+const NUMERIC_ROW_FIELDS = [
+  'base', 'current', 'delta', 'changeRate', 'contribution', 'share', 'rank',
+];
 
 // 扫描原始输入里的非有限数值（Infinity / NaN / 1e999 等）。
 // 归一化会把它们收敛成 null，因此必须在归一化之前检查，否则这条规则永远不触发。
@@ -207,7 +197,10 @@ function hasNonFiniteNumbers(payload) {
   });
 }
 
-export function validateAnalysisResult(payload, { tolerance = ANALYSIS_TOLERANCE } = {}) {
+export function validateAnalysisResult(payload, {
+  tolerance = ANALYSIS_TOLERANCE,
+  requireReport = false,
+} = {}) {
   const result = normalizeAnalysisResult(payload);
   const issues = [];
 
@@ -240,6 +233,7 @@ export function validateAnalysisResult(payload, { tolerance = ANALYSIS_TOLERANCE
       claimResults.push({ code: claim.code, verified: true, issue: null });
     }
   }
+  issues.push(...validateAnalysisReport(result, { requireReport }));
 
   const errors = issues.filter((item) => item.level === 'error');
   return {
@@ -264,7 +258,9 @@ export function buildAnalysisContractPrompt() {
       rows: [
         {
           key: '分组键', label: '分组显示名', base: 0, current: 0,
-          delta: 0, contribution: 0, share: 0, direction: 'INCREASE|DECREASE|FLAT', note: '',
+          delta: 0, changeRate: 0, contribution: 0, share: 0, rank: 1,
+          segment: 'NEW|LOST|GROWING|DECLINING|OFFSET|STABLE',
+          direction: 'INCREASE|DECREASE|FLAT', note: '',
         },
       ],
       claims: [
@@ -272,6 +268,7 @@ export function buildAnalysisContractPrompt() {
         { code: 'SHARE_SUM', scale: 1 },
         { code: 'DELTA_CONSISTENT' },
       ],
+      ...analysisReportPromptShape(),
       notes: ['可选：口径说明、假设与局限'],
     }, null, 2),
     '规则：',
@@ -280,6 +277,7 @@ export function buildAnalysisContractPrompt() {
     '- 声明了 SHARE_SUM 就必须让各行 share 之和等于 scale。',
     '- 声明了 DELTA_CONSISTENT 就必须让每行 delta 等于 current - base。',
     '- 任何 NaN / Infinity、任何无法用现有数据支撑的结论，都会导致本轮结果被拒绝并要求重写代码。',
+    ...ANALYSIS_REPORT_PROMPT_RULES,
     `- 行数上限 ${MAX_ANALYSIS_ROWS}。`,
   ].join('\n');
 }
@@ -306,3 +304,5 @@ export function summarizeAnalysisResult(result, { topN = 5 } = {}) {
   }
   return lines.join('\n');
 }
+
+export { summarizeAnalysisReport };

@@ -1,5 +1,6 @@
 import { loadConfig } from './config.js';
 import { resolveAuthMode, seedDefaultPasswordsAsync } from './auth.js';
+import fs from 'node:fs';
 import path from 'node:path';
 import { createPlatformDatabase, initializePlatformDatabase } from './platformDatabase.js';
 import { LocalIndicatorRepository } from './localIndicatorRepository.js';
@@ -27,6 +28,8 @@ import { CodeExecutionService } from './codeExecution.js';
 import { UploadService } from './uploads.js';
 import { assertGateCoverage } from './gateRegistry.js';
 import { STAGE_DEFINITIONS } from './workflow.js';
+import { CodexAppServerHarness } from './codexHarness.js';
+import { ComputeModeRouter } from './computeMode.js';
 
 export async function ensurePlatformMysqlDatasource({ backend, mysql = {}, businessDatasets }) {
   if (String(backend ?? '').toLowerCase() !== 'mysql'
@@ -52,14 +55,16 @@ async function seedConfiguredModel(database, modelConfig) {
   if (!String(modelConfig?.apiKey ?? '').trim() || !String(modelConfig?.model ?? '').trim()) return;
   const isAsync = database.isAsyncPlatformStore === true;
   const models = isAsync ? await database.listModelsAsync() : database.listModels();
-  const configured = models.find((model) => (
-    model.modelName === modelConfig.model
-    && model.baseUrl === modelConfig.baseUrl
-    && model.apiKeyEnv === 'API_KEY'
-  ));
+  const configuredName = `${modelConfig.model} (yolo-conf)`;
+  const configured = models.find((model) => model.name === configuredName)
+    ?? models.find((model) => (
+      model.modelName === modelConfig.model
+      && model.baseUrl === modelConfig.baseUrl
+      && model.apiKeyEnv === 'API_KEY'
+    ));
   const model = configured ?? (isAsync
     ? await database.modelRepository.saveModelAsync({
-      name: `${modelConfig.model} (yolo-conf)`,
+      name: configuredName,
       provider: 'openai-compatible',
       modelName: modelConfig.model,
       baseUrl: modelConfig.baseUrl,
@@ -72,7 +77,7 @@ async function seedConfiguredModel(database, modelConfig) {
       status: 1,
     })
     : database.saveModel({
-      name: `${modelConfig.model} (yolo-conf)`,
+      name: configuredName,
       provider: 'openai-compatible',
       modelName: modelConfig.model,
       baseUrl: modelConfig.baseUrl,
@@ -86,9 +91,13 @@ async function seedConfiguredModel(database, modelConfig) {
     }));
   if (!model) return;
 
+  const createdThemeIds = new Set(
+    (database.bootstrapState?.createdThemeIds ?? []).map(Number),
+  );
+  if (createdThemeIds.size === 0) return;
   const themes = isAsync ? await database.listThemesAsync() : database.listThemes();
   for (const theme of themes) {
-    if ((theme.modelIds ?? []).length > 0) continue;
+    if (!createdThemeIds.has(Number(theme.id)) || (theme.modelIds ?? []).length > 0) continue;
     const payload = { ...theme, modelIds: [model.id], defaultModelId: model.id };
     if (isAsync) await database.saveThemeAsync(payload, theme.id);
     else database.saveTheme(payload, theme.id);
@@ -147,14 +156,16 @@ export async function createApplication(config = loadConfig()) {
   const storedLexicon = database.isAsyncPlatformStore
     ? (await database.getPlatformSettingAsync('business.lexicon', null))?.value ?? null
     : database.getPlatformSetting('business.lexicon', null)?.value ?? null;
-  if (!storedLexicon) {
+  let activeLexicon = storedLexicon;
+  if (!activeLexicon) {
+    activeLexicon = getPlatformLexicon();
     if (database.isAsyncPlatformStore) {
-      await database.savePlatformSettingAsync('business.lexicon', getPlatformLexicon());
+      await database.savePlatformSettingAsync('business.lexicon', activeLexicon);
     } else {
-      database.savePlatformSetting('business.lexicon', getPlatformLexicon());
+      database.savePlatformSetting('business.lexicon', activeLexicon);
     }
   }
-  configureBusinessLexicon(storedLexicon);
+  configureBusinessLexicon(activeLexicon);
   const harness = createHarness(config.deepseek);
   const llmAudit = new LlmAuditService(database);
   const tokenBudget = new TokenBudgetService(database);
@@ -189,6 +200,16 @@ export async function createApplication(config = loadConfig()) {
     (entry) => llmAudit.record(entry),
     datasourceCrypto,
   );
+  const codexConfig = config.agentRuntime?.codex ?? {};
+  if (codexConfig.enabled) {
+    fs.mkdirSync(codexConfig.workingDirectory, { recursive: true });
+  }
+  const codexHarness = new CodexAppServerHarness(codexConfig);
+  await codexHarness.initialize();
+  const computeModeRouter = new ComputeModeRouter({
+    codexHarness,
+    defaultMode: config.agentRuntime?.defaultMode,
+  });
   const userMemories = new UserMemoryStore(database);
   const memory = new SessionMemoryStore(database, {
     contextLimit: config.chatMemoryMessageLimit,
@@ -224,6 +245,7 @@ export async function createApplication(config = loadConfig()) {
     tokenBudget,
     config,
     indicatorService,
+    computeModeRouter,
   });
   // 长期记忆沉淀依赖主题可用模型：有 key 时用模型提炼并压缩，否则只沉淀用户显式要求记住的内容。
   const userMemoryConfig = config.userMemory ?? {};
@@ -273,34 +295,19 @@ export async function createApplication(config = loadConfig()) {
   async function init() {
     assertGateCoverage(STAGE_DEFINITIONS.map((stage) => stage.code));
     try {
-      runtime.skillSync = await skillRegistry.refreshExternalSkills();
+      runtime.skillSync = await skillRegistry.refreshExternalSkills({ createOnly: true });
     } catch (error) {
       runtime.skillSync = {
         error: error.message,
         configuredRoots: config.skillDirectories ?? [],
       };
     }
-    for (const theme of await listThemesAsync()) {
-      const llmConfig = theme.llmConfig ?? {};
-      if (Number(llmConfig.deterministicDefaultsVersion) >= 3) {
-        continue;
-      }
-      await saveThemeAsync({
-        ...theme,
-        llmConfig: {
-          ...llmConfig,
-          temperature: llmConfig.temperature === undefined
-            || Number(llmConfig.temperature) === 0.1
-            ? 0
-            : Number(llmConfig.temperature),
-          maxToolRounds: llmConfig.maxToolRounds === undefined
-            || [4, 6, 8].includes(Number(llmConfig.maxToolRounds))
-            ? 12
-            : Number(llmConfig.maxToolRounds),
-          deterministicDefaultsVersion: 3,
-        },
-      }, theme.id);
-    }
+    const createdThemeIds = new Set(
+      (database.bootstrapState?.createdThemeIds ?? []).map(Number),
+    );
+    const createdUserIds = new Set(
+      (database.bootstrapState?.createdUserIds ?? []).map(Number),
+    );
     runtime.sourceMode = 'local';
     runtime.sourceError = null;
     try {
@@ -310,6 +317,7 @@ export async function createApplication(config = loadConfig()) {
       if (bootstrapped?.length) {
         const bootstrappedIds = bootstrapped.map((dataset) => dataset.id);
         for (const theme of await listThemesAsync()) {
+          if (!createdThemeIds.has(Number(theme.id))) continue;
           // Demo/bootstrap resources may seed an empty installation, but must
           // never rewrite a user's explicit dataset selection on every start.
           const existingDatasetIds = theme.businessDatasetIds ?? [];
@@ -327,7 +335,7 @@ export async function createApplication(config = loadConfig()) {
           }, theme.id);
         }
         for (const user of await database.listUsersAsync()) {
-          if (user.role === 'ADMIN') {
+          if (user.role === 'ADMIN' || !createdUserIds.has(Number(user.id))) {
             continue;
           }
           for (const datasetId of bootstrappedIds) {
@@ -339,7 +347,8 @@ export async function createApplication(config = loadConfig()) {
       runtime.sourceError ??= `业务数据集初始化失败：${error.message}`;
     }
     for (const theme of await listThemesAsync()) {
-      if ((theme.businessDatasetIds ?? []).length === 0) {
+      if (!createdThemeIds.has(Number(theme.id))
+        || (theme.businessDatasetIds ?? []).length === 0) {
         continue;
       }
       await saveThemeAsync({
@@ -397,6 +406,12 @@ export async function createApplication(config = loadConfig()) {
           .length,
         capabilities: harness.capabilities ?? {},
       },
+      compute: {
+        defaultMode: config.agentRuntime?.defaultMode ?? 'auto',
+        codexEnabled: Boolean(config.agentRuntime?.codex?.enabled),
+        codexAvailable: computeModeRouter.codexAvailable(),
+        modes: ['fast', 'auto', 'deep'],
+      },
       skills: {
         externalCount: skills
           .filter((skill) => skill.source === 'SKILL_MD')
@@ -453,6 +468,8 @@ export async function createApplication(config = loadConfig()) {
     uploads,
     indicatorService,
     harnessFactory,
+    codexHarness,
+    computeModeRouter,
     agent,
     runtime,
     init,

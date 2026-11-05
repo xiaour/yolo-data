@@ -52,7 +52,7 @@ skills:
   directories: []
 
 models:
-  # OpenAI-compatible API endpoint / OpenAI 兼容接口地址，生产环境请切换为自己的大模型API和Key
+  # Responses API base URL / Responses API 地址，生产环境请切换为自己的大模型 API 和 Key
   baseUrl: https://open.bigmodel.cn/api/paas/v4
   # API credential (secret); blank uses local-rule / API 密钥（机密）；有频次限制，并发数1，生产环境请切换为自己的大模型API和Key
   apiKey: ""  # 留空：模型 Key 在「模型管理」里维护；不要提交 ENC 密文（换机器解不开）
@@ -106,6 +106,31 @@ recovery:
   # Model-led recovery replans after the first failed attempt (minimum 5; hard maximum 8)
   # 首次执行失败后的大模型恢复重规划次数（至少 5 次，硬上限 8 次）
   maxAttempts: 5
+
+# Agent computation runtime / 智能体计算运行时
+agentRuntime:
+  # YOLO automatically chooses the execution path / YOLO 自动选择执行路径
+  defaultMode: auto
+  codex:
+    # Installed by npm run setup; no Codex account login is required
+    # npm run setup 会安装 CLI，不依赖 Codex 个人账号登录
+    enabled: true
+    # Blank uses the project-local Codex CLI / 留空使用项目本地 Codex CLI
+    command: ""
+    # ollama | lmstudio | custom | openai; default ollama is login-free
+    # 默认 ollama 为无登录的本地模型运行方式
+    provider: ollama
+    # custom provider must expose the OpenAI Responses API
+    # custom 提供方必须兼容 OpenAI Responses API
+    providerBaseUrl: ""
+    # Keep real keys in .env / 真实密钥请放在 .env
+    providerApiKey: ""
+    wireApi: responses
+    model: gpt-oss:20b
+    effort: high
+    timeoutMs: 300000
+    # Isolated read-only planning workspace / 隔离的只读规划目录
+    workingDirectory: ./data/codex-runtime
 
 # Code execution / 代码执行
 codeExecution:

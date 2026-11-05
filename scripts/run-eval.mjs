@@ -252,8 +252,8 @@ async function buildJudgeFromEnv() {
   if (!baseUrl || !apiKey) {
     return null;
   }
-  const { OpenAICompatibleDeepSeekHarness } = await import('../src/harness.js');
-  const harness = new OpenAICompatibleDeepSeekHarness({
+  const { ResponsesApiHarness } = await import('../src/harness.js');
+  const harness = new ResponsesApiHarness({
     baseUrl,
     apiKey,
     model: process.env.EVAL_JUDGE_MODEL ?? 'deepseek-chat',

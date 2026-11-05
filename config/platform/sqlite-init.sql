@@ -483,6 +483,8 @@ CREATE TABLE IF NOT EXISTS app_users (
         user_id INTEGER NOT NULL,
         theme_id INTEGER NOT NULL,
         title TEXT NOT NULL DEFAULT '新会话',
+        model_id INTEGER,
+        codex_thread_id TEXT,
         summary TEXT NOT NULL DEFAULT '',
         status INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,

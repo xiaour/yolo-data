@@ -24,6 +24,7 @@ ARG INSTALL_PG=false
 RUN case "$INSTALL_PG" in true|false) ;; *) echo 'INSTALL_PG must be true or false' >&2; exit 1 ;; esac \
     && npm ci --omit=dev \
     && if [ "$INSTALL_PG" = true ]; then npm install --omit=dev --no-save --package-lock=false pg@8; fi \
+    && ./node_modules/.bin/codex --version \
     && npm cache clean --force
 
 COPY . .

@@ -141,7 +141,7 @@ export class PlatformDatabase {
     this.db.exec('PRAGMA journal_mode = WAL;');
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.migrate();
-    this.seed({ seedBootstrapResources });
+    this.bootstrapState = this.seed({ seedBootstrapResources });
     this.migrateThemeIndicatorRelations();
     this.migrateThemeSemanticValueDomains();
     this.migrateThemeSemanticValueSources();
@@ -212,21 +212,42 @@ export class PlatformDatabase {
 
   seed({ seedBootstrapResources = false } = {}) {
     const timestamp = nowIso();
+    const bootstrapMarker = 'bootstrap.defaults.initialized';
+    const marker = this.db.prepare(
+      'SELECT 1 FROM platform_settings WHERE key = ?',
+    ).get(bootstrapMarker);
+    if (marker) {
+      return { createdUserIds: [], createdThemeIds: [] };
+    }
+    const existing = this.db.prepare('SELECT COUNT(*) AS count FROM app_users').get();
+    if (Number(existing?.count ?? 0) > 0) {
+      return { createdUserIds: [], createdThemeIds: [] };
+    }
     const bootstrap = loadBootstrapConfig();
+    const createdUserIds = new Set();
+    const createdUsernames = new Set();
+    const createdThemeIds = new Set();
+    const createdThemeNames = new Set();
     const insertUser = this.db.prepare(`
       INSERT OR IGNORE INTO app_users
         (username, display_name, role, status, attributes_json, created_at, updated_at)
       VALUES (?, ?, ?, 1, ?, ?, ?)
     `);
     for (const user of bootstrap.users ?? []) {
-      insertUser.run(
-        String(user.username ?? '').trim(),
+      const username = String(user.username ?? '').trim();
+      const result = insertUser.run(
+        username,
         String(user.displayName ?? user.username ?? '').trim(),
         normalizeUserRole(user.role),
         asJson(user.attributes ?? {}),
         timestamp,
         timestamp,
       );
+      if (result.changes > 0) {
+        const created = this.getUserByUsername(username);
+        if (created) createdUserIds.add(Number(created.id));
+        createdUsernames.add(username);
+      }
     }
 
     const insertTheme = this.db.prepare(`
@@ -236,8 +257,9 @@ export class PlatformDatabase {
       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
     `);
     for (const theme of bootstrap.themes ?? []) {
-      insertTheme.run(
-        String(theme.name ?? '').trim(),
+      const name = String(theme.name ?? '').trim();
+      const result = insertTheme.run(
+        name,
         String(theme.description ?? '').trim(),
         String(theme.systemPrompt ?? '').trim(),
         asJson(theme.indicatorIds ?? []),
@@ -246,6 +268,11 @@ export class PlatformDatabase {
         timestamp,
         timestamp,
       );
+      if (result.changes > 0) {
+        const created = this.db.prepare('SELECT id FROM themes WHERE name = ?').get(name);
+        if (created) createdThemeIds.add(Number(created.id));
+        createdThemeNames.add(name);
+      }
     }
 
     const themes = this.listThemes();
@@ -257,34 +284,46 @@ export class PlatformDatabase {
     for (const grant of bootstrap.themeGrants ?? []) {
       const user = this.getUserByUsername(grant.username);
       const theme = themes.find((item) => item.name === grant.theme);
-      if (user && theme) {
+      if (user && theme && (
+        createdUsernames.has(String(grant.username))
+        || createdThemeNames.has(String(grant.theme))
+      )) {
         grantTheme.run(user.id, theme.id, grant.canManage ? 1 : 0);
       }
     }
 
-    this.seedSkills(themes);
+    this.seedSkills(themes, { initializeThemeIds: createdThemeIds });
     if (seedBootstrapResources) {
       this.seedBootstrapResources(bootstrap);
     }
 
-    const rowPolicyCount = this.db.prepare('SELECT COUNT(*) AS count FROM row_policies').get().count;
-    if (rowPolicyCount === 0) {
-      for (const policy of bootstrap.rowPolicies ?? []) {
-        const user = this.getUserByUsername(policy.username);
-        if (!user) {
-          continue;
-        }
-        this.createRowPolicy({
-          userId: user.id,
-          themeId: policy.theme ? themes.find((theme) => theme.name === policy.theme)?.id : null,
-          dimension: policy.dimension,
-          operator: policy.operator ?? 'IN',
-          values: policy.values ?? [],
-          valueSource: policy.valueSource ?? 'FIXED',
-          enabled: policy.enabled !== false,
-        });
+    for (const policy of bootstrap.rowPolicies ?? []) {
+      const user = this.getUserByUsername(policy.username);
+      const theme = policy.theme
+        ? themes.find((item) => item.name === policy.theme)
+        : null;
+      if (!user || (!createdUserIds.has(Number(user.id))
+        && !createdThemeIds.has(Number(theme?.id)))) {
+        continue;
       }
+      this.createRowPolicy({
+        userId: user.id,
+        themeId: theme?.id ?? null,
+        dimension: policy.dimension,
+        operator: policy.operator ?? 'IN',
+        values: policy.values ?? [],
+        valueSource: policy.valueSource ?? 'FIXED',
+        enabled: policy.enabled !== false,
+      });
     }
+    this.db.prepare(`
+      INSERT OR IGNORE INTO platform_settings (key, value_json, updated_at)
+      VALUES (?, 'true', ?)
+    `).run(bootstrapMarker, timestamp);
+    return {
+      createdUserIds: [...createdUserIds],
+      createdThemeIds: [...createdThemeIds],
+    };
   }
 
   seedBootstrapResources(bootstrap = {}) {
@@ -678,7 +717,7 @@ export class PlatformDatabase {
     `).run(migrationKey, nowIso());
   }
 
-  seedSkills(themes) {
+  seedSkills(themes, { initializeThemeIds = new Set() } = {}) {
     const timestamp = nowIso();
     const insertSkill = this.db.prepare(`
       INSERT OR IGNORE INTO skills
@@ -838,23 +877,19 @@ export class PlatformDatabase {
         ]),
       );
       for (const theme of themes) {
-        if (countThemeSkills.get(Number(theme.id)).count > 0) {
+        if (!initializeThemeIds.has(Number(theme.id))
+          || countThemeSkills.get(Number(theme.id)).count > 0) {
           continue;
         }
         const skillCodes = skillCodesByTheme[theme.name]
           ?? definitions.map((skill) => skill.code);
-        for (const skillCode of skillCodes) {
-          insertThemeSkill.run(Number(theme.id), skillCode);
-        }
-      }
-      // Backfill newly introduced core Skills for existing themes after the
-      // normal default binding has run. INSERT OR IGNORE preserves an explicit
-      // disabled assignment.
-      const coreSkillCodes = definitions
-        .filter((skill) => skill.category === 'CORE')
-        .map((skill) => skill.code);
-      for (const theme of themes) {
-        for (const skillCode of coreSkillCodes) {
+        const initialSkillCodes = [...new Set([
+          ...skillCodes,
+          ...definitions
+            .filter((skill) => skill.category === 'CORE')
+            .map((skill) => skill.code),
+        ])];
+        for (const skillCode of initialSkillCodes) {
           insertThemeSkill.run(Number(theme.id), skillCode);
         }
       }
@@ -1178,8 +1213,8 @@ export class PlatformDatabase {
       .map((themeId) => ({ themeId, indicatorId: normalizedIndicatorId }));
   }
 
-  syncExternalSkills(skills = []) {
-    return this.skillRepository.syncExternalSkills(skills);
+  syncExternalSkills(skills = [], options = {}) {
+    return this.skillRepository.syncExternalSkills(skills, options);
   }
 
   listSkills() {
@@ -2539,6 +2574,7 @@ export class PlatformDatabase {
     const row = this.db.prepare(`
       SELECT s.id, s.user_id AS userId, s.theme_id AS themeId,
              t.name AS themeName, s.title, s.model_id AS modelId,
+             s.codex_thread_id AS codexThreadId,
              s.summary, s.status,
              s.created_at AS createdAt, s.updated_at AS updatedAt,
              (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) AS messageCount
@@ -2553,6 +2589,7 @@ export class PlatformDatabase {
     return this.db.prepare(`
       SELECT s.id, s.user_id AS userId, s.theme_id AS themeId,
              t.name AS themeName, s.title, s.model_id AS modelId,
+             s.codex_thread_id AS codexThreadId,
              s.summary, s.status,
              s.created_at AS createdAt, s.updated_at AS updatedAt,
              (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) AS messageCount
@@ -2564,7 +2601,7 @@ export class PlatformDatabase {
     `).all(Number(userId), Math.max(1, Math.min(Number(limit) || 100, 500)));
   }
 
-  updateChatSession(id, { title, summary, status, modelId } = {}) {
+  updateChatSession(id, { title, summary, status, modelId, codexThreadId } = {}) {
     const current = this.getChatSession(id);
     if (!current) {
       return null;
@@ -2572,13 +2609,14 @@ export class PlatformDatabase {
     this.db.prepare(`
       UPDATE chat_sessions
       SET title = ?, summary = ?, status = ?,
-          model_id = COALESCE(?, model_id), updated_at = ?
+          model_id = COALESCE(?, model_id), codex_thread_id = ?, updated_at = ?
       WHERE id = ?
     `).run(
       title === undefined ? current.title : String(title).trim(),
       summary === undefined ? current.summary : String(summary),
       status === undefined ? current.status : Number(status),
       modelId === undefined ? null : (modelId ? Number(modelId) : null),
+      codexThreadId === undefined ? current.codexThreadId ?? null : (String(codexThreadId ?? '').trim() || null),
       nowIso(),
       Number(id),
     );

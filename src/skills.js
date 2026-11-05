@@ -46,7 +46,7 @@ export class SkillRegistry {
     this.coreResolvers = coreResolvers ?? createCoreSkillResolverRegistry();
   }
 
-  async refreshExternalSkills() {
+  async refreshExternalSkills({ createOnly = false } = {}) {
     const discovered = this.adapter.discover();
     if (discovered.roots.length === 0) {
       const persisted = this.database.isAsyncPlatformStore
@@ -63,8 +63,8 @@ export class SkillRegistry {
       return this.lastSync;
     }
     const count = this.database.isAsyncPlatformStore
-      ? await this.database.skillRepository.syncExternalSkills(discovered.skills)
-      : await this.database.syncExternalSkills(discovered.skills);
+      ? await this.database.skillRepository.syncExternalSkills(discovered.skills, { createOnly })
+      : await this.database.syncExternalSkills(discovered.skills, { createOnly });
     this.lastSync = {
       syncedAt: new Date().toISOString(),
       count,

@@ -40,7 +40,7 @@ function assertNodeVersion() {
 }
 
 function installDependencies() {
-  info('安装依赖（含 MySQL/Doris 驱动 mysql2）');
+  info('安装依赖（含 MySQL/Doris 驱动 mysql2 与 Codex CLI）');
   // Windows cannot reliably spawn .cmd files directly (Node may return EINVAL).
   // Run npm.cmd through cmd.exe there; keep direct execution on POSIX.
   const command = process.platform === 'win32'
@@ -57,6 +57,33 @@ function installDependencies() {
     abort('npm install 失败，请检查网络或 npm registry 配置后重试');
   }
   ok('依赖已安装');
+}
+
+function runLocalCodex(args, options = {}) {
+  const entrypoint = path.join(
+    projectRoot,
+    'node_modules',
+    '@openai',
+    'codex',
+    'bin',
+    'codex.js',
+  );
+  return spawnSync(process.execPath, [entrypoint, ...args], options);
+}
+
+function verifyCodexCli() {
+  const version = runLocalCodex(['--version'], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (version.error || version.status !== 0) {
+    const detail = version.error?.message
+      || String(version.stderr ?? '').trim()
+      || `退出码 ${version.status}`;
+    abort(`Codex CLI 安装后无法运行：${detail}`);
+  }
+  ok(String(version.stdout ?? '').trim() || 'Codex CLI 已安装');
 }
 
 function ensureConfigFile() {
@@ -102,10 +129,12 @@ console.log('\nYOLO Data 环境初始化\n');
 loadEnvFile({ projectRoot });
 assertNodeVersion();
 installDependencies();
+verifyCodexCli();
 const confPath = ensureConfigFile();
 await verifyMysqlDriver();
 setupPythonRuntime(confPath);
 
 console.log('\n完成。下一步：');
-console.log('  1. 编辑 yolo-conf.yaml 配置模型密钥、指标平台、Doris 连接（机密建议用环境变量覆盖）');
-console.log('  2. npm run dev   然后打开 http://localhost:8088/\n');
+console.log('  1. 配置 Codex 模型提供方（默认 Ollama，无需 codex login）');
+console.log('  2. 编辑 yolo-conf.yaml 配置模型、指标平台和业务数据源');
+console.log('  3. npm run dev   然后打开 http://localhost:8088/\n');

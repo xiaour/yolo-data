@@ -2,10 +2,28 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
-import { createApplication } from '../src/application.js';
+import test, { afterEach } from 'node:test';
+import { createApplication as createApplicationBase } from '../src/application.js';
 import { resolveDataSourceRuntimeConfig } from '../src/businessDatasets.js';
 import { DatasourceCrypto } from '../src/datasourceCrypto.js';
+
+const activeApplications = new Set();
+
+async function createApplication(...args) {
+  const application = await createApplicationBase(...args);
+  activeApplications.add(application);
+  return application;
+}
+
+afterEach(async () => {
+  const applications = [...activeApplications];
+  activeApplications.clear();
+  await Promise.all(applications.map(async (application) => {
+    application.memoryMaintenance?.stop?.();
+    await application.businessDatasets?.close?.().catch(() => {});
+    await application.database?.closeAsync?.().catch(() => {});
+  }));
+});
 
 test('data source environment settings override stored endpoints and ENC passwords', () => {
   const runtime = resolveDataSourceRuntimeConfig({
@@ -481,7 +499,7 @@ test('agent rejects indicator execution when the theme has a business dataset', 
 });
 
 test('dataset definition remains available when optional semantic value enrichment fails', async () => {
-  const application = await createApplication(testConfig(), new FakeIndicatorClient());
+  const application = await createApplication(testConfig());
   await application.init();
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);

@@ -61,8 +61,7 @@ function compileTurnPatterns(lexicon) {
       : null,
     dimensions: [
       new RegExp(
-        // “分组”是分组动作，不是“分 + 组”两个维度名；否则
-        // “按省区分组呢”会被解析成「省区」和「组」两个维度。
+        // 分组动作中的词尾不能被再次切成一个独立维度名。
         `(?:按照?|分(?!析|别|组)|各|每个|逐个)([\\u4e00-\\u9fa5A-Za-z0-9_、]{1,18}?)${dimensionTail}`,
         'g',
       ),

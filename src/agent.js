@@ -12,6 +12,7 @@ import {
 } from './chartIntent.js';
 import { validateAnalysisOutputsAsync } from './analysisArtifact.js';
 import { ANALYSIS_RESULT_FILE, buildAnalysisContractPrompt } from './analysisContract.js';
+import { inferAnalysisRequest, TASK_KINDS } from './analysisRequest.js';
 import { buildSystemPrompt } from './agentPlanner.js';
 import { buildArtifactTitle, buildSessionFileName } from './fileName.js';
 import { rankIndicators, sortIndicators } from './indicatorSearch.js';
@@ -111,6 +112,7 @@ import {
   UNGROUNDED_ANSWER_MESSAGE,
 } from './answerEvidence.js';
 import { buildReplanCarryForward } from './executionRecovery.js';
+import { buildExecutionTimeline } from './executionTimeline.js';
 import {
   buildContractSourceContext as buildContextFromModule,
   buildStructuredClarification as buildClarificationFromModule,
@@ -1468,6 +1470,7 @@ export class MetricAgentService {
     tokenBudget,
     config,
     indicatorService,
+    computeModeRouter = null,
   }) {
     this.database = database;
     this.config = config;
@@ -1475,6 +1478,7 @@ export class MetricAgentService {
     this.tokenBudget = tokenBudget ?? null;
     this.harness = harness;
     this.harnessFactory = harnessFactory;
+    this.computeModeRouter = computeModeRouter;
     this.memory = memory;
     this.userMemories = userMemories;
     this.skillRegistry = skillRegistry;
@@ -2075,6 +2079,7 @@ export class MetricAgentService {
     clarificationOptionId = '',
     clarificationOptionLabel = '',
     modelId = null,
+    computeMode = null,
     attachmentArtifactIds = [],
     forceNewTask = false,
     signal = null,
@@ -2090,17 +2095,22 @@ export class MetricAgentService {
       throw new Error('question is required');
     }
     let eventSequence = 0;
+    const executionEvents = [];
     const emit = (event) => {
+      const enrichedEvent = {
+        seq: eventSequence += 1,
+        timestamp: new Date().toISOString(),
+        traceId: runTraceId,
+        ...event,
+      };
+      if (['codex_plan_updated', 'codex_item', 'codex_turn_completed'].includes(event?.type)) {
+        executionEvents.push(enrichedEvent);
+      }
       if (typeof onEvent !== 'function') {
         return;
       }
       try {
-        onEvent({
-          seq: eventSequence += 1,
-          timestamp: new Date().toISOString(),
-          traceId: runTraceId,
-          ...event,
-        });
+        onEvent(enrichedEvent);
       } catch {
         // A disconnected stream must not interrupt the query.
       }
@@ -2112,6 +2122,7 @@ export class MetricAgentService {
         question: normalizedQuestion,
         userId,
         themeId: themeId ?? null,
+        computeMode: computeMode ?? this.config?.agentRuntime?.defaultMode ?? 'auto',
       });
     }
     let session = null;
@@ -2201,7 +2212,7 @@ export class MetricAgentService {
       }
     }
     this.requireEnabledTheme(theme);
-    const activeHarness = this.harnessFactory
+    const fastHarness = this.harnessFactory
       ? this.harnessFactory.forTheme(
         await this.resolveThemeModel(
           theme,
@@ -2226,7 +2237,7 @@ export class MetricAgentService {
       userId,
       question: normalizedQuestion,
       forceNewTask,
-      harness: activeHarness,
+      harness: fastHarness,
       theme,
       user,
       signal,
@@ -2242,6 +2253,24 @@ export class MetricAgentService {
       ? mergeSessionDirectives(existingSessionDirectives, conversationDirective)
       : existingSessionDirectives;
     const analysisMode = inferAnalysisMode(resolvedQuestion);
+    const analysisRequest = inferAnalysisRequest(resolvedQuestion, {
+      contextReason: conversationContext.reason,
+      turnType: conversationContext.turnType,
+    });
+    const runtimeDecision = this.computeModeRouter
+      ? this.computeModeRouter.select({
+        requestedMode: computeMode,
+        fastHarness,
+        question: resolvedQuestion,
+        analysisRequest,
+        analysisMode,
+        conversationContext,
+        codexThreadId: session.codexThreadId,
+      })
+      : {
+        requested: 'fast', resolved: 'fast', reason: 'legacy_runtime', harness: fastHarness,
+      };
+    const activeHarness = runtimeDecision.harness;
     const localIndicatorMode = true;
     const clarificationPolicy = resolveClarificationPolicy(
       conversationContext.mode === 'FOLLOW_UP' ? history : [],
@@ -2255,6 +2284,9 @@ export class MetricAgentService {
         model: activeHarness.model ?? null,
         provider: activeHarness.provider ?? activeHarness.mode ?? 'unknown',
         configured: activeHarness.mode !== 'local-rule',
+        computeMode: runtimeDecision.resolved,
+        requestedComputeMode: runtimeDecision.requested,
+        reason: runtimeDecision.reason,
       },
       source: {
         mode: 'local',
@@ -2347,6 +2379,7 @@ export class MetricAgentService {
     let skillAudit = null;
     let resultValidation = null;
     let resultAnalysis = null;
+    let latestValidatedAnalysis = null;
     const lockedExecutions = new Map();
     const queryExecutions = [...carriedExecutions];
     let lastLockedExecution = carryForward?.lockedExecution ?? null;
@@ -4532,6 +4565,14 @@ export class MetricAgentService {
     };
 
     const executeQueryContract = async (args) => {
+      if (
+        analysisRequest.requiresPostQueryAnalysis
+        && queryExecutions.length > carriedExecutionCount
+      ) {
+        throw new Error(
+          '分析任务的证据快照已经锁定，不得再次查询。请使用 execute_analysis_code 处理已返回的 workspaceArtifactId。',
+        );
+      }
       startWorkflowStage('VALIDATE', '校验查询契约');
       const contractId = String(args.contractId ?? '');
       const contract = compiledContracts.get(contractId);
@@ -4575,7 +4616,11 @@ export class MetricAgentService {
         });
         return {
           ...result,
-          stopAgent: true,
+          stopAgent: !analysisRequest.requiresPostQueryAnalysis,
+          analysisRequired: analysisRequest.requiresPostQueryAnalysis,
+          nextAction: analysisRequest.requiresPostQueryAnalysis
+            ? `调用 execute_analysis_code，并把 ${result.workspaceArtifactId} 放入 inputArtifactIds，生成 output/${ANALYSIS_RESULT_FILE}`
+            : null,
           finalMessage: result?.finalMessage ?? result?.summary ?? '',
         };
       }
@@ -4585,7 +4630,11 @@ export class MetricAgentService {
       });
       return {
         ...result,
-        stopAgent: true,
+        stopAgent: !analysisRequest.requiresPostQueryAnalysis,
+        analysisRequired: analysisRequest.requiresPostQueryAnalysis,
+        nextAction: analysisRequest.requiresPostQueryAnalysis
+          ? `调用 execute_analysis_code，并把 ${result.workspaceArtifactId} 放入 inputArtifactIds，生成 output/${ANALYSIS_RESULT_FILE}`
+          : null,
         finalMessage: result?.finalMessage ?? result?.summary ?? '',
       };
     };
@@ -4619,6 +4668,10 @@ export class MetricAgentService {
       generatedWorkspaceArtifactIds,
       emit,
       validateAnalysisOutputsAsync,
+      requireAnalysisReport: analysisRequest.requiresReport,
+      onAnalysisValidated: (analysis) => {
+        latestValidatedAnalysis = analysis;
+      },
     });
 
     const executeRawTool = async (name, args) => {
@@ -4642,6 +4695,13 @@ export class MetricAgentService {
       }
       if (name === 'execute_query_contract') {
         return executeQueryContract(args);
+      }
+      if (
+        analysisRequest.requiresPostQueryAnalysis
+        && queryExecutions.length > carriedExecutionCount
+        && ['query_indicator', 'query_business_dataset'].includes(name)
+      ) {
+        throw new Error('分析证据快照已经锁定；后续步骤只能处理工作区产物，不得重新取数。');
       }
       if (
         localIndicatorMode
@@ -4679,8 +4739,26 @@ export class MetricAgentService {
           return workspaceToolHandlers.listWorkspaceArtifacts();
         case 'transform_workspace_artifact':
           return workspaceToolHandlers.transformWorkspaceArtifact(args);
-        case 'execute_analysis_code':
-          return workspaceToolHandlers.executeAnalysisCode(args);
+        case 'execute_analysis_code': {
+          startWorkflowStage('ANALYSIS_CODE', '基于锁定快照执行代码分析');
+          const result = await workspaceToolHandlers.executeAnalysisCode(args);
+          if (analysisRequest.requiresReport && !result.analysis?.valid) {
+            const detail = result.analysis?.issues?.map((item) => item.message).join('；')
+              || `分析报告任务必须生成并通过校验的 output/${ANALYSIS_RESULT_FILE}`;
+            failWorkflowStage('ANALYSIS_CODE', new Error(detail));
+            throw new Error(detail);
+          }
+          completeWorkflowStage('ANALYSIS_CODE', {
+            summary: result.analysis?.valid ? '分析报告契约校验通过' : '代码分析执行完成',
+            detail: result.analysis?.report ?? result.summary,
+            evidence: (result.outputs ?? []).map((output) => ({
+              type: 'ANALYSIS_ARTIFACT',
+              id: output.artifactId,
+              name: output.fileName,
+            })),
+          });
+          return result;
+        }
         default:
           throw new Error(`unsupported tool: ${name}`);
       }
@@ -4796,6 +4874,7 @@ export class MetricAgentService {
     const skillPlanGuidance = this.skillRegistry?.buildPhaseInstructionsAsync
       ? await this.skillRegistry.buildPhaseInstructionsAsync(skills, 'PLAN')
       : this.skillRegistry?.buildPhaseInstructions(skills, 'PLAN') ?? [];
+    const codexOwnsConversationContext = activeHarness.mode === 'codex';
     const systemPrompt = buildSystemPrompt({
       user,
       theme,
@@ -4809,18 +4888,21 @@ export class MetricAgentService {
       businessDatasets,
       localIndicatorMode,
       workspaceArtifacts,
-      contextMode: conversationContext.mode,
-      contextReason: conversationContext.reason,
+      contextMode: codexOwnsConversationContext ? 'CODEX_THREAD' : conversationContext.mode,
+      contextReason: codexOwnsConversationContext
+        ? '由当前 YOLO 会话绑定的持久 Codex thread 历史识别任务关系'
+        : conversationContext.reason,
       inheritQueryContext: conversationContext.inheritQueryContext,
       historyMessageCount: conversationContext.historyMessageCount,
-      taskState: conversationContext.taskState,
-      executionContext: executionContext.sourceContext,
+      taskState: codexOwnsConversationContext ? null : conversationContext.taskState,
+      executionContext: codexOwnsConversationContext ? '' : executionContext.sourceContext,
       analysisMode,
+      analysisRequest,
       clarificationPolicy,
       clarificationOptionId,
       reuseArtifactsOnly,
       controlledRequeryAllowed,
-      question: resolvedQuestion,
+      question: codexOwnsConversationContext ? normalizedQuestion : resolvedQuestion,
       replanHint,
       conversationDirectives: sessionDirectives,
     });
@@ -4891,6 +4973,7 @@ export class MetricAgentService {
     let semanticFastPathUsed = false;
     let semanticFastPathError = null;
     const canUseSemanticFastPath = businessDatasets.length > 0
+      && analysisRequest.taskKind === TASK_KINDS.QUERY
       && !reuseArtifactsOnly
       && conversationContext.turnType !== TURN_TYPES.INSTRUCTION
       && ['NEW_TOPIC', 'INDEPENDENT'].includes(conversationContext.mode);
@@ -5097,16 +5180,33 @@ export class MetricAgentService {
             sessionId: session.id,
             themeId: theme.id,
             question: normalizedQuestion,
+            originalQuestion: normalizedQuestion,
+            replanHint,
+            codexThreadId: session.codexThreadId ?? null,
+            codexBootstrapHistory: history,
+            onCodexThreadReady: async (codexThreadId, { created } = {}) => {
+              if (!created && session.codexThreadId === codexThreadId) return;
+              session = await callPlatformDatabase(
+                this.database,
+                'updateChatSessionAsync',
+                'updateChatSession',
+                session.id,
+                { codexThreadId },
+              ) ?? { ...session, codexThreadId };
+            },
             sourceMode: localIndicatorMode
               ? this.indicatorService.mode ?? 'unknown'
               : 'direct-llm',
             preferBusinessDatasets: businessDatasets.length > 0,
             primaryBusinessDatasetId,
             analysisMode: analysisMode.mode,
+            taskKind: analysisRequest.taskKind,
+            analysisPurposes: analysisRequest.purposes,
             clarificationPolicy,
             clarificationOptionId,
             reuseArtifactsOnly,
             signal,
+            traceId: runTraceId,
           },
           onEvent: emit,
         });
@@ -5120,6 +5220,17 @@ export class MetricAgentService {
             .filter((item) => item.type === 'tool_call')
             .map((item) => ({ name: item.name, args: item.args })),
         });
+      }
+      if (
+        analysisRequest.requiresReport
+        && queryExecutions.length > carriedExecutionCount
+        && !latestValidatedAnalysis?.valid
+      ) {
+        const reportError = new Error(
+          `分析任务已完成取数，但没有生成通过校验的 output/${ANALYSIS_RESULT_FILE}；请基于已锁定的 workspaceArtifactId 执行分析代码后重试。`,
+        );
+        reportError.code = 'ANALYSIS_REPORT_REQUIRED';
+        throw reportError;
       }
     } catch (error) {
       try {
@@ -5149,6 +5260,9 @@ export class MetricAgentService {
           taskState: { ...conversationContext.taskState, status: 'FAILED' },
           contextDecision: publicContextDecision(conversationContext),
           processSteps,
+          executionTimeline: buildExecutionTimeline({
+            workflow: workflow.toJSON(), processSteps, codexEvents: executionEvents,
+          }),
           skills: skills.map((skill) => ({
             code: skill.code,
             name: skill.name,
@@ -5428,6 +5542,9 @@ export class MetricAgentService {
     const deterministicMessage = currentExecutions.length > 0
       ? currentExecutions.map((execution) => execution.finalMessage).join('\n\n')
       : '';
+    const reportMessage = analysisRequest.requiresReport && latestValidatedAnalysis?.valid
+      ? latestValidatedAnalysis.report
+      : '';
     // 过滤值歧义优先：候选值一旦存在，本轮只问「选哪个值」，用它覆盖模型那段
     // 口径反问。值确定后下一轮会重新编译契约，剩余阻塞项届时再按规则处理。
     const valueClarificationAllowed = clarificationPolicy?.allowed !== false;
@@ -5453,6 +5570,7 @@ export class MetricAgentService {
       ? buildResultAnalysisText(resultAnalysis.facts)
       : '';
     const { baseMessage: baseFinalMessage } = composeAnswerMessage({
+      reportMessage,
       deterministicMessage,
       semanticFastPathError: queryExecutions.length === 0 ? semanticFastPathError : null,
       clarificationExhausted,
@@ -5495,6 +5613,7 @@ export class MetricAgentService {
       answerEvidence = { ...answerEvidence, guarded: true };
     }
     const { finalMessage } = composeAnswerMessage({
+      reportMessage,
       deterministicMessage,
       semanticFastPathError: queryExecutions.length === 0 ? semanticFastPathError : null,
       clarificationExhausted,
@@ -5612,6 +5731,7 @@ export class MetricAgentService {
       sessionDirectives,
       contextDecision,
       analysisMode,
+      analysisRequest,
       clarificationPolicy,
       clarification: structuredClarification,
       answerEvidence,
@@ -5659,6 +5779,9 @@ export class MetricAgentService {
         summary: execution.finalMessage,
       })),
       modelNarrative: queryExecutions.length > 0 ? (harnessResult.content || '') : null,
+      analysisReport: latestValidatedAnalysis?.valid
+        ? latestValidatedAnalysis.normalized
+        : null,
       skillAudit: skillAudit ? {
         phase: skillAudit.phase,
         status: skillAudit.status,
@@ -5680,6 +5803,11 @@ export class MetricAgentService {
         })),
       } : null,
       workflow: workflowSnapshot,
+      executionTimeline: buildExecutionTimeline({
+        workflow: workflowSnapshot,
+        processSteps,
+        codexEvents: executionEvents,
+      }),
       runtime: {
         mode: activeHarness.mode ?? 'unknown',
         model: activeHarness.model ?? null,
@@ -5872,6 +6000,7 @@ export class MetricAgentService {
       artifactType: savedAnswer.artifactType,
       workflow: workflowSnapshot,
       processSteps,
+      executionTimeline: savedAnswer.executionTimeline,
       runtime: savedAnswer.runtime,
       provenance: savedAnswer.provenance,
       rowCount: savedAnswer.data.rows.length,

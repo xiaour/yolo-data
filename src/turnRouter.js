@@ -3,6 +3,7 @@ import {
   createTurnContext,
 } from './turnContext.js';
 import { parseConversationDirective } from './conversationDirectives.js';
+import { responseOutputText } from './harness.js';
 
 const ALLOWED_TURN_TYPES = new Set(Object.values(TURN_TYPES));
 
@@ -34,13 +35,6 @@ function parseDecision(content) {
   } catch {
     return null;
   }
-}
-
-function responseContent(payload) {
-  return payload?.choices?.[0]?.message?.content
-    ?? payload?.content
-    ?? payload?.message
-    ?? '';
 }
 
 export async function refineTurnContextWithHarness({
@@ -99,7 +93,7 @@ export async function refineTurnContextWithHarness({
       themeId: theme?.id ?? null,
       signal,
     });
-    const decision = parseDecision(responseContent(payload));
+    const decision = parseDecision(responseOutputText(payload));
     const directive = decision?.turnType === TURN_TYPES.INSTRUCTION
       ? parseConversationDirective(context.originalQuestion)
       : null;

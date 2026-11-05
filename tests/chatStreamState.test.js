@@ -25,6 +25,20 @@ test('chat stream state upserts progress updates instead of duplicating stages',
   assert.equal(stream.progress[0].text, '已完成执行查询');
 });
 
+test('chat stream state switches from platform stages to Codex dynamic timeline', () => {
+  let stream = createChatStreamState();
+  stream = applyChatStreamEvent(stream, {
+    type: 'execution_progress', id: 'platform-understand', status: 'done', title: '理解问题',
+  });
+  stream = applyChatStreamEvent(stream, { type: 'execution_reset', source: 'codex' });
+  stream = applyChatStreamEvent(stream, {
+    type: 'execution_progress', id: 'codex-plan-1', source: 'codex', status: 'running', title: '规划查询',
+  });
+  assert.equal(stream.executionTimeline.length, 1);
+  assert.equal(stream.executionTimeline[0].id, 'codex-plan-1');
+  assert.equal(stream.progress, stream.executionTimeline);
+});
+
 test('chat stream state accumulates answer deltas and marks completion', () => {
   let stream = createChatStreamState();
   stream = applyChatStreamEvent(stream, { type: 'assistant_answer_start' });

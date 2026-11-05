@@ -11,6 +11,7 @@ import {
   applyConversationDirectivesToPresentationContract,
   parseConversationDirective,
 } from '../src/conversationDirectives.js';
+import { responsesText } from './fixtures/responsesApi.js';
 
 test('presentation evidence preserves raw data and only carries online evidence', () => {
   const columns = [
@@ -58,10 +59,7 @@ test('presentation planner always asks the model and validates the returned cont
       capturedMessages = messages;
       capturedTools = tools;
       capturedMetadata = metadata;
-      return {
-        choices: [{
-          message: {
-            content: JSON.stringify({
+      return responsesText(JSON.stringify({
               fields: {
                 sale_amt: {
                   type: 'amount',
@@ -88,10 +86,7 @@ test('presentation planner always asks the model and validates the returned cont
                   prefix: '47万',
                 },
               },
-            }),
-          },
-        }],
-      };
+      }));
     },
   };
   const contract = await new PresentationPlanner().plan({
@@ -146,13 +141,7 @@ test('presentation planner keeps online formatting when the model response is in
     harness: {
       provider: 'deepseek',
       model: 'deepseek-chat',
-      chat: async () => ({
-        choices: [{
-          message: {
-            content: '47万',
-          },
-        }],
-      }),
+      chat: async () => responsesText('47万'),
     },
     prompt: '金额使用万元。',
     question: '销售额是多少',
@@ -188,9 +177,7 @@ test('presentation planner falls back to the theme prompt without online metadat
     harness: {
       provider: 'deepseek',
       model: 'deepseek-chat',
-      chat: async () => ({
-        choices: [{ message: { content: '金额按万元展示。' } }],
-      }),
+      chat: async () => responsesText('金额按万元展示。'),
     },
     prompt: [
       '展示规范：金额按万元、0 位小数展示，表头标明 (万元)。',
@@ -232,10 +219,7 @@ test('theme presentation rules override conflicting model metadata', async () =>
     harness: {
       provider: 'deepseek',
       model: 'deepseek-chat',
-      chat: async () => ({
-        choices: [{
-          message: {
-            content: JSON.stringify({
+      chat: async () => responsesText(JSON.stringify({
               fields: {
                 sale_amt: {
                   type: 'amount',
@@ -246,10 +230,7 @@ test('theme presentation rules override conflicting model metadata', async () =>
                   basis: 'ONLINE_METADATA',
                 },
               },
-            }),
-          },
-        }],
-      }),
+      })),
     },
     prompt: [
       '展示规范：金额按万元、2 位小数展示。',
@@ -307,10 +288,7 @@ test('presentation planner reuses a valid model contract for identical evidence'
     model: 'deepseek-chat',
     async chat() {
       chatCount += 1;
-      return {
-        choices: [{
-          message: {
-            content: JSON.stringify({
+      return responsesText(JSON.stringify({
               fields: {
                 sale_amt: {
                   type: 'amount',
@@ -321,10 +299,7 @@ test('presentation planner reuses a valid model contract for identical evidence'
                   basis: 'ONLINE_METADATA',
                 },
               },
-            }),
-          },
-        }],
-      };
+      }));
     },
   };
   const planner = new PresentationPlanner();
@@ -447,7 +422,7 @@ test('presentation planner reads percentage rules declared in the theme prompt',
     harness: {
       provider: 'deepseek',
       model: 'deepseek-chat',
-      chat: async () => ({ choices: [{ message: { content: '不是 JSON' } }] }),
+      chat: async () => responsesText('不是 JSON'),
     },
     prompt: [
       '```presentation',

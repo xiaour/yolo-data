@@ -9,23 +9,23 @@ import {
 test('chat stream presenter turns workflow stages into readable progress', () => {
   const present = createChatStreamPresenter();
   const [started] = present({ type: 'run_started' });
-  assert.equal(started.type, 'assistant_progress');
+  assert.equal(started.type, 'execution_progress');
   assert.equal(started.status, 'running');
-  assert.match(started.text, /理解问题/);
+  assert.equal(started.title, '理解问题');
 
   const [running] = present({
     type: 'workflow_stage',
     stage: { code: 'EXECUTE', name: '执行查询', status: 'RUNNING', summary: '' },
   });
-  assert.equal(running.id, 'stage-EXECUTE');
+  assert.equal(running.id, 'platform-execute');
   assert.equal(running.status, 'running');
-  assert.match(running.text, /只读查询/);
+  assert.equal(running.title, '执行计算');
 
   const [done] = present({
     type: 'workflow_stage',
     stage: { code: 'EXECUTE', name: '执行查询', status: 'SUCCESS', summary: '返回 42 行' },
   });
-  assert.equal(done.id, 'stage-EXECUTE');
+  assert.equal(done.id, 'platform-execute');
   assert.equal(done.status, 'done');
   assert.equal(done.detail, '返回 42 行');
 });
@@ -42,9 +42,29 @@ test('chat stream presenter exposes tool activity without private reasoning', ()
       detail: '42 行',
     },
   });
-  assert.equal(step.id, 'step-step-3');
+  assert.equal(step.id, 'platform-execute');
   assert.equal(step.status, 'done');
-  assert.equal(step.text, '执行数据集查询');
+  assert.equal(step.title, '执行计算');
+});
+
+test('Codex plan replaces fixed workflow progress with dynamic readable steps', () => {
+  const present = createChatStreamPresenter();
+  present({ type: 'run_started' });
+  present({ type: 'workflow_stage', stage: { code: 'PLAN', status: 'RUNNING' } });
+  const events = present({
+    type: 'codex_plan_updated',
+    steps: [
+      { id: '1', status: 'completed', title: '确认时间和指标' },
+      { id: '2', status: 'in_progress', title: '查询销售明细' },
+    ],
+  });
+  assert.equal(events[0].type, 'execution_reset');
+  assert.deepEqual(events.slice(1).map((event) => event.title), [
+    '确认时间和指标', '查询销售明细',
+  ]);
+  assert.deepEqual(present({
+    type: 'workflow_stage', stage: { code: 'EXECUTE', status: 'RUNNING' },
+  }), []);
 });
 
 test('assistant text chunks preserve the complete answer', () => {

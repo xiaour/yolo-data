@@ -1,17 +1,9 @@
 import { readArtifactText, readArtifactTextAsync } from './analysisArtifactReader.js';
-// 代码驱动分析的产物读取与契约校验（ANALYSIS_CODE 阶段，门禁 ANALYSIS-002）。
-//
-// 平台不实现任何分析方法：归因、结构、量价拆解……都由大模型生成 Python 代码，
-// 在沙箱里作用于已锁定的结果快照完成。本文件只负责三件事——定位产物、读出内容、
-// 按契约校验——然后把结论（含可执行的修正意见）回传给模型，由它决定改代码重跑
-// 还是说明能力缺口，平台绝不替它猜一个答案。
-//
-// 与 analysisContract.js 的分工：
-//   - analysisContract.js 是纯契约与纯函数校验，不碰 I/O，可独立测试；
-//   - 本文件负责 I/O（定位产物、读文本、解析 JSON），校验仍委托给契约模块。
+// ANALYSIS_CODE 产物读取与契约校验；分析方法仍由沙箱代码实现。
 
 import {
   ANALYSIS_RESULT_FILE,
+  summarizeAnalysisReport,
   summarizeAnalysisResult,
   validateAnalysisResult,
 } from './analysisContract.js';
@@ -23,6 +15,8 @@ function fail(code, message) {
     valid: false,
     issues: [{ code, level: 'error', message }],
     claims: [],
+    normalized: null,
+    report: '',
     summary: '',
   };
 }
@@ -36,7 +30,7 @@ function findAnalysisOutput(outputs) {
 
 // outputs 里没有契约产物时返回 null：表示"本轮没有可校验的分析结果"，
 // 与"有产物但校验不通过"是两回事，调用方据此区分是否要告警。
-function validateAnalysisContent(content) {
+function validateAnalysisContent(content, { requireReport = false } = {}) {
   if (!content) {
     return fail(
       'ANALYSIS-UNREADABLE',
@@ -52,22 +46,33 @@ function validateAnalysisContent(content) {
       `${ANALYSIS_RESULT_FILE} 不是合法 JSON：${error.message}`,
     );
   }
-  const validation = validateAnalysisResult(payload);
+  const validation = validateAnalysisResult(payload, { requireReport });
   return {
     file: ANALYSIS_RESULT_FILE,
     valid: validation.valid,
     issues: validation.issues,
     claims: validation.claims,
+    normalized: validation.normalized,
+    report: validation.valid ? summarizeAnalysisReport(validation) : '',
     summary: validation.valid ? summarizeAnalysisResult(validation) : '',
   };
 }
 
-export function validateAnalysisOutputs({ workspace, outputs }) {
+export function validateAnalysisOutputs({ workspace, outputs, userId = undefined,
+  requireReport = false }) {
   const target = findAnalysisOutput(outputs);
-  return target ? validateAnalysisContent(readArtifactText(workspace, target.artifactId)) : null;
+  return target
+    ? validateAnalysisContent(readArtifactText(workspace, target.artifactId, userId), { requireReport })
+    : null;
 }
 
-export async function validateAnalysisOutputsAsync({ workspace, outputs }) {
+export async function validateAnalysisOutputsAsync({ workspace, outputs, userId = undefined,
+  requireReport = false }) {
   const target = findAnalysisOutput(outputs);
-  return target ? validateAnalysisContent(await readArtifactTextAsync(workspace, target.artifactId)) : null;
+  return target
+    ? validateAnalysisContent(
+      await readArtifactTextAsync(workspace, target.artifactId, userId),
+      { requireReport },
+    )
+    : null;
 }

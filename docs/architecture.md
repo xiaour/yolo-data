@@ -72,7 +72,7 @@ YOLO 是面向企业经营分析场景的智能问数平台，核心目标不是
 
 - 用户、主题、智能体和数据权限管理。
 - 本地指标目录 指标目录、指标详情和指标聚合查询的适配。
-- DeepSeek/OpenAI-compatible Harness 的工具调用编排。
+- Responses API Harness 的工具调用编排。
 - 多轮会话记忆、查询契约、查询计划、结果稳定化和工作区产物。
 - Doris/MySQL 兼容数据源的注册、字段语义、只读查询和审计。
 - 图表推荐、前端展示、反馈闭环和质量运营。
@@ -128,7 +128,7 @@ flowchart LR
   AGENT --> SANDBOX["代码分析沙箱"]
   AGENT --> EVAL["评测与回归"]
 
-  HARNESS --> LLM["DeepSeek / OpenAI-compatible"]
+  HARNESS --> LLM["Responses API compatible"]
   SOURCES --> EXTERNAL["本地指标目录 / Doris / MySQL / PostgreSQL"]
 
   API --> DB["SQLite 平台库"]
@@ -201,7 +201,7 @@ flowchart LR
   BROWSER["浏览器"] -->|HTTP / NDJSON| NODE["YOLO Node.js Process"]
   NODE -->|实时指标目录和查询| S2["本地指标目录"]
   NODE -->|只读 SELECT| DS["Doris / MySQL"]
-  NODE -->|OpenAI-compatible Tool Calling| LLM["DeepSeek"]
+  NODE -->|Responses API function calling| LLM["Compatible model"]
   NODE -->|节点本地| SQLITE["data/platform.db"]
   NODE -->|数据源密钥| KEY["data/.datasource-key"]
 ```
@@ -218,7 +218,7 @@ flowchart LR
 | `src/application.js` | 依赖装配、运行时初始化、本地指标目录 健康检查和数据集引导 |
 | `src/agent.js` | Agent 主流程、工具协议、指标/数据集执行、结果锁和审计落库 |
 | `src/workflow.js` | 标准 DataAgent 十三阶段工作流和阶段事件 |
-| `src/harness.js` | DeepSeek/OpenAI-compatible 工具调用与本地规则降级 |
+| `src/harness.js` | Responses API 工具调用与本地规则降级 |
 | `src/queryContractCompiler.js` | 条件账本、字段绑定、时间门禁和业务规则溯源 |
 | `src/queryContract.js` | 查询契约、稳定排序、指纹、Hash、确定性摘要和展示格式 |
 | `src/querySemantics.js` | LIKE 包含语义、行级过滤与聚合过滤作用域解析 |

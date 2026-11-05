@@ -1035,22 +1035,6 @@ export class BusinessDatasetService {
             policyValueMap: definition.policyValueMap ?? {},
           },
         });
-      } else {
-        dataset = await this.database.saveBusinessDatasetAsync({
-          ...dataset,
-          config: {
-            ...dataset.config,
-            readonly: true,
-            maxRows: 1000,
-            queryTimeoutMs: 20_000,
-            requireDateRange: definition.requireDateRange,
-            autoLatestDateRange: definition.autoLatestDateRange,
-            autoRangeDays: definition.autoRangeDays,
-            policyFieldMap: definition.policyFieldMap ?? {},
-            policyValueMap: definition.policyValueMap ?? {},
-          },
-        }, dataset.id);
-        await this.syncDatasetFields(dataset.id);
       }
       created.push(this.getDataset(dataset.id));
     }

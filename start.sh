@@ -44,9 +44,14 @@ venv_python="$PROJECT_ROOT/.venv/bin/python"
 if [[ -x "$venv_python" ]] && "$venv_python" -c 'import pandas, openpyxl' >/dev/null 2>&1; then
   python_ready=true
 fi
+codex_ready=false
+codex_bin="$PROJECT_ROOT/node_modules/.bin/codex"
+if [[ -x "$codex_bin" ]] && "$codex_bin" --version >/dev/null 2>&1; then
+  codex_ready=true
+fi
 
 # 初始化状态只在这里分支一次：就绪时跳过，否则初始化后继续启动。
-if [[ "$node_ready" == true && "$python_ready" == true ]]; then
+if [[ "$node_ready" == true && "$python_ready" == true && "$codex_ready" == true ]]; then
   echo "项目已初始化，跳过依赖安装。"
 else
   echo "首次启动或检测到运行环境未就绪，需要初始化。"

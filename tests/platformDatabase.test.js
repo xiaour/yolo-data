@@ -67,6 +67,23 @@ test('SQLite platform database exposes the async query/execute/transaction contr
   }
 });
 
+test('chat sessions persist the Codex thread mapping', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'platform-codex-thread-'));
+  const database = new PlatformDatabase(path.join(directory, 'platform.db'));
+  try {
+    const user = database.listUsers()[0];
+    const theme = database.listThemes()[0];
+    const session = database.createChatSession({ userId: user.id, themeId: theme.id });
+    assert.equal(session.codexThreadId, null);
+    const updated = database.updateChatSession(session.id, { codexThreadId: 'thread-123' });
+    assert.equal(updated.codexThreadId, 'thread-123');
+    assert.equal(database.listChatSessions(user.id)[0].codexThreadId, 'thread-123');
+  } finally {
+    await database.closeAsync();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('native node:sqlite store implements the shared async query and transaction contract', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'platform-knex-sqlite-'));
   const store = createKnexPlatformStore({ backend: 'sqlite', path: path.join(directory, 'platform.db') });
@@ -143,9 +160,8 @@ test('configured MySQL backend connects and executes its selected init script', 
   assert.deepEqual(calls, [
     ['connect', 'mysql-test'],
     ['initialize', 'config/platform/mysql-init.sql'],
+    ['query', 'SELECT `key` FROM platform_settings WHERE `key` = ?'],
     ['query', 'SELECT COUNT(*) AS count FROM app_users'],
-    ['query', 'SELECT COUNT(*) AS count FROM themes'],
-    ['query', 'SELECT COUNT(*) AS count FROM user_theme_grants'],
   ]);
   const savedMessage = await initialized.database.appendChatMessageAsync({ sessionId: 7, userId: 3, role: 'user', content: 'question' });
   assert.equal(savedMessage.id, calls.length - 1);

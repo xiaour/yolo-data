@@ -209,6 +209,7 @@ export function registerUserRoutes(table) {
         models: models.map(toPublicModel),
         indicatorTypes,
         health,
+        compute: health.compute,
       });
     },
   });

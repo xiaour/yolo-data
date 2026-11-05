@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { createApplication } from '../src/application.js';
 import { createAgentApplication } from './fixtures/agentDataset.js';
+import { responsesText } from './fixtures/responsesApi.js';
 
 function testConfig() {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'metric-ask-agent-'));
@@ -166,6 +167,7 @@ test('configured model is seeded, available to initialized themes, and resolved 
     maxTokens: 2048,
     timeoutMs: 12_000,
     maxToolRounds: 5,
+    isDefaultConfModel: true,
   });
 });
 
@@ -408,6 +410,14 @@ test('agent emits auditable runtime events while answering', async () => {
     events.find((event) => event.type === 'done').messageId,
     answer.messageId,
   );
+  assert.ok(answer.executionTimeline.length > 0);
+  assert.deepEqual(
+    events.find((event) => event.type === 'result').executionTimeline,
+    answer.executionTimeline,
+  );
+  const storedAssistant = (await application.agent.listMessagesAsync(answer.sessionId, user.id))
+    .find((message) => message.id === answer.messageId);
+  assert.deepEqual(storedAssistant.result.executionTimeline, answer.executionTimeline);
 });
 
 test('local catalog health and agent execution agree without remote configuration', async () => {
@@ -474,10 +484,7 @@ test('agent reuses identical snapshots but preserves distinct query results', as
       model: 'test-model',
       provider: 'test-provider',
       capabilities: {},
-      chat: async () => ({
-        choices: [{
-          message: {
-            content: JSON.stringify({
+      chat: async () => responsesText(JSON.stringify({
               fields: {
                 sales_amount: {
                   type: 'amount',
@@ -496,10 +503,7 @@ test('agent reuses identical snapshots but preserves distinct query results', as
                   basis: 'THEME_PROMPT',
                 },
               },
-            }),
-          },
-        }],
-      }),
+      })),
       run: async ({ executeTool }) => {
         const datasetId = application.testDataset.id;
         await executeTool('get_business_dataset_definition', { datasetId });
@@ -624,6 +628,106 @@ test('contract compilation auto-loads dataset metadata before execution', async 
   );
   assert.ok(
     answer.processSteps.some((item) => item.name === 'execute_query_contract'),
+  );
+});
+
+test('analysis report continues after query lock and the validated report wins final composition', async () => {
+  const application = await createAgentApplication(testConfig());
+  await application.init();
+  const user = application.database.getUserByUsername('east_manager');
+  const theme = application.database.listThemes().find((item) => item.name === '经营总览');
+  let queryResult = null;
+  let analysisInputArtifactIds = [];
+
+  application.codeExecution.run = async ({ workspaceId, sessionId, inputArtifactIds }) => {
+    analysisInputArtifactIds = inputArtifactIds;
+    const content = JSON.stringify({
+      version: 2,
+      kind: 'DIAGNOSTIC_REPORT',
+      metric: { label: '销售额', unit: '元', isRate: false },
+      totals: { base: 0, current: 0, delta: 0 },
+      rows: [
+        { key: '华东', label: '华东', current: 721, delta: 0, contribution: 0 },
+      ],
+      claims: [],
+      executiveSummary: '华东是当前结果中可优先核查的区域。',
+      findings: [{
+        id: 'f1', title: '华东需要进一步诊断',
+        statement: '当前快照显示华东销售额，需要结合历史期继续判断变化。',
+        evidenceRefs: ['row:华东'], status: 'CONDITIONAL', confidence: 'MEDIUM',
+      }],
+      opportunities: [{
+        id: 'o1', title: '补充历史期后验证区域机会',
+        rationale: '单期快照不能证明增长机会。', action: '补充同比快照并核查渠道结构。',
+        evidenceRefs: [], status: 'HYPOTHESIS', confidence: 'LOW',
+      }],
+      limitations: ['当前测试快照只有单期数据，不能形成因果判断。'],
+    });
+    const artifact = application.workspace.createFileArtifact({
+      workspaceId,
+      userId: user.id,
+      sessionId,
+      title: 'analysis.json',
+      content,
+      format: 'json',
+      mimeType: 'application/json; charset=utf-8',
+      purpose: 'test analysis',
+      source: { type: 'ANALYSIS_TEST' },
+    });
+    return {
+      runId: 'test-analysis-run', codeArtifactId: null, success: true, exitCode: 0,
+      timedOut: false, durationMs: 1, stdout: '', stderr: '', inputArtifacts: [],
+      outputs: [{ artifactId: artifact.id, fileName: 'analysis.json', format: 'json', size: content.length }],
+    };
+  };
+  application.agent.harnessFactory = {
+    forTheme: () => ({
+      mode: 'test-analysis-agent', model: 'test-model', capabilities: {},
+      run: async ({ executeTool }) => {
+        const datasetId = application.testDataset.id;
+        await executeTool('get_business_dataset_definition', { datasetId });
+        const compiled = await executeTool('compile_query_contract', {
+          sourceType: 'BUSINESS_DATASET', datasetId,
+          conditions: [
+            { id: 'dimension', sourceText: '区域', kind: 'DIMENSION', status: 'RESOLVED' },
+            { id: 'metric', sourceText: '销售额', kind: 'METRIC', status: 'RESOLVED' },
+            { id: 'report', sourceText: '分析报告', kind: 'RESULT_ACTION', status: 'RESOLVED' },
+          ],
+          metricFields: [{
+            field: 'sales_amount', sourceText: '销售额', aggregator: 'SUM', conditionIds: ['metric'],
+          }],
+          dimensionFields: [{ field: 'region', sourceText: '区域', conditionIds: ['dimension'] }],
+          filterFields: [], limit: 200,
+        });
+        assert.equal(compiled.valid, true, JSON.stringify(compiled.issues));
+        queryResult = await executeTool('execute_query_contract', { contractId: compiled.contractId });
+        assert.equal(queryResult.stopAgent, false);
+        assert.equal(queryResult.analysisRequired, true);
+        await executeTool('execute_analysis_code', {
+          language: 'python', code: 'print("test")',
+          inputArtifactIds: [queryResult.workspaceArtifactId],
+          outputFiles: ['analysis.json'], purpose: '生成区域分析报告',
+        });
+        return { content: '这段模型自由文本不应覆盖已验证报告。', trace: [] };
+      },
+    }),
+  };
+
+  const answer = await application.agent.answer({
+    userId: user.id,
+    themeId: theme.id,
+    question: '各区域销售额分析报告',
+  });
+
+  assert.deepEqual(analysisInputArtifactIds, [queryResult.workspaceArtifactId]);
+  assert.equal(answer.analysisRequest.taskKind, 'ANALYSIS');
+  assert.ok(answer.analysisReport);
+  assert.match(answer.message, /华东是当前结果中可优先核查的区域/);
+  assert.match(answer.message, /补充历史期后验证区域机会/);
+  assert.doesNotMatch(answer.message, /模型自由文本/);
+  assert.equal(
+    answer.workflow.stages.find((stage) => stage.code === 'ANALYSIS_CODE').status,
+    'SUCCESS',
   );
 });
 

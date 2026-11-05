@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { responsesText } from './fixtures/responsesApi.js';
 import { PlatformDatabase } from '../src/database.js';
 import { SessionMemoryStore } from '../src/memory.js';
 import {
@@ -226,7 +227,7 @@ test('distiller prefers model output and still keeps explicit remembers', async 
     '不是 JSON',
   ];
   const harness = {
-    chat: async () => ({ choices: [{ message: { content: payloads.shift() } }] }),
+    chat: async () => responsesText(payloads.shift()),
   };
   const distiller = new UserMemoryDistiller({ store: userMemories, resolveHarness: () => harness });
 
@@ -250,17 +251,11 @@ test('consolidation rewrites the handbook, marks notes merged and stays idempote
   userMemories.createNote({ userId: admin.id, themeId: theme.id, kind: 'TIME_RANGE', content: '默认看最近 30 天' });
 
   const harness = {
-    chat: async () => ({
-      choices: [{
-        message: {
-          content: JSON.stringify({
+    chat: async () => responsesText(JSON.stringify({
             changed: true,
             summary: '覆盖含税口径与默认时间范围',
             content: '## 口径偏好\n- 默认含税口径\n\n## 时间习惯\n- 默认看最近 30 天',
-          }),
-        },
-      }],
-    }),
+    })),
   };
   const distiller = new UserMemoryDistiller({ store: userMemories, resolveHarness: () => harness });
   const result = await distiller.consolidate({ userId: admin.id, themeId: theme.id });
@@ -277,7 +272,7 @@ test('consolidation rewrites the handbook, marks notes merged and stays idempote
   assert.equal(userMemories.getDocument(result.document.id).version, 1, '无待合并笔记时不产生新版本');
 
   userMemories.createNote({ userId: admin.id, themeId: theme.id, kind: 'TERM', content: '已被记住的术语' });
-  const noopHarness = { chat: async () => ({ choices: [{ message: { content: '{"changed": false}' } }] }) };
+  const noopHarness = { chat: async () => responsesText('{"changed": false}') };
   const noop = await new UserMemoryDistiller({ store: userMemories, resolveHarness: () => noopHarness })
     .consolidate({ userId: admin.id, themeId: theme.id, force: true });
   assert.equal(noop.reason, 'NO_MEANINGFUL_CHANGE');
@@ -508,18 +503,12 @@ test('auto compaction shortens an over-budget handbook and keeps a rollback vers
 
   const compressedBody = `## 口径偏好\n${'- 默认按含税口径看销售额\n'.repeat(250)}`;
   const harness = {
-    chat: async () => ({
-      choices: [{
-        message: {
-          content: JSON.stringify({
+    chat: async () => responsesText(JSON.stringify({
             changed: true,
             summary: '覆盖含税口径',
             content: compressedBody,
             removed: ['重复的口径偏好条目'],
-          }),
-        },
-      }],
-    }),
+    })),
   };
   const distiller = new UserMemoryDistiller({
     store: userMemories, resolveHarness: () => harness,
@@ -556,7 +545,7 @@ test('auto compaction refuses to grow, over-compress or run without a model', as
 
   const distillerFor = (payload) => new UserMemoryDistiller({
     store: userMemories,
-    resolveHarness: () => ({ chat: async () => ({ choices: [{ message: { content: payload } }] }) }),
+    resolveHarness: () => ({ chat: async () => responsesText(payload) }),
   });
 
   const noModel = new UserMemoryDistiller({ store: userMemories });
@@ -590,19 +579,15 @@ test('maintain folds notes in and compresses in one automatic pass', async () =>
   });
   const longBody = `## 口径偏好\n${'- 默认按含税口径看销售额\n'.repeat(600)}`;
   const harness = {
-    chat: async (messages) => ({
-      choices: [{
-        message: {
-          content: messages[0].content.includes('压缩器')
+    chat: async (messages) => responsesText(
+      messages[0].content.includes('压缩器')
             ? JSON.stringify({
               changed: true,
               summary: '覆盖含税口径',
               content: `## 口径偏好\n${'- 默认按含税口径看销售额\n'.repeat(250)}`,
             })
             : JSON.stringify({ changed: true, summary: '覆盖含税口径', content: longBody }),
-        },
-      }],
-    }),
+    ),
   };
   const distiller = new UserMemoryDistiller({ store: userMemories, resolveHarness: () => harness });
 
@@ -629,17 +614,11 @@ test('auto consolidation respects the batch threshold and cooldown', async () =>
       calls += 1;
       const payload = JSON.parse(messages[1].content);
       const lines = (payload.notes ?? []).map((note) => `- ${note.content}`).join('\n');
-      return {
-        choices: [{
-          message: {
-            content: JSON.stringify({
+      return responsesText(JSON.stringify({
               changed: true,
               summary: `覆盖 ${(payload.notes ?? []).length} 条口径`,
               content: `## 口径偏好\n${lines}`,
-            }),
-          },
-        }],
-      };
+      }));
     },
   };
   const distiller = new UserMemoryDistiller({
@@ -690,10 +669,8 @@ test('maintenance sweep walks scopes with pending notes or oversized handbooks',
   assert.equal(userMemories.listMaintenanceTargets({ compactThreshold: 0 })[0].pendingNotes >= 1, true);
 
   const harness = {
-    chat: async (messages) => ({
-      choices: [{
-        message: {
-          content: messages[0].content.includes('压缩器')
+    chat: async (messages) => responsesText(
+      messages[0].content.includes('压缩器')
             ? JSON.stringify({
               changed: true,
               summary: '覆盖含税口径',
@@ -702,9 +679,7 @@ test('maintenance sweep walks scopes with pending notes or oversized handbooks',
             : JSON.stringify({
               changed: true, summary: '覆盖术语', content: '## 术语映射\n- 客户调价指渠道为调价的订单',
             }),
-        },
-      }],
-    }),
+    ),
   };
   const distiller = new UserMemoryDistiller({ store: userMemories, resolveHarness: () => harness });
   const maintenance = startMemoryMaintenance({ distiller, intervalMs: 0 });
