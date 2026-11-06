@@ -10,6 +10,9 @@ export function projectUnderstandingContext(session, rows, memoryMessage) {
       question: message.result?.question ?? String(message.content ?? ''),
       taskState,
       artifactId: message.result?.artifactId ?? null,
+      runtimeMode: message.result?.runtime?.mode ?? null,
+      computeMode: message.result?.runtime?.computeMode ?? null,
+      createdAt: message.createdAt ?? message.created_at ?? null,
       messageId: message.id,
     };
   });

@@ -28,8 +28,9 @@ import { CodeExecutionService } from './codeExecution.js';
 import { UploadService } from './uploads.js';
 import { assertGateCoverage } from './gateRegistry.js';
 import { STAGE_DEFINITIONS } from './workflow.js';
-import { CodexAppServerHarness } from './codexHarness.js';
+import { CodexRuntimePool } from './codexHarness.js';
 import { ComputeModeRouter } from './computeMode.js';
+import { createDistributedLock } from './distributedLock.js';
 
 export async function ensurePlatformMysqlDatasource({ backend, mysql = {}, businessDatasets }) {
   if (String(backend ?? '').toLowerCase() !== 'mysql'
@@ -204,12 +205,13 @@ export async function createApplication(config = loadConfig()) {
   if (codexConfig.enabled) {
     fs.mkdirSync(codexConfig.workingDirectory, { recursive: true });
   }
-  const codexHarness = new CodexAppServerHarness(codexConfig);
-  await codexHarness.initialize();
+  const codexRuntimePool = new CodexRuntimePool(codexConfig, {
+    onCall: (entry) => llmAudit.record(entry),
+  });
   const computeModeRouter = new ComputeModeRouter({
-    codexHarness,
     defaultMode: config.agentRuntime?.defaultMode,
   });
+  const sessionLock = createDistributedLock({ database });
   const userMemories = new UserMemoryStore(database);
   const memory = new SessionMemoryStore(database, {
     contextLimit: config.chatMemoryMessageLimit,
@@ -246,6 +248,8 @@ export async function createApplication(config = loadConfig()) {
     config,
     indicatorService,
     computeModeRouter,
+    codexRuntimePool,
+    sessionLock,
   });
   // 长期记忆沉淀依赖主题可用模型：有 key 时用模型提炼并压缩，否则只沉淀用户显式要求记住的内容。
   const userMemoryConfig = config.userMemory ?? {};
@@ -409,7 +413,7 @@ export async function createApplication(config = loadConfig()) {
       compute: {
         defaultMode: config.agentRuntime?.defaultMode ?? 'auto',
         codexEnabled: Boolean(config.agentRuntime?.codex?.enabled),
-        codexAvailable: computeModeRouter.codexAvailable(),
+        codexAvailable: codexRuntimePool.isAvailable(),
         modes: ['fast', 'auto', 'deep'],
       },
       skills: {
@@ -468,7 +472,8 @@ export async function createApplication(config = loadConfig()) {
     uploads,
     indicatorService,
     harnessFactory,
-    codexHarness,
+    codexRuntimePool,
+    sessionLock,
     computeModeRouter,
     agent,
     runtime,

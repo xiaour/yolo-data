@@ -8,7 +8,7 @@ YOLO Data is a self-service analytics platform for business teams. Users can ask
 
 It brings language models, metric definitions, business datasets, data permissions, conversation memory, workspace artifacts, feedback, and audit records into a governed analytics workflow.
 
-YOLO deeply integrates the open-source Codex Runtime as the execution foundation for complex questions. Low-latency queries keep the fast path, while YOLO automatically routes complex analysis to Codex for persistent threads, task planning, tool orchestration, multi-step execution, and recovery. This embedded runtime does not require a personal Codex login. Model calls use the Responses API throughout.
+YOLO deeply integrates the open-source Codex Runtime as the execution foundation for complex questions. Low-latency queries keep the fast path, while YOLO automatically routes complex analysis to Codex for persistent planning state, task planning, tool orchestration, multi-step execution, and recovery. The YOLO session remains the sole context authority, so Codex threads never inherit business conditions on their own. This embedded runtime does not require a personal Codex login. Model calls use the Responses API throughout.
 
 ## How It Differs from a General-Purpose Agent
 
@@ -67,7 +67,7 @@ YOLO Data is not intended to replace general agents for every task. It provides 
   - Administrators can upload, enable, disable, delete, and inspect shared Skills.
   - Supports pre-planning audits, planning constraints, and post-execution validation.
 - **Observability**
-  - A 14-stage DataAgent workflow including `REFLECT` and bounded strategy replanning.
+  - A runtime-driven projection over 14 standard workflow stages, including `REFLECT` and bounded strategy replanning; unused stages are not displayed.
   - Streaming execution events, tool calls, query plans, LLM token usage, feedback, and knowledge gaps.
 - **MCP integration**
   - Exposes `list_metrics`, `get_policy`, `get_snapshot`, `resolve_query`, and `execute_query` over Streamable HTTP at `/mcp`.

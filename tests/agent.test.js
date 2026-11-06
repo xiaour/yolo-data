@@ -43,7 +43,11 @@ test('agent answer enforces user row policy during business dataset execution', 
   assert.ok(answer.processSteps.at(-1).title === '生成业务回答');
   assert.equal(answer.semanticParse.status, 'VALIDATED');
   assert.equal(answer.workflow.status, 'COMPLETED');
-  assert.equal(answer.workflow.progress.total, 14);
+  assert.equal(answer.runtime.computeMode, 'fast');
+  assert.equal(answer.runtime.routingReason, 'simple_query');
+  assert.equal(answer.workflow.progress.total, answer.workflow.stages.length);
+  assert.ok(answer.workflow.progress.total > 0);
+  assert.ok(answer.workflow.stages.every((stage) => stage.status !== 'PENDING'));
   for (const stage of answer.workflow.stages.filter((item) => item.status === 'SUCCESS')) {
     assert.ok(stage.startedAt);
     assert.ok(stage.finishedAt);

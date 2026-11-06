@@ -14,14 +14,12 @@ export function normalizeComputeMode(value, fallback = COMPUTE_MODES.AUTO) {
   return Object.values(COMPUTE_MODES).includes(normalized) ? normalized : fallback;
 }
 
-function needsDeepAnalysis({ question, analysisRequest, analysisMode, conversationContext, codexThreadId }) {
-  if (String(codexThreadId ?? '').trim()) return 'durable_codex_session';
+function needsDeepAnalysis({ question, analysisRequest, analysisMode }) {
   if (analysisRequest?.taskKind === 'ANALYSIS') return 'analysis_task';
   if (analysisMode?.mode === 'ATTRIBUTION') return 'attribution';
   if (DEEP_ANALYSIS_TERMS.some((term) => String(question ?? '').includes(term))) {
     return 'complex_analysis_language';
   }
-  if (conversationContext?.mode === 'FOLLOW_UP') return 'multi_turn_context';
   return '';
 }
 
@@ -31,20 +29,20 @@ export class ComputeModeRouter {
     this.defaultMode = normalizeComputeMode(defaultMode);
   }
 
-  codexAvailable() {
-    return Boolean(this.codexHarness?.isAvailable?.());
+  codexAvailable(harness = this.codexHarness) {
+    return Boolean(harness?.isAvailable?.());
   }
 
-  select({ requestedMode, fastHarness, question, analysisRequest, analysisMode, conversationContext, codexThreadId }) {
+  select({ requestedMode, fastHarness, codexHarness = this.codexHarness, question, analysisRequest, analysisMode }) {
     // Runtime choice is owned by YOLO. Keep accepting the legacy request field
     // during rollout, but never allow a client preference to override routing.
     normalizeComputeMode(requestedMode, this.defaultMode);
     const requested = COMPUTE_MODES.AUTO;
     const deepReason = needsDeepAnalysis({
-      question, analysisRequest, analysisMode, conversationContext, codexThreadId,
+      question, analysisRequest, analysisMode,
     });
-    if (deepReason && this.codexAvailable()) {
-      return { requested, resolved: COMPUTE_MODES.DEEP, reason: deepReason, harness: this.codexHarness };
+    if (deepReason && this.codexAvailable(codexHarness)) {
+      return { requested, resolved: COMPUTE_MODES.DEEP, reason: deepReason, harness: codexHarness };
     }
     return {
       requested,

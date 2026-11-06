@@ -268,6 +268,10 @@ export class CodexAppServerClient {
   handleNotification(method, params) {
     const context = this.turns.get(String(params?.turnId ?? params?.turn?.id ?? ''));
     if (!context) return;
+    if (method === 'thread/tokenUsage/updated') {
+      context.usage = params.tokenUsage ?? context.usage;
+      return;
+    }
     if (method === 'turn/plan/updated') {
       context.onEvent?.({
         type: 'codex_plan_updated',
@@ -319,6 +323,8 @@ export class CodexAppServerClient {
       threadId: context.threadId,
       turnId: params.turn?.id,
       status: params.turn?.status,
+      usage: context.usage,
+      durationMs: Math.max(0, Date.now() - context.startedAt),
     });
   }
 
@@ -382,7 +388,7 @@ export class CodexAppServerClient {
       };
       this.turns.set(String(turnId), {
         threadId, executeTool, onEvent, resolve, reject, cleanup, content: '', trace: [],
-        itemStartedAt: new Map(),
+        itemStartedAt: new Map(), usage: null, startedAt: Date.now(),
       });
       signal?.addEventListener?.('abort', abort, { once: true });
       if (signal?.aborted) abort();

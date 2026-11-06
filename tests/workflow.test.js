@@ -43,3 +43,23 @@ test('workflow stage duration is measured from its explicit start', async () => 
   assert.ok(stage.durationMs >= 10);
   assert.ok(new Date(stage.finishedAt).getTime() > new Date(stage.startedAt).getTime());
 });
+
+test('workflow projects only stages selected by the runtime', () => {
+  const workflow = new DataAgentWorkflow({
+    question: '上个月销售额是多少',
+    user: { id: 1, username: 'tester', displayName: '测试用户' },
+    theme: { id: 1, name: '经营总览' },
+    runtime: 'fast',
+  });
+  workflow.start('INTENT', '理解问题');
+  workflow.complete('INTENT', { summary: '简单问数' });
+  workflow.start('EXECUTE', '执行确定性查询');
+  workflow.complete('EXECUTE', { summary: '查询完成' });
+  workflow.finish('完成');
+
+  const projection = workflow.toJSON();
+  assert.equal(projection.runtime, 'fast');
+  assert.deepEqual(projection.stages.map((stage) => stage.code), ['INTENT', 'EXECUTE']);
+  assert.deepEqual(projection.progress, { completed: 2, total: 2, percent: 100 });
+  assert.equal(projection.stages.some((stage) => stage.code === 'PLAN'), false);
+});

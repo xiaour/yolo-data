@@ -234,6 +234,7 @@ export function attachAsyncRepositories(store) {
   store.getChatSessionAsync = async (id, userId = null) => {
     const [row] = await store.query(`SELECT s.id, s.user_id AS userId, s.theme_id AS themeId,
       t.name AS themeName, s.title, s.model_id AS modelId, s.codex_thread_id AS codexThreadId,
+      s.codex_context_version AS codexContextVersion,
       s.summary, s.status,
       s.created_at AS createdAt, s.updated_at AS updatedAt,
       (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id=s.id) AS messageCount
@@ -243,7 +244,8 @@ export function attachAsyncRepositories(store) {
   };
   store.listChatSessionsAsync = async (userId, limit = 100) => store.query(`SELECT s.id,
     s.user_id AS userId, s.theme_id AS themeId, t.name AS themeName, s.title,
-    s.model_id AS modelId, s.codex_thread_id AS codexThreadId, s.summary, s.status,
+    s.model_id AS modelId, s.codex_thread_id AS codexThreadId,
+    s.codex_context_version AS codexContextVersion, s.summary, s.status,
     s.created_at AS createdAt, s.updated_at AS updatedAt,
     (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id=s.id) AS messageCount
     FROM chat_sessions s JOIN themes t ON t.id=s.theme_id WHERE s.user_id=? AND s.status=1
@@ -251,12 +253,13 @@ export function attachAsyncRepositories(store) {
   store.updateChatSessionAsync = async (id, patch = {}) => {
     const current = await store.getChatSessionAsync(id);
     if (!current) return null;
-    await store.execute(`UPDATE chat_sessions SET title=?, summary=?, status=?, model_id=COALESCE(?, model_id), codex_thread_id=?, updated_at=? WHERE id=?`, [
+    await store.execute(`UPDATE chat_sessions SET title=?, summary=?, status=?, model_id=COALESCE(?, model_id), codex_thread_id=?, codex_context_version=?, updated_at=? WHERE id=?`, [
       patch.title === undefined ? current.title : String(patch.title).trim(),
       patch.summary === undefined ? current.summary : String(patch.summary),
       patch.status === undefined ? current.status : Number(patch.status),
       patch.modelId === undefined ? null : (patch.modelId ? Number(patch.modelId) : null),
       patch.codexThreadId === undefined ? current.codexThreadId ?? null : (String(patch.codexThreadId ?? '').trim() || null),
+      patch.codexContextVersion === undefined ? current.codexContextVersion ?? null : (String(patch.codexContextVersion ?? '').trim() || null),
       new Date().toISOString(), Number(id),
     ]);
     return store.getChatSessionAsync(id);

@@ -67,6 +67,12 @@ import {
 } from './conversationDirectives.js';
 import { resolveMemoryPreInject } from './memoryRetrieval.js';
 import {
+  createCapabilityVersion,
+  createContextEnvelope,
+  requiresCodexThreadReset,
+} from './contextEnvelope.js';
+import { withSessionExecutionLock } from './sessionExecutionLock.js';
+import {
   TURN_TYPES,
   completeTaskState,
   publicContextDecision,
@@ -1471,6 +1477,8 @@ export class MetricAgentService {
     config,
     indicatorService,
     computeModeRouter = null,
+    codexRuntimePool = null,
+    sessionLock = null,
   }) {
     this.database = database;
     this.config = config;
@@ -1479,6 +1487,8 @@ export class MetricAgentService {
     this.harness = harness;
     this.harnessFactory = harnessFactory;
     this.computeModeRouter = computeModeRouter;
+    this.codexRuntimePool = codexRuntimePool;
+    this.sessionLock = sessionLock;
     this.memory = memory;
     this.userMemories = userMemories;
     this.skillRegistry = skillRegistry;
@@ -2212,14 +2222,19 @@ export class MetricAgentService {
       }
     }
     this.requireEnabledTheme(theme);
-    const fastHarness = this.harnessFactory
-      ? this.harnessFactory.forTheme(
-        await this.resolveThemeModel(
-          theme,
-          session.modelId ?? modelId,
-        ),
-      )
-      : this.harness;
+    const themeModel = await this.resolveThemeModel(
+      theme,
+      session.modelId ?? modelId,
+    );
+    const resolvedThemeModel = this.harnessFactory?.resolveThemeConfig
+      ? this.harnessFactory.resolveThemeConfig(themeModel)
+      : themeModel;
+    const fastHarness = this.harnessFactory?.forResolvedConfig
+      ? this.harnessFactory.forResolvedConfig(resolvedThemeModel)
+      : this.harnessFactory?.forTheme
+        ? this.harnessFactory.forTheme(themeModel)
+        : this.harness;
+    const codexHarness = this.codexRuntimePool?.forTheme(resolvedThemeModel) ?? null;
     const memoryPreInject = await resolveMemoryPreInject({
       config: this.config,
       userMemories: this.userMemories,
@@ -2228,6 +2243,7 @@ export class MetricAgentService {
       question: normalizedQuestion,
     });
     const {
+      understanding,
       history,
       conversationContext,
       executionContext,
@@ -2261,16 +2277,57 @@ export class MetricAgentService {
       ? this.computeModeRouter.select({
         requestedMode: computeMode,
         fastHarness,
+        codexHarness,
         question: resolvedQuestion,
         analysisRequest,
         analysisMode,
-        conversationContext,
-        codexThreadId: session.codexThreadId,
       })
       : {
         requested: 'fast', resolved: 'fast', reason: 'legacy_runtime', harness: fastHarness,
       };
     const activeHarness = runtimeDecision.harness;
+    const capabilityVersion = createCapabilityVersion({
+      themeId: theme.id,
+      themePrompt: theme.systemPrompt ?? '',
+      semanticPolicy: theme.semanticPolicy ?? null,
+      model: {
+        provider: resolvedThemeModel?.provider ?? '',
+        baseUrl: resolvedThemeModel?.baseUrl ?? '',
+        model: resolvedThemeModel?.model ?? '',
+      },
+      skills: skills.map((skill) => ({ code: skill.code, version: skill.version ?? null, status: skill.status })),
+      datasets: businessDatasets.map((dataset) => dataset.id),
+      scope: {
+        indicators: scope.allowedIndicatorIds,
+        dimensions: scope.allowedDimensions,
+        rowPolicies: scope.rowPolicies,
+        columnPolicies: scope.columnPolicies,
+      },
+    });
+    if (
+      activeHarness?.mode === 'codex'
+      && requiresCodexThreadReset(session, capabilityVersion)
+    ) {
+      session = await callPlatformDatabase(
+        this.database,
+        'updateChatSessionAsync',
+        'updateChatSession',
+        session.id,
+        { codexThreadId: null, codexContextVersion: capabilityVersion },
+      ) ?? { ...session, codexThreadId: null, codexContextVersion: capabilityVersion };
+    }
+    const contextEnvelope = createContextEnvelope({
+      session,
+      theme,
+      question: normalizedQuestion,
+      resolvedQuestion,
+      conversationContext,
+      executionContext,
+      historyTurns: understanding?.turns ?? [],
+      memoryText: memoryPreInject,
+      runtimeDecision,
+      capabilityVersion,
+    });
     const localIndicatorMode = true;
     const clarificationPolicy = resolveClarificationPolicy(
       conversationContext.mode === 'FOLLOW_UP' ? history : [],
@@ -2281,12 +2338,12 @@ export class MetricAgentService {
       type: 'runtime_selected',
       runtime: {
         mode: activeHarness.mode ?? 'unknown',
+        computeMode: runtimeDecision.resolved,
+        reason: runtimeDecision.reason,
         model: activeHarness.model ?? null,
         provider: activeHarness.provider ?? activeHarness.mode ?? 'unknown',
         configured: activeHarness.mode !== 'local-rule',
-        computeMode: runtimeDecision.resolved,
         requestedComputeMode: runtimeDecision.requested,
-        reason: runtimeDecision.reason,
       },
       source: {
         mode: 'local',
@@ -2353,6 +2410,7 @@ export class MetricAgentService {
       question: normalizedQuestion,
       user,
       theme,
+      runtime: runtimeDecision.resolved,
       onEvent: emit,
     });
     if (!suppressUserMessage) {
@@ -4361,6 +4419,7 @@ export class MetricAgentService {
     };
 
     const compileQueryContract = async (args, options = {}) => {
+      activatePlanningSkills();
       startWorkflowStage('PLAN', '编译查询契约');
       const sourceType = String(args.sourceType ?? '').toUpperCase();
       if (localIndicatorMode && sourceType === 'INDICATOR') {
@@ -4829,8 +4888,11 @@ export class MetricAgentService {
       businessDatasets,
       primaryBusinessDatasetId,
     }) ?? null);
-    if (skillAudit?.skillCount > 0) {
-      startWorkflowStage('SKILL_AUDIT', '执行 Skill 口径审计');
+    let skillAuditRecorded = false;
+    const activatePlanningSkills = () => {
+      if (skillAuditRecorded || !skillAudit?.skillCount) return;
+      skillAuditRecorded = true;
+      startWorkflowStage('SKILL_AUDIT', '执行 Runtime 选择的规划 Skill');
       appendProcessStep({
         id: `step-${processSteps.length + 1}`,
         type: 'skill_audit',
@@ -4839,7 +4901,7 @@ export class MetricAgentService {
         name: 'audit_planning_context',
         skillCode: 'skill_registry',
         skillName: 'Skill Registry',
-        title: '执行 Skill 口径审计',
+        title: '执行规划 Skill',
         detail: `加载 ${skillAudit.skillCount} 个外部 Skill，形成 ${skillAudit.checks.length} 项规划检查`,
         review: {
           facts: [
@@ -4865,16 +4927,13 @@ export class MetricAgentService {
           phase: item.phase,
         })),
       });
-    } else {
-      workflow.skip('SKILL_AUDIT', '当前主题未启用外部审计 Skill');
-    }
+    };
     const skillValidationGuidance = this.skillRegistry?.buildPhaseInstructionsAsync
       ? await this.skillRegistry.buildPhaseInstructionsAsync(skills, 'POST_EXECUTE')
       : this.skillRegistry?.buildPhaseInstructions(skills, 'POST_EXECUTE') ?? [];
     const skillPlanGuidance = this.skillRegistry?.buildPhaseInstructionsAsync
       ? await this.skillRegistry.buildPhaseInstructionsAsync(skills, 'PLAN')
       : this.skillRegistry?.buildPhaseInstructions(skills, 'PLAN') ?? [];
-    const codexOwnsConversationContext = activeHarness.mode === 'codex';
     const systemPrompt = buildSystemPrompt({
       user,
       theme,
@@ -4888,21 +4947,19 @@ export class MetricAgentService {
       businessDatasets,
       localIndicatorMode,
       workspaceArtifacts,
-      contextMode: codexOwnsConversationContext ? 'CODEX_THREAD' : conversationContext.mode,
-      contextReason: codexOwnsConversationContext
-        ? '由当前 YOLO 会话绑定的持久 Codex thread 历史识别任务关系'
-        : conversationContext.reason,
+      contextMode: conversationContext.mode,
+      contextReason: conversationContext.reason,
       inheritQueryContext: conversationContext.inheritQueryContext,
       historyMessageCount: conversationContext.historyMessageCount,
-      taskState: codexOwnsConversationContext ? null : conversationContext.taskState,
-      executionContext: codexOwnsConversationContext ? '' : executionContext.sourceContext,
+      taskState: conversationContext.taskState,
+      executionContext: executionContext.sourceContext,
       analysisMode,
       analysisRequest,
       clarificationPolicy,
       clarificationOptionId,
       reuseArtifactsOnly,
       controlledRequeryAllowed,
-      question: codexOwnsConversationContext ? normalizedQuestion : resolvedQuestion,
+      question: resolvedQuestion,
       replanHint,
       conversationDirectives: sessionDirectives,
     });
@@ -5183,16 +5240,20 @@ export class MetricAgentService {
             originalQuestion: normalizedQuestion,
             replanHint,
             codexThreadId: session.codexThreadId ?? null,
-            codexBootstrapHistory: history,
+            contextEnvelope,
             onCodexThreadReady: async (codexThreadId, { created } = {}) => {
-              if (!created && session.codexThreadId === codexThreadId) return;
+              if (
+                !created
+                && session.codexThreadId === codexThreadId
+                && session.codexContextVersion === capabilityVersion
+              ) return;
               session = await callPlatformDatabase(
                 this.database,
                 'updateChatSessionAsync',
                 'updateChatSession',
                 session.id,
-                { codexThreadId },
-              ) ?? { ...session, codexThreadId };
+                { codexThreadId, codexContextVersion: capabilityVersion },
+              ) ?? { ...session, codexThreadId, codexContextVersion: capabilityVersion };
             },
             sourceMode: localIndicatorMode
               ? this.indicatorService.mode ?? 'unknown'
@@ -5810,6 +5871,8 @@ export class MetricAgentService {
       }),
       runtime: {
         mode: activeHarness.mode ?? 'unknown',
+        computeMode: runtimeDecision.resolved,
+        routingReason: runtimeDecision.reason,
         model: activeHarness.model ?? null,
         sourceMode: localIndicatorMode
           ? this.indicatorService.mode ?? 'unknown'
@@ -6049,6 +6112,15 @@ export class MetricAgentService {
   // reflection.maxReplan. The Judge only drives the replan decision — it never
   // fabricates numbers; results stay on the deterministic query path.
   async answerWithTrace(options = {}, runTraceId = currentTraceId()) {
+    return withSessionExecutionLock({
+      lock: this.sessionLock,
+      sessionId: options.sessionId,
+      owner: runTraceId || createTraceId(),
+      operation: () => this._answerWithTraceUnlocked(options, runTraceId),
+    });
+  }
+
+  async _answerWithTraceUnlocked(options = {}, runTraceId = currentTraceId()) {
     const reflectionEnabled = this.config?.reflection?.enabled !== false;
     const maxReplan = reflectionEnabled
       ? Math.max(0, Number(this.config?.reflection?.maxReplan ?? 2))

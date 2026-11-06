@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
 import { CodexAppServerClient } from '../src/codexAppServerClient.js';
-import { buildCodexRuntime, CodexAppServerHarness } from '../src/codexHarness.js';
+import { buildCodexRuntime, CodexAppServerHarness, CodexRuntimePool } from '../src/codexHarness.js';
 
 function fakeCodexProcess() {
   const child = new EventEmitter();
@@ -186,7 +186,7 @@ test('Codex app-server replaces a persisted thread only when resume reports it m
   );
 });
 
-test('Codex harness seeds YOLO history once and then sends only the current original question', async () => {
+test('Codex harness sends the authoritative YOLO ContextEnvelope on every durable turn', async () => {
   const captured = [];
   const client = {
     runTurn: async (request) => {
@@ -205,10 +205,11 @@ test('Codex harness seeds YOLO history once and then sends only the current orig
     ...base,
     metadata: {
       question: '按省区分组呢',
-      codexBootstrapHistory: [
-        { role: 'user', content: '上个月销售额是多少' },
-        { role: 'assistant', content: '上个月销售额为 100 万元' },
-      ],
+      contextEnvelope: {
+        revision: 'rev-1',
+        turn: { resolvedQuestion: '上个月销售额按省区分组' },
+        fastTurnsSinceLastCodex: [{ role: 'assistant', content: '上个月销售额为 100 万元' }],
+      },
     },
   });
   await harness.run({
@@ -216,15 +217,20 @@ test('Codex harness seeds YOLO history once and then sends only the current orig
     metadata: {
       question: '再看华东地区',
       codexThreadId: 'thread-created',
-      codexBootstrapHistory: [{ role: 'user', content: 'must not be duplicated' }],
+      contextEnvelope: {
+        revision: 'rev-2',
+        turn: { resolvedQuestion: '上个月销售额按省区分组，只看华东地区' },
+        fastTurnsSinceLastCodex: [{ role: 'user', content: '中间 Fast turn' }],
+      },
     },
   });
   const firstInput = captured[0].turnParams.input[0].text;
   const secondInput = captured[1].turnParams.input[0].text;
-  assert.match(firstInput, /上个月销售额是多少/);
-  assert.match(firstInput, /按省区分组呢/);
-  assert.equal(secondInput, '再看华东地区');
-  assert.doesNotMatch(secondInput, /must not be duplicated/);
+  assert.match(firstInput, /YOLO ContextEnvelope/);
+  assert.match(firstInput, /上个月销售额按省区分组/);
+  assert.match(secondInput, /rev-2/);
+  assert.match(secondInput, /中间 Fast turn/);
+  assert.match(secondInput, /只看华东地区/);
   assert.equal(captured[1].threadId, 'thread-created');
 });
 
@@ -274,5 +280,58 @@ test('Codex local provider is available only when its configured model is runnin
   assert.equal(await missingHarness.initialize(), false);
   readyHarness.close();
   missingHarness.close();
+});
+
+test('Codex runtime pool isolates theme models and reuses only identical credentials', () => {
+  const pool = new CodexRuntimePool({ enabled: true, cwd: process.cwd() });
+  try {
+    const first = pool.forTheme({
+      baseUrl: 'https://llm.example/v1', model: 'model-a', apiKey: 'key-a', timeoutMs: 10_000,
+    });
+    const same = pool.forTheme({
+      baseUrl: 'https://llm.example/v1/', model: 'model-a', apiKey: 'key-a', timeoutMs: 10_000,
+    });
+    const otherModel = pool.forTheme({
+      baseUrl: 'https://llm.example/v1', model: 'model-b', apiKey: 'key-a', timeoutMs: 10_000,
+    });
+    const otherCredential = pool.forTheme({
+      baseUrl: 'https://llm.example/v1', model: 'model-a', apiKey: 'key-b', timeoutMs: 10_000,
+    });
+    assert.equal(first, same);
+    assert.notEqual(first, otherModel);
+    assert.notEqual(first, otherCredential);
+    assert.equal(first.model, 'model-a');
+    assert.equal(otherModel.model, 'model-b');
+    assert.equal(pool.cache.size, 3);
+  } finally {
+    pool.close();
+  }
+});
+
+test('Codex harness audits failed runtime turns before rethrowing', async () => {
+  const audits = [];
+  const harness = new CodexAppServerHarness({
+    enabled: true,
+    model: 'model-a',
+    provider: 'custom',
+    providerBaseUrl: 'https://llm.example/v1',
+    providerApiKey: 'key-a',
+    cwd: process.cwd(),
+    client: {
+      runTurn: async () => { throw new Error('upstream denied'); },
+      close() {},
+    },
+    onCall: async (entry) => audits.push(entry),
+  });
+  await assert.rejects(harness.run({
+    messages: [{ role: 'user', content: '分析原因' }],
+    tools: [],
+    executeTool: async () => null,
+    metadata: { sessionId: 9, traceId: 'trace-9', contextEnvelope: {} },
+  }), /upstream denied/);
+  assert.equal(audits.length, 1);
+  assert.equal(audits[0].success, false);
+  assert.equal(audits[0].callType, 'CODEX_RUNTIME_TURN');
+  assert.equal(audits[0].errorMessage, 'upstream denied');
 });
 

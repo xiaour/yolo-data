@@ -19,6 +19,7 @@ function mysqlize(sql) {
     .replace(/\s+ASC\b/gi, ' ASC');
   const tableName = converted.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w]+)/i)?.[1]?.toLowerCase();
   const indexColumnLengths = {
+    chat_sessions: { codex_context_version: 64 },
     semantic_value_domains: { source_type: 64, source_id: 128 },
     theme_semantic_value_domains: { source_type: 64, source_id: 128 },
     semantic_value_snapshots: { source_type: 64, source_id: 128 },

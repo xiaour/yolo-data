@@ -2575,6 +2575,7 @@ export class PlatformDatabase {
       SELECT s.id, s.user_id AS userId, s.theme_id AS themeId,
              t.name AS themeName, s.title, s.model_id AS modelId,
              s.codex_thread_id AS codexThreadId,
+             s.codex_context_version AS codexContextVersion,
              s.summary, s.status,
              s.created_at AS createdAt, s.updated_at AS updatedAt,
              (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) AS messageCount
@@ -2590,6 +2591,7 @@ export class PlatformDatabase {
       SELECT s.id, s.user_id AS userId, s.theme_id AS themeId,
              t.name AS themeName, s.title, s.model_id AS modelId,
              s.codex_thread_id AS codexThreadId,
+             s.codex_context_version AS codexContextVersion,
              s.summary, s.status,
              s.created_at AS createdAt, s.updated_at AS updatedAt,
              (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) AS messageCount
@@ -2601,7 +2603,7 @@ export class PlatformDatabase {
     `).all(Number(userId), Math.max(1, Math.min(Number(limit) || 100, 500)));
   }
 
-  updateChatSession(id, { title, summary, status, modelId, codexThreadId } = {}) {
+  updateChatSession(id, { title, summary, status, modelId, codexThreadId, codexContextVersion } = {}) {
     const current = this.getChatSession(id);
     if (!current) {
       return null;
@@ -2609,7 +2611,7 @@ export class PlatformDatabase {
     this.db.prepare(`
       UPDATE chat_sessions
       SET title = ?, summary = ?, status = ?,
-          model_id = COALESCE(?, model_id), codex_thread_id = ?, updated_at = ?
+          model_id = COALESCE(?, model_id), codex_thread_id = ?, codex_context_version = ?, updated_at = ?
       WHERE id = ?
     `).run(
       title === undefined ? current.title : String(title).trim(),
@@ -2617,6 +2619,7 @@ export class PlatformDatabase {
       status === undefined ? current.status : Number(status),
       modelId === undefined ? null : (modelId ? Number(modelId) : null),
       codexThreadId === undefined ? current.codexThreadId ?? null : (String(codexThreadId ?? '').trim() || null),
+      codexContextVersion === undefined ? current.codexContextVersion ?? null : (String(codexContextVersion ?? '').trim() || null),
       nowIso(),
       Number(id),
     );

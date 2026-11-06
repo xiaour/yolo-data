@@ -67,7 +67,7 @@ test('SQLite platform database exposes the async query/execute/transaction contr
   }
 });
 
-test('chat sessions persist the Codex thread mapping', async () => {
+test('chat sessions persist the Codex thread mapping and context capability version', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'platform-codex-thread-'));
   const database = new PlatformDatabase(path.join(directory, 'platform.db'));
   try {
@@ -75,9 +75,17 @@ test('chat sessions persist the Codex thread mapping', async () => {
     const theme = database.listThemes()[0];
     const session = database.createChatSession({ userId: user.id, themeId: theme.id });
     assert.equal(session.codexThreadId, null);
-    const updated = database.updateChatSession(session.id, { codexThreadId: 'thread-123' });
+    assert.equal(session.codexContextVersion, null);
+    const updated = database.updateChatSession(session.id, {
+      codexThreadId: 'thread-123',
+      codexContextVersion: 'cap-v1',
+    });
     assert.equal(updated.codexThreadId, 'thread-123');
-    assert.equal(database.listChatSessions(user.id)[0].codexThreadId, 'thread-123');
+    assert.equal(updated.codexContextVersion, 'cap-v1');
+    assert.deepEqual(
+      database.listChatSessions(user.id).map((item) => [item.codexThreadId, item.codexContextVersion]),
+      [['thread-123', 'cap-v1']],
+    );
   } finally {
     await database.closeAsync();
     fs.rmSync(directory, { recursive: true, force: true });

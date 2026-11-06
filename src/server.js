@@ -170,7 +170,7 @@ export async function startServer(configOverride) {
     });
   });
   server.once('close', () => {
-    application.codexHarness?.close?.();
+    application.codexRuntimePool?.close?.();
   });
 
   await new Promise((resolve, reject) => {

@@ -56,7 +56,7 @@ test('legacy client mode cannot override automatic routing', () => {
   assert.equal(fastRequest.resolved, 'deep');
 });
 
-test('a session with a persisted Codex thread stays on Codex', () => {
+test('a persisted Codex thread does not force a simple turn into deep mode', () => {
   const router = new ComputeModeRouter({ codexHarness });
   const decision = router.select({
     fastHarness,
@@ -64,7 +64,7 @@ test('a session with a persisted Codex thread stays on Codex', () => {
     conversationContext: { mode: 'NEW_TOPIC' },
     codexThreadId: 'thread-persisted',
   });
-  assert.equal(decision.resolved, 'deep');
-  assert.equal(decision.reason, 'durable_codex_session');
+  assert.equal(decision.resolved, 'fast');
+  assert.equal(decision.reason, 'simple_query');
 });
 

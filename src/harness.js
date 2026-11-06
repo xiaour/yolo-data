@@ -811,7 +811,7 @@ export class HarnessFactory {
     this.cache = new Map();
   }
 
-  forTheme(themeConfig = {}) {
+  resolveThemeConfig(themeConfig = {}) {
     const environmentApiKey = String(
       (themeConfig.apiKeyEnv && process.env[themeConfig.apiKeyEnv])
       || process.env.API_KEY
@@ -823,7 +823,7 @@ export class HarnessFactory {
     const storedApiKey = !environmentApiKey && themeConfig.apiKeyEncrypted && this.credentialCrypto
       ? this.credentialCrypto.decrypt(themeConfig.apiKeyEncrypted)
       : '';
-    const merged = {
+    return {
       baseUrl: String(themeConfig.baseUrl || this.baseConfig.baseUrl || '').replace(/\/+$/, ''),
       model: String(themeConfig.model || this.baseConfig.model || 'deepseek-chat'),
       temperature: themeConfig.temperature === undefined
@@ -838,6 +838,9 @@ export class HarnessFactory {
       provider: themeConfig.provider || 'deepseek',
       rateLimitMs: themeConfig.isDefaultConfModel === true ? 1000 : 0,
     };
+  }
+
+  forResolvedConfig(merged = {}) {
     if (!merged.apiKey) {
       if (!this.cache.has('local-rule')) {
         this.cache.set('local-rule', new RuleBasedHarness({ onCall: this.onCall }));
@@ -867,5 +870,9 @@ export class HarnessFactory {
       }));
     }
     return this.cache.get(cacheKey);
+  }
+
+  forTheme(themeConfig = {}) {
+    return this.forResolvedConfig(this.resolveThemeConfig(themeConfig));
   }
 }

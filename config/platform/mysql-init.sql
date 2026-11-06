@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
         updated_at VARCHAR(255) NOT NULL,
         model_id BIGINT,
         codex_thread_id VARCHAR(255),
+        codex_context_version VARCHAR(64),
         FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE,
         FOREIGN KEY (theme_id) REFERENCES themes(id) ON DELETE CASCADE
       );
