@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { createKnexPlatformStore } from '../src/knexPlatformStore.js';
 import { createDistributedLock } from '../src/distributedLock.js';
+import { MetricAgentService } from '../src/agent.js';
 
 test('platform leases exclude another connection and preserve owner checks', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'yolo-lock-'));
@@ -40,4 +41,34 @@ test('Redis mode without a supplied client fails explicitly', async () => {
   assert.equal(lock.enabled, false);
   await assert.rejects(lock.acquire('session:1', 'owner'), /Redis/);
   assert.equal(await lock.release('session:1', 'owner'), false);
+});
+
+test('concurrent Agent calls on the same session return SESSION_BUSY', async () => {
+  let held = false;
+  const lock = {
+    enabled: true,
+    async acquire() {
+      if (held) return false;
+      held = true;
+      return true;
+    },
+    async refresh() { return true; },
+    async release() { held = false; return true; },
+  };
+  const agent = Object.create(MetricAgentService.prototype);
+  agent.sessionLock = lock;
+  let finishFirst;
+  agent._answerWithTraceUnlocked = () => new Promise((resolve) => {
+    finishFirst = resolve;
+  });
+
+  const first = agent.answerWithTrace({ sessionId: 42 }, 'trace-first');
+  await new Promise((resolve) => setImmediate(resolve));
+  await assert.rejects(
+    agent.answerWithTrace({ sessionId: 42 }, 'trace-second'),
+    (error) => error.code === 'SESSION_BUSY' && error.statusCode === 409,
+  );
+  finishFirst({ ok: true });
+  assert.deepEqual(await first, { ok: true });
+  assert.equal(held, false);
 });

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { responsesText } from './fixtures/responsesApi.js';
 
 import { resolveConversationContext } from '../src/queryIntent.js';
 import { refineTurnContextWithHarness } from '../src/turnRouter.js';
@@ -45,19 +46,13 @@ test('low-confidence context uses the model only as a structured router', async 
       mode: 'test-model',
       chat: async (messages, tools, metadata) => {
         calls.push({ messages, tools, metadata });
-        return {
-          choices: [{
-            message: {
-              content: JSON.stringify({
-                turnType: 'CONTINUATION',
-                confidence: 0.93,
-                referencedTask: true,
-                reason: '用户省略了时间，继续当前任务',
-                metric: '模型不应生成指标',
-              }),
-            },
-          }],
-        };
+        return responsesText(JSON.stringify({
+          turnType: 'CONTINUATION',
+          confidence: 0.93,
+          referencedTask: true,
+          reason: '用户省略了时间，继续当前任务',
+          metric: '模型不应生成指标',
+        }));
       },
     },
   });
@@ -108,17 +103,11 @@ test('the model router preserves the configured inheritance budget', async () =>
     history,
     harness: {
       mode: 'test-model',
-      chat: async () => ({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              turnType: 'CONTINUATION',
-              confidence: 0.9,
-              reason: '继续上一任务',
-            }),
-          },
-        }],
-      }),
+      chat: async () => responsesText(JSON.stringify({
+        turnType: 'CONTINUATION',
+        confidence: 0.9,
+        reason: '继续上一任务',
+      })),
     },
   });
 
@@ -134,17 +123,11 @@ test('model-classified output instructions never fall back to result processing'
     history,
     harness: {
       mode: 'test-model',
-      chat: async () => ({
-        choices: [{
-          message: {
-            content: JSON.stringify({
-              turnType: 'INSTRUCTION',
-              confidence: 0.94,
-              reason: '这是输出格式要求，不执行问数',
-            }),
-          },
-        }],
-      }),
+      chat: async () => responsesText(JSON.stringify({
+        turnType: 'INSTRUCTION',
+        confidence: 0.94,
+        reason: '这是输出格式要求，不执行问数',
+      })),
     },
   });
 

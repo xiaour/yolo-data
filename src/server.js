@@ -169,6 +169,9 @@ export async function startServer(configOverride) {
       }
     });
   });
+  server.once('close', () => {
+    application.codexRuntimePool?.close?.();
+  });
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);

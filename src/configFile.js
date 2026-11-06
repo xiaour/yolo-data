@@ -67,6 +67,18 @@ export const CONFIG_FILE_MAP = {
   'reflection.judgeTimeoutMs': 'REFLECTION_JUDGE_TIMEOUT_MS',
   'recovery.maxAttempts': 'AGENT_RECOVERY_MAX_ATTEMPTS',
 
+  'agentRuntime.defaultMode': 'AGENT_COMPUTE_MODE',
+  'agentRuntime.codex.enabled': 'CODEX_RUNTIME_ENABLED',
+  'agentRuntime.codex.command': 'CODEX_COMMAND',
+  'agentRuntime.codex.provider': 'CODEX_PROVIDER',
+  'agentRuntime.codex.providerBaseUrl': 'CODEX_PROVIDER_BASE_URL',
+  'agentRuntime.codex.providerApiKey': 'CODEX_PROVIDER_API_KEY',
+  'agentRuntime.codex.wireApi': 'CODEX_WIRE_API',
+  'agentRuntime.codex.model': 'CODEX_MODEL',
+  'agentRuntime.codex.effort': 'CODEX_REASONING_EFFORT',
+  'agentRuntime.codex.timeoutMs': 'CODEX_TIMEOUT_MS',
+  'agentRuntime.codex.workingDirectory': 'CODEX_WORKING_DIRECTORY',
+
   'codeExecution.root': 'CODE_EXECUTION_ROOT',
   'codeExecution.pythonBin': 'PYTHON_BIN',
   'codeExecution.sandbox.backend': 'SANDBOX_BACKEND',

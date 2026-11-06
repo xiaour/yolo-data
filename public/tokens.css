@@ -2438,6 +2438,43 @@ textarea::placeholder {
   padding-bottom: 1px;
 }
 
+.compute-mode-seg {
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(42px, auto));
+  height: 30px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-muted);
+}
+
+.compute-mode-option {
+  min-width: 42px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.compute-mode-option:hover:not(:disabled) {
+  color: var(--primary-strong);
+}
+
+.compute-mode-option.is-active {
+  color: #fff;
+  background: var(--primary);
+  box-shadow: 0 1px 4px rgba(31, 91, 190, .18);
+}
+
+.compute-mode-option:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
 .chat-model-picker {
   min-height: 32px;
   display: inline-flex;

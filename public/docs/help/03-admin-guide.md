@@ -18,7 +18,7 @@ npm run dev          # 启动，默认 http://localhost:8088/
 
 | 配置项 | 说明 |
 | --- | --- |
-| Base URL | DeepSeek 或任意 OpenAI 兼容服务地址 |
+| Base URL | 任意 Responses API 兼容模型服务地址 |
 | 密钥 | 加密保存；主题可用独立密钥覆盖 |
 | 温度 / 工具轮次 | 问数场景建议低温；工具轮次决定 Agent 最多可连续调用几次工具 |
 | 平台默认模型 | 未单独绑定模型的主题回退到默认模型 |

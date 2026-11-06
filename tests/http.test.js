@@ -256,7 +256,7 @@ test('P0-8 HTTP contract is unchanged: errors, static fallback, NDJSON stream', 
     assert.ok(events.at(-2).answer);
     assert.ok(events.at(-1).messageId);
     assert.ok(events.some((event) => (
-      event.type === 'assistant_progress' && event.status === 'running'
+      event.type === 'execution_progress' && event.status === 'running'
     )));
     const answerStartIndex = events.findIndex((event) => event.type === 'assistant_answer_start');
     const answerDoneIndex = events.findIndex((event) => event.type === 'assistant_answer_done');

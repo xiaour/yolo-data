@@ -1,84 +1,32 @@
-import {
-  escapeHtml,
-  formatDurationSeconds,
-  formatModelName,
-  formatSourceMode,
-  renderSafeMarkdown,
-} from '../core/runtime.js';
+import { escapeHtml, formatDurationSeconds, formatModelName, formatSourceMode, renderSafeMarkdown } from '../core/runtime.js';
 import { liveElapsedMs } from './chatStreamState.js';
 import { renderContextDecision } from './contextDecision.js';
+import { renderExecutionTimeline } from './executionTimeline.js';
 
 function normalizeStatus(status) {
   const value = String(status ?? '').toLowerCase();
-  if (value === 'running') {
-    return 'running';
-  }
-  if (value === 'error' || value === 'failed') {
-    return 'error';
-  }
-  if (
-    value === 'done'
-    || value === 'success'
-    || value === 'completed'
-    || value === 'completed_with_warnings'
-  ) {
-    return 'done';
-  }
+  if (value === 'running') return 'running';
+  if (value === 'error' || value === 'failed') return 'error';
+  if (['done', 'success', 'completed', 'completed_with_warnings'].includes(value)) return 'done';
   return 'pending';
 }
 
 function compactDetail(value, maxLength = 180) {
-  const text = String(value ?? '').trim();
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
   return text.length > maxLength ? text.slice(0, maxLength) + '…' : text;
 }
 
-function renderProgressItems(items) {
-  const visible = (items ?? []).slice(-6);
-  if (visible.length === 0) {
-    return '';
-  }
-  return `
-    <ol class="live-agent-progress" aria-live="polite">
-      ${visible.map((item) => {
-        const status = normalizeStatus(item.status);
-        const detail = compactDetail(item.detail);
-        return `
-          <li class="live-agent-progress-item is-${status}">
-            <span class="live-agent-progress-mark" aria-hidden="true"></span>
-            <span class="live-agent-progress-copy">
-              <strong>${escapeHtml(item.text ?? '')}</strong>
-              ${detail ? `<small>${escapeHtml(detail)}</small>` : ''}
-            </span>
-          </li>
-        `;
-      }).join('')}
-    </ol>
-  `;
-}
-
-export function renderLiveExecution(stream, { renderExecutionDetails }) {
-  const workflow = stream?.workflow;
-  const progress = stream?.progress ?? [];
-  const activeStage = workflow?.stages?.find((stage) => stage.status === 'RUNNING')
-    ?? [...(workflow?.stages ?? [])].reverse().find((stage) => stage.summary);
-  const activeProgress = [...progress].reverse().find((item) => (
-    normalizeStatus(item.status) === 'running'
-  )) ?? progress.at(-1);
+export function renderLiveExecution(stream) {
+  const timeline = stream?.executionTimeline ?? stream?.progress ?? [];
+  const activeProgress = [...timeline].reverse().find((item) => normalizeStatus(item.status) === 'running')
+    ?? [...timeline].reverse().find((item) => normalizeStatus(item.status) !== 'pending')
+    ?? timeline.at(-1);
   const modelText = formatModelName(stream?.runtime);
   const sourceText = formatSourceMode(stream?.source?.mode);
-  const completed = workflow?.progress?.completed ?? 0;
-  const total = workflow?.progress?.total ?? 14;
-  const meta = [
-    modelText,
-    'Data Agent',
-    sourceText,
-    `${completed}/${total} 步`,
-  ].filter(Boolean).map((item) => escapeHtml(item)).join('<span class="live-agent-dot">·</span>');
-  const headline = activeProgress?.text
-    ?? activeStage?.summary
-    ?? activeStage?.name
-    ?? '正在启动 DataAgent 工作流';
-  const detail = compactDetail(activeProgress?.detail ?? activeStage?.summary ?? '');
+  const meta = [modelText, sourceText].filter(Boolean)
+    .map((item) => escapeHtml(item)).join('<span class="live-agent-dot">·</span>');
+  const headline = activeProgress?.title ?? '正在启动分析';
+  const detail = compactDetail(activeProgress?.detail ?? '');
   const hasAnswer = stream?.answerStarted || Boolean(stream?.answerText);
   const streamError = stream?.error;
   return `
@@ -97,7 +45,7 @@ export function renderLiveExecution(stream, { renderExecutionDetails }) {
         </div>
       </div>
       ${renderContextDecision(stream?.contextDecision, { live: true })}
-      ${renderProgressItems(progress)}
+      ${renderExecutionTimeline(timeline, { live: true })}
       ${hasAnswer ? `
         <div class="live-agent-answer">
           <div class="chat-answer-text live-answer-text">${renderSafeMarkdown(stream?.answerText)}${stream?.answerDone ? '' : '<span class="stream-caret" aria-hidden="true"></span>'}</div>
@@ -116,13 +64,7 @@ export function renderLiveExecution(stream, { renderExecutionDetails }) {
           ${streamError.statusCode ? `<small>模型服务 HTTP ${escapeHtml(streamError.statusCode)}</small>` : ''}
         </div>
       ` : ''}
-      ${(stream?.warnings ?? []).map((warning) => `
-        <div class="live-warning">${escapeHtml(warning.message)}</div>
-      `).join('')}
-      ${renderExecutionDetails({
-        workflow,
-        processSteps: stream?.processSteps ?? [],
-      })}
+      ${(stream?.warnings ?? []).map((warning) => `<div class="live-warning">${escapeHtml(warning.message)}</div>`).join('')}
     </div>
   `;
 }

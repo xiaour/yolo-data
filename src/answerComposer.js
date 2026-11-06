@@ -1,5 +1,6 @@
 export function composeAnswerMessage({
   deterministicMessage = '',
+  reportMessage = '',
   semanticFastPathError = null,
   clarificationExhausted = false,
   harnessContent = '',
@@ -9,8 +10,14 @@ export function composeAnswerMessage({
   validationWarnings = [],
   clarification = null,
 }) {
-  const baseMessage = deterministicMessage
-    || (semanticFastPathError ? `本轮无法完成数据集查询：${semanticFastPathError.message}` : '')
+  const semanticFastPathErrorMessage = String(
+    semanticFastPathError?.message ?? '',
+  ).trim();
+  const baseMessage = reportMessage
+    || deterministicMessage
+    || (semanticFastPathErrorMessage
+      ? `本轮无法完成数据集查询：${semanticFastPathErrorMessage}`
+      : '')
     || (clarificationExhausted
       ? '本轮归因问题已达到澄清上限，系统不会继续逐项反问。请补齐主题提示词中的归因公式、同期规则或候选归因维度后重新执行。'
       : harnessContent)

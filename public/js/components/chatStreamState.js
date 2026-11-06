@@ -1,3 +1,5 @@
+import { applyExecutionTimelineEvent } from './executionTimelineState.js';
+
 export function createChatStreamState() {
   return {
     workflow: null,
@@ -7,6 +9,7 @@ export function createChatStreamState() {
     source: null,
     contextDecision: null,
     lastEvent: null,
+    executionTimeline: [],
     progress: [],
     answerText: '',
     answerStarted: false,
@@ -25,24 +28,7 @@ export function applyChatStreamEvent(stream, event) {
   const next = stream ?? createChatStreamState();
   next.lastEvent = event;
   next.lastEventAt = Date.now();
-  if (event.type === 'assistant_progress') {
-    const id = event.id ?? 'progress-' + next.progress.length;
-    const existingIndex = next.progress.findIndex((item) => item.id === id);
-    const item = {
-      ...event,
-      id,
-      at: existingIndex >= 0 ? next.progress[existingIndex].at : Date.now(),
-    };
-    if (existingIndex >= 0) {
-      next.progress.splice(existingIndex, 1, item);
-    } else {
-      next.progress.push(item);
-    }
-    if (next.progress.length > 40) {
-      next.progress.splice(0, next.progress.length - 40);
-    }
-    return next;
-  }
+  if (applyExecutionTimelineEvent(next, event)) return next;
   if (event.type === 'error' || event.type === 'stream_error') {
     next.error = {
       message: String(event.message ?? '本轮查询失败'),
@@ -102,6 +88,8 @@ export function applyChatStreamEvent(stream, event) {
     next.processSteps = event.processSteps ?? next.processSteps;
     next.runtime = event.runtime ?? next.runtime;
     next.contextDecision = event.contextDecision ?? next.contextDecision;
+    next.executionTimeline = event.executionTimeline ?? next.executionTimeline;
+    next.progress = next.executionTimeline;
     if (event.message) {
       next.answerStarted = true;
       next.answerDone = true;

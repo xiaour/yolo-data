@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { responsesText } from './fixtures/responsesApi.js';
 
 import {
   reflectOnAnswer,
@@ -301,16 +302,10 @@ test('createHarnessJudge returns null for local-rule harness', () => {
 test('createHarnessJudge wraps a real harness via side-effect-free chat', async () => {
   const calls = [];
   const fakeReal = {
-    mode: 'deepseek',
+    mode: 'responses',
     chat: async (messages, tools, metadata) => {
       calls.push({ messages, tools, metadata });
-      return {
-        choices: [{
-          message: {
-            content: '{"answersQuestion":true,"consistentWithData":true,"needsReplan":false,"reason":"ok","hint":""}',
-          },
-        }],
-      };
+      return responsesText('{"answersQuestion":true,"consistentWithData":true,"needsReplan":false,"reason":"ok","hint":""}');
     },
   };
   const judge = createHarnessJudge(fakeReal);

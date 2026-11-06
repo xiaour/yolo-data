@@ -2,12 +2,33 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   HarnessFactory,
-  OpenAICompatibleDeepSeekHarness,
+  ResponsesApiHarness,
 } from '../src/harness.js';
+
+function responsePayload({ text = '', calls = [], usage = {} } = {}) {
+  return {
+    output: [
+      ...(text ? [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text }],
+      }] : []),
+      ...calls.map((call, index) => ({
+        type: 'function_call',
+        id: call.id ?? `fc-${index + 1}`,
+        call_id: call.callId ?? `call-${index + 1}`,
+        name: call.name,
+        arguments: JSON.stringify(call.args ?? {}),
+      })),
+    ],
+    usage,
+  };
+}
 
 test('harness factory builds an agent-scoped model runtime', async () => {
   process.env.TEST_AGENT_LLM_KEY = 'agent-key';
   let capturedBody = null;
+  let capturedUrl = null;
   const factory = new HarnessFactory({
     baseUrl: 'https://api.deepseek.com/v1',
     apiKey: '',
@@ -16,17 +37,13 @@ test('harness factory builds an agent-scoped model runtime', async () => {
     maxTokens: 0,
     timeoutMs: 5_000,
     maxToolRounds: 4,
-  }, async (_url, options) => {
+  }, async (url, options) => {
+    capturedUrl = url;
     capturedBody = JSON.parse(options.body);
-    return new Response(JSON.stringify({
-      choices: [{
-        message: {
-          role: 'assistant',
-          content: '已按主题模型配置完成分析。',
-        },
-      }],
+    return new Response(JSON.stringify(responsePayload({
+      text: '已按主题模型配置完成分析。',
       usage: { total_tokens: 42 },
-    }), {
+    })), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -45,16 +62,82 @@ test('harness factory builds an agent-scoped model runtime', async () => {
     executeTool: async () => ({}),
   });
 
-  assert.equal(harness.mode, 'deepseek');
+  assert.equal(harness.mode, 'responses');
   assert.equal(harness.model, 'deepseek-reasoner');
+  assert.equal(capturedUrl, 'https://agent.example/v1/responses');
   assert.equal(capturedBody.model, 'deepseek-reasoner');
   assert.equal(capturedBody.temperature, 0.4);
+  assert.deepEqual(capturedBody.input, [{ role: 'user', content: '测试' }]);
+  assert.equal(capturedBody.store, false);
+  assert.equal(capturedBody.messages, undefined);
   assert.equal(result.content, '已按主题模型配置完成分析。');
   delete process.env.TEST_AGENT_LLM_KEY;
 });
 
+test('Responses API function-call output is carried into the next model round', async () => {
+  const requests = [];
+  const replies = [
+    responsePayload({ calls: [{ callId: 'call-lookup', name: 'lookup', args: { id: 7 } }] }),
+    responsePayload({ text: '查询完成。', usage: { total_tokens: 18 } }),
+  ];
+  const harness = new ResponsesApiHarness({
+    baseUrl: 'https://models.example/v1',
+    apiKey: 'test-key',
+    model: 'test-model',
+    maxTokens: 512,
+    fetchImpl: async (url, options) => {
+      requests.push({ url, body: JSON.parse(options.body) });
+      return new Response(JSON.stringify(replies.shift()), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    },
+  });
+
+  const result = await harness.run({
+    messages: [{ role: 'user', content: '查询 7' }],
+    tools: [{
+      type: 'function',
+      function: {
+        name: 'lookup',
+        description: '查询记录',
+        parameters: {
+          type: 'object',
+          properties: { id: { type: 'integer' } },
+          required: ['id'],
+        },
+      },
+    }],
+    executeTool: async (name, args) => ({ name, id: args.id, value: 42 }),
+  });
+
+  assert.equal(result.content, '查询完成。');
+  assert.equal(requests.length, 2);
+  assert.ok(requests.every((request) => request.url.endsWith('/responses')));
+  assert.equal(requests[0].body.max_output_tokens, 512);
+  assert.equal(requests[0].body.max_tokens, undefined);
+  assert.deepEqual(requests[0].body.tools[0], {
+    type: 'function',
+    name: 'lookup',
+    description: '查询记录',
+    parameters: {
+      type: 'object',
+      properties: { id: { type: 'integer' } },
+      required: ['id'],
+    },
+  });
+  assert.ok(requests[1].body.input.some((item) => (
+    item.type === 'function_call' && item.call_id === 'call-lookup'
+  )));
+  assert.ok(requests[1].body.input.some((item) => (
+    item.type === 'function_call_output'
+    && item.call_id === 'call-lookup'
+    && JSON.parse(item.output).value === 42
+  )));
+});
+
 test('model request timeout is reported distinctly from a generic abort', async () => {
-  const harness = new OpenAICompatibleDeepSeekHarness({
+  const harness = new ResponsesApiHarness({
     baseUrl: 'https://api.example/v1',
     apiKey: 'test-key',
     model: 'test-model',
@@ -78,7 +161,7 @@ test('yolo-conf default model is throttled to one request per second', async () 
     timeoutMs: 5_000,
   }, async () => {
     startedAt.push(Date.now());
-    return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }), {
+    return new Response(JSON.stringify(responsePayload({ text: 'ok' })), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -108,9 +191,7 @@ test('harness factory decrypts a theme-scoped API key', async () => {
     maxToolRounds: 2,
   }, async (_url, options) => {
     authorization = options.headers.Authorization;
-    return new Response(JSON.stringify({
-      choices: [{ message: { role: 'assistant', content: 'ok' } }],
-    }), {
+    return new Response(JSON.stringify(responsePayload({ text: 'ok' })), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -128,7 +209,7 @@ test('harness factory decrypts a theme-scoped API key', async () => {
     executeTool: async () => ({}),
   });
 
-  assert.equal(harness.mode, 'deepseek');
+  assert.equal(harness.mode, 'responses');
   assert.equal(authorization, 'Bearer stored-theme-key');
 });
 
@@ -140,9 +221,10 @@ test('.env API key overrides an encrypted model key without attempting to decryp
     baseUrl: 'https://api.example/v1', apiKey: '', model: 'test-model', timeoutMs: 5_000,
   }, async (_url, options) => {
     authorization = options.headers.Authorization;
-    return new Response(JSON.stringify({
-      choices: [{ message: { role: 'assistant', content: 'ok' } }],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify(responsePayload({ text: 'ok' })), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }, null, {
     decrypt: () => { throw new Error('must not decrypt when env key is set'); },
   });
@@ -160,30 +242,21 @@ test('.env API key overrides an encrypted model key without attempting to decryp
   }
 });
 
-test('harness stops after a tool locks the first valid result', async () => {
+test('Responses function calls stop after a tool locks the first valid result', async () => {
   let requestCount = 0;
-  const harness = new OpenAICompatibleDeepSeekHarness({
+  const harness = new ResponsesApiHarness({
     baseUrl: 'https://api.deepseek.com/v1',
     apiKey: 'test-key',
     model: 'deepseek-chat',
     fetchImpl: async () => {
       requestCount += 1;
-      return new Response(JSON.stringify({
-        choices: [{
-          message: {
-            role: 'assistant',
-            content: '',
-            tool_calls: [{
-              id: 'call-1',
-              type: 'function',
-              function: {
-                name: 'query_indicator',
-                arguments: '{"indicatorId":"2"}',
-              },
-            }],
-          },
+      return new Response(JSON.stringify(responsePayload({
+        calls: [{
+          callId: 'call-1',
+          name: 'query_indicator',
+          args: { indicatorId: '2' },
         }],
-      }), {
+      })), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -206,7 +279,7 @@ test('harness stops after a tool locks the first valid result', async () => {
 });
 
 test('model provider errors retain safe upstream diagnostics for the stream UI', async () => {
-  const harness = new OpenAICompatibleDeepSeekHarness({
+  const harness = new ResponsesApiHarness({
     baseUrl: 'https://models.example/v1',
     apiKey: 'test-key',
     model: 'example-model',
@@ -225,28 +298,19 @@ test('model provider errors retain safe upstream diagnostics for the stream UI',
 
 test('harness stops immediately on a terminal configuration error', async () => {
   let requestCount = 0;
-  const harness = new OpenAICompatibleDeepSeekHarness({
+  const harness = new ResponsesApiHarness({
     baseUrl: 'https://api.deepseek.com/v1',
     apiKey: 'test-key',
     model: 'deepseek-chat',
     fetchImpl: async () => {
       requestCount += 1;
-      return new Response(JSON.stringify({
-        choices: [{
-          message: {
-            role: 'assistant',
-            content: '',
-            tool_calls: [{
-              id: 'call-1',
-              type: 'function',
-              function: {
-                name: 'query_indicator',
-                arguments: '{"indicatorId":"2"}',
-              },
-            }],
-          },
+      return new Response(JSON.stringify(responsePayload({
+        calls: [{
+          callId: 'call-1',
+          name: 'query_indicator',
+          args: { indicatorId: '2' },
         }],
-      }), {
+      })), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -271,20 +335,13 @@ test('harness stops immediately on a terminal configuration error', async () => 
 test('harness forwards an external cancellation signal to model requests', async () => {
   let capturedSignal = null;
   const controller = new AbortController();
-  const harness = new OpenAICompatibleDeepSeekHarness({
+  const harness = new ResponsesApiHarness({
     baseUrl: 'https://api.deepseek.com/v1',
     apiKey: 'test-key',
     model: 'deepseek-chat',
     fetchImpl: async (_url, options) => {
       capturedSignal = options.signal;
-      return new Response(JSON.stringify({
-        choices: [{
-          message: {
-            role: 'assistant',
-            content: 'ok',
-          },
-        }],
-      }), {
+      return new Response(JSON.stringify(responsePayload({ text: 'ok' })), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -302,7 +359,7 @@ test('harness forwards an external cancellation signal to model requests', async
 });
 
 function harnessReplyingWith(status, body) {
-  return new OpenAICompatibleDeepSeekHarness({
+  return new ResponsesApiHarness({
     baseUrl: 'https://api.deepseek.com/v1',
     apiKey: 'test-key',
     model: 'deepseek-chat',

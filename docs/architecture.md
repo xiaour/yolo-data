@@ -72,7 +72,7 @@ YOLO 是面向企业经营分析场景的智能问数平台，核心目标不是
 
 - 用户、主题、智能体和数据权限管理。
 - 本地指标目录 指标目录、指标详情和指标聚合查询的适配。
-- DeepSeek/OpenAI-compatible Harness 的工具调用编排。
+- Responses API Harness 的工具调用编排。
 - 多轮会话记忆、查询契约、查询计划、结果稳定化和工作区产物。
 - Doris/MySQL 兼容数据源的注册、字段语义、只读查询和审计。
 - 图表推荐、前端展示、反馈闭环和质量运营。
@@ -102,6 +102,24 @@ YOLO 是面向企业经营分析场景的智能问数平台，核心目标不是
 
 ## 2. 总体架构
 
+### 2.0 Agent Runtime 上下文与执行契约
+
+YOLO 会话是多轮问数的唯一上下文事实源。每轮先由 YOLO 读取会话消息、任务状态、权限、
+主题配置、数据集和长期记忆，生成带版本与修订指纹的 `ContextEnvelope`。Codex thread 只保留
+规划连续性，不负责决定问题关系或继承业务条件；每次深度执行都必须以本轮
+`ContextEnvelope` 为准，thread 历史与其冲突时以后者为准。
+
+运行时按轮路由，而不是按会话绑定。简单问数进入确定性 Fast 链路；复杂分析进入 Codex
+Runtime。Fast 链路不会删除已有 Codex thread，再次进入复杂分析时，`ContextEnvelope` 会补充
+自上次 Codex 执行以来的 Fast turns。主题当前选中的模型配置会同时应用于 Fast Harness 与
+主题隔离的 Codex Runtime 实例；模型、提示词、Skills、权限或数据集能力变化时，能力版本变化，
+旧 Codex thread 映射会失效。
+
+同一 YOLO 会话的查询、恢复和反思共用一把租约锁，并发请求返回 `409 SESSION_BUSY`，避免消息、
+工作区产物和任务状态交叉写入。Workflow 的 14 个阶段是标准阶段词汇、门禁和 Skill 挂载点，
+不是固定流水线；Runtime 只激活实际选择和执行的阶段，页面也只展示这些阶段。Skill 按其阶段
+标签参与相应的规划或结果验证步骤。
+
 ### 2.1 系统上下文
 
 总体图按三类能力组织：问数主链路（Agent、契约、数据源和结果）、治理与安全（鉴权、限流、Token 预算、提示注入清洗、门禁、审计和代码沙箱）、外部接入与质量（MCP 以及 L1/L2/L3 回归评测）。
@@ -128,7 +146,7 @@ flowchart LR
   AGENT --> SANDBOX["代码分析沙箱"]
   AGENT --> EVAL["评测与回归"]
 
-  HARNESS --> LLM["DeepSeek / OpenAI-compatible"]
+  HARNESS --> LLM["Responses API compatible"]
   SOURCES --> EXTERNAL["本地指标目录 / Doris / MySQL / PostgreSQL"]
 
   API --> DB["SQLite 平台库"]
@@ -201,7 +219,7 @@ flowchart LR
   BROWSER["浏览器"] -->|HTTP / NDJSON| NODE["YOLO Node.js Process"]
   NODE -->|实时指标目录和查询| S2["本地指标目录"]
   NODE -->|只读 SELECT| DS["Doris / MySQL"]
-  NODE -->|OpenAI-compatible Tool Calling| LLM["DeepSeek"]
+  NODE -->|Responses API function calling| LLM["Compatible model"]
   NODE -->|节点本地| SQLITE["data/platform.db"]
   NODE -->|数据源密钥| KEY["data/.datasource-key"]
 ```
@@ -217,8 +235,11 @@ flowchart LR
 | `src/http/` | 声明式路由表与中间件管线（`router.js`/`middleware.js`/`support.js`）、按域拆分的 `routes/*.js`、由路由表生成的 OpenAPI |
 | `src/application.js` | 依赖装配、运行时初始化、本地指标目录 健康检查和数据集引导 |
 | `src/agent.js` | Agent 主流程、工具协议、指标/数据集执行、结果锁和审计落库 |
-| `src/workflow.js` | 标准 DataAgent 十三阶段工作流和阶段事件 |
-| `src/harness.js` | DeepSeek/OpenAI-compatible 工具调用与本地规则降级 |
+| `src/workflow.js` | 14 个标准阶段定义、Runtime 动态阶段投影和阶段事件 |
+| `src/contextEnvelope.js` | 版本化 YOLO 会话上下文、能力版本和 Fast turns 投影 |
+| `src/sessionExecutionLock.js` | 问数、恢复和反思主链的同会话互斥 |
+| `src/harness.js` | Responses API 工具调用与本地规则降级 |
+| `src/codexHarness.js` | 主题模型隔离的 Codex Runtime、持久规划 thread 和动态工具桥接 |
 | `src/queryContractCompiler.js` | 条件账本、字段绑定、时间门禁和业务规则溯源 |
 | `src/queryContract.js` | 查询契约、稳定排序、指纹、Hash、确定性摘要和展示格式 |
 | `src/querySemantics.js` | LIKE 包含语义、行级过滤与聚合过滤作用域解析 |
@@ -601,21 +622,19 @@ erDiagram
 
 ## 5. DataAgent 标准工作流
 
-平台定义统一的十三阶段工作流，并通过 NDJSON 实时推送阶段变化：
+平台定义 14 个标准阶段作为 Runtime、门禁、Skills、审计和页面展示共用的阶段词汇。
+这些阶段不是固定串行流水线：每轮由 YOLO 路由和选中的 Runtime 决定实际执行路径，只激活并通过
+NDJSON 推送真正发生的阶段。简单问数通常只经过少量确定性阶段；复杂分析可由 Codex Runtime
+调用更多工具和分析阶段。
 
 ```mermaid
 flowchart LR
-  S1["1. INTENT<br/>理解问题与上下文"] --> S2["2. SKILL_AUDIT<br/>业务口径审计"]
-  S2 --> S3["3. SEMANTIC_RESOLVE<br/>指标候选与裁决"] --> S4["4. SEMANTIC_DISCOVERY<br/>检索指标或数据集"]
-  S4 --> S5["5. SEMANTIC_CONFIRM<br/>确认指标或字段口径"]
-  S5 --> S6["6. PLAN<br/>生成结构化查询计划"]
-  S6 --> S7["7. VALIDATE<br/>字段、契约和权限校验"]
-  S7 --> S8["8. EXECUTE<br/>执行受控查询"]
-  S8 --> S9["9. RESULT_ANALYST<br/>TopN、趋势和异常分析"]
-  S9 --> S10["10. ANALYSIS_CODE<br/>生成代码在沙箱内分析锁定快照"]
-  S10 --> S11["11. RESULT_VALIDATION<br/>结果证据与契约校验"]
-  S11 --> S12["12. ANALYZE<br/>稳定结果与选择图表"]
-  S12 --> S13["13. RESPOND<br/>结论、证据和过程"]
+  R["逐轮 Runtime 决策"] --> F["Fast 确定性链路"]
+  R --> C["Codex 复杂分析链路"]
+  F --> S["按需激活标准阶段"]
+  C --> S
+  S --> K["执行阶段对应的 Skill / Gate / Tool"]
+  K --> P["仅投影实际执行阶段"]
 ```
 
 ### 5.1 各阶段输入输出
@@ -663,8 +682,8 @@ flowchart LR
 
 ### 5.3 执行后反思与换策略重规划（REFLECT）
 
-在既有 13 阶段之外，`RESPOND` 之后新增第 14 个阶段 `REFLECT`（执行后反思），由 `src/reflection.js`
-落地。它跑三检决定答案是收下还是换策略重跑：
+`REFLECT` 是 14 个标准阶段之一，仅在本轮需要执行后反思时激活，由 `src/reflection.js` 落地。
+它跑三检决定答案是收下还是换策略重跑：
 
 | 检查 | 含义 | 实现 | 是否触发重规划 |
 | --- | --- | --- | --- |
@@ -1279,7 +1298,7 @@ flowchart TD
 
 ### 17.5 可观测性
 
-- 十三阶段工作流。
+- Runtime 动态投影的 14 个标准阶段。
 - 工具调用与废弃尝试。
 - 查询计划、契约、问题和校验结果。
 - LLM Token、延迟、错误和 Prompt 摘要。
@@ -1287,7 +1306,7 @@ flowchart TD
 
 ### 17.6 自动化验证
 
-当前有 329 项自动化测试，覆盖：
+当前有 890+ 项自动化测试，覆盖：
 
 - Agent 权限、上下文继承、工具编排和结果锁。
 - 本地指标目录 接口适配、服务令牌和日期解析。

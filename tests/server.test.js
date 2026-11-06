@@ -320,12 +320,17 @@ test('model management can test a saved model connection without exposing the ke
       request.on('error', reject);
     });
     assert.equal(request.method, 'POST');
-    assert.equal(request.url, '/v1/chat/completions');
+    assert.equal(request.url, '/v1/responses');
     assert.equal(request.headers.authorization, 'Bearer sk-test-model');
-    assert.equal(body.messages[0].content, 'Reply with OK.');
+    assert.equal(body.input[0].content, 'Reply with OK.');
+    assert.equal(body.messages, undefined);
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(JSON.stringify({
-      choices: [{ message: { content: 'OK' } }],
+      output: [{
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'OK' }],
+      }],
     }));
   });
   await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));

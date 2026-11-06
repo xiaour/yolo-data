@@ -21,6 +21,13 @@ services:
       #    （无 HTTPS），浏览器会丢弃会话 cookie 导致登录死循环。对外场景请在前面挂
       #    HTTPS 反向代理，或把端口只绑 127.0.0.1 由代理转发。详见 README「生产部署注意」。
       AUTH_MODE: ${AUTH_MODE:-session}
+      # Codex CLI is included in the image and enabled by default.
+      CODEX_RUNTIME_ENABLED: ${CODEX_RUNTIME_ENABLED:-true}
+      CODEX_COMMAND: /app/node_modules/.bin/codex
+      CODEX_PROVIDER: ${CODEX_PROVIDER:-ollama}
+      CODEX_PROVIDER_BASE_URL: ${CODEX_PROVIDER_BASE_URL:-}
+      CODEX_PROVIDER_API_KEY: ${CODEX_PROVIDER_API_KEY:-}
+      CODEX_MODEL: ${CODEX_MODEL:-gpt-oss:20b}
       # 初始化内置用户时写入的默认口令；生产必须修改（或登录后在账号菜单里改）。
       DEFAULT_USER_PASSWORD: yolo123456
       # 模型服务：留空走本地规则（local-rule），零外部依赖即可启动体验；

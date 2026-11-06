@@ -7,6 +7,7 @@
 // maintain() 把后两步串成一次自动维护，供每轮问答的旁路和后台巡检调用。
 // 治理：笔记原文不可变、外部内容当数据不当指令、密钥脱敏、证据化、宁可 no-op 也不填废话。
 import { normalizeNoteContent, memoryKindLabel, memoryScopeKey } from './userMemory.js';
+import { responseOutputText } from './harness.js';
 
 const MIN_CONTENT_LENGTH = 4;
 const MAX_CONTENT_LENGTH = 400;
@@ -263,7 +264,7 @@ export class UserMemoryDistiller {
       question,
       callType: 'USER_MEMORY_EXTRACT',
     });
-    const payload = response?.choices?.[0]?.message?.content ?? response?.content ?? '';
+    const payload = responseOutputText(response);
     const saved = [...explicit];
     for (const candidate of parseJsonArray(payload)
       .map(normalizeMemoryCandidate)
@@ -447,7 +448,7 @@ export class UserMemoryDistiller {
         themeId: document.themeId,
         callType: 'USER_MEMORY_COMPACT',
       });
-      const payload = response?.choices?.[0]?.message?.content ?? response?.content ?? '';
+      const payload = responseOutputText(response);
       const planned = parseJsonObject(payload);
       if (!planned || planned.changed === false) {
         return planned ? { changed: false } : null;
@@ -481,7 +482,7 @@ export class UserMemoryDistiller {
         themeId: document.themeId,
         callType: 'USER_MEMORY_CONSOLIDATE',
       });
-      const payload = response?.choices?.[0]?.message?.content ?? response?.content ?? '';
+      const payload = responseOutputText(response);
       const planned = parseJsonObject(payload);
       if (!planned || planned.changed === false) {
         return planned ? { changed: false } : null;

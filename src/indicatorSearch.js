@@ -1,6 +1,36 @@
 import { getPlatformLexicon } from './businessLexicon.js';
 
-import { normalizeBusinessTerm, fuzzyTermMatch, indicatorValues, promptMetricAliases } from './indicatorTerms.js';
+function compactText(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+export function normalizeBusinessTerm(value) {
+  return compactText(value);
+}
+
+// Short metric labels often differ by one character. Keep this deterministic
+// and explainable instead of requiring an embedding service for small lexical variation.
+function longestCommonSubstringLength(left, right) {
+  const a = normalizeBusinessTerm(left);
+  const b = normalizeBusinessTerm(right);
+  if (!a || !b) return 0;
+  let previous = new Array(b.length + 1).fill(0);
+  let longest = 0;
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = new Array(b.length + 1).fill(0);
+    for (let j = 1; j <= b.length; j += 1) {
+      if (a[i - 1] === b[j - 1]) {
+        current[j] = previous[j - 1] + 1;
+        longest = Math.max(longest, current[j]);
+      }
+    }
+    previous = current;
+  }
+  return longest;
+}
 
 export { normalizeBusinessTerm };
 
@@ -8,8 +38,8 @@ export function scoreIndicator(indicator, question, lexicon = null, prompt = '')
   const text = normalizeBusinessTerm(question);
   const values = indicatorValues(indicator);
   for (const { alias, target } of promptMetricAliases(prompt)) {
-    // Require the exact configured target; a substring may have a conflicting
-    // qualifier and represent a different metric.
+    // Require an exact configured target so one qualified metric cannot match
+    // another merely because its label contains a shorter qualified label.
     if (text.includes(alias) && values.some((value) => value === target)) {
       values.push(alias);
     }
@@ -41,7 +71,8 @@ export function scoreIndicator(indicator, question, lexicon = null, prompt = '')
         ? (noTaxRequested ? 18 : 5)
         : (noTaxRequested ? 5 : 18);
     }
-    // Fuzzy-match the metric core while preserving the tax preference.
+    // Fuzzy-match the metric core so common label variants still resolve,
+    // while preserving the configured qualifier preference.
     if (coreValue && !text.includes(coreValue)) {
       const overlap = fuzzyTermMatch(text, coreValue);
       if (overlap > 0) {

@@ -5912,6 +5912,61 @@ body.is-auth .main-content {
   transition: opacity 0.18s ease;
 }
 
+.execution-timeline-live {
+  display: grid;
+  gap: 6px;
+}
+
+.execution-timeline-label {
+  color: #8d8d8d;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.execution-timeline-item {
+  grid-template-columns: 9px minmax(0, 1fr) auto auto;
+  align-items: start;
+}
+
+.execution-timeline-item > time {
+  padding-top: 2px;
+  color: #989898;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.execution-timeline-artifact {
+  padding: 1px 0;
+  border: 0;
+  color: #686868;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 9px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.execution-timeline-details .execution-detail-body {
+  padding-top: 4px;
+}
+
+.execution-timeline-details .execution-timeline-list {
+  margin-left: 5px;
+}
+
+@media (max-width: 720px) {
+  .execution-timeline-item {
+    grid-template-columns: 9px minmax(0, 1fr) auto;
+  }
+
+  .execution-timeline-artifact {
+    grid-column: 2 / -1;
+    justify-self: start;
+  }
+}
+
 .live-agent-progress-item.is-running {
   opacity: 1;
 }

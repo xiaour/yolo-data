@@ -42,11 +42,12 @@ function stageAttempt(stage, status, summary, detail, timestamp) {
 }
 
 export class DataAgentWorkflow {
-  constructor({ question, user, theme, onEvent = null, replanDepth = 0 }) {
+  constructor({ question, user, theme, runtime = null, onEvent = null, replanDepth = 0 }) {
     this.id = `workflow-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.name = 'DataAgent Standard Workflow';
     this.version = '1.0';
     this.replanDepth = Math.max(0, Number(replanDepth) || 0);
+    this.runtime = runtime;
     this.onEvent = typeof onEvent === 'function' ? onEvent : null;
     this.question = question;
     this.user = {
@@ -71,9 +72,9 @@ export class DataAgentWorkflow {
       startedAt: null,
       finishedAt: null,
       durationMs: null,
+      active: false,
     }));
     this.stageMap = new Map(this.stages.map((stage) => [stage.code, stage]));
-    this.start('INTENT');
   }
 
   notify(type, stage = null) {
@@ -89,6 +90,7 @@ export class DataAgentWorkflow {
 
   start(code, summary = '') {
     const stage = this.requireStage(code);
+    stage.active = true;
     stage.status = 'RUNNING';
     stage.startedAt = nowIso();
     if (summary) {
@@ -100,6 +102,7 @@ export class DataAgentWorkflow {
 
   complete(code, { summary = '', detail = '', evidence = [] } = {}) {
     const stage = this.requireStage(code);
+    stage.active = true;
     const timestamp = nowIso();
     if (!stage.startedAt || stage.status !== 'RUNNING') {
       stage.startedAt = timestamp;
@@ -131,6 +134,7 @@ export class DataAgentWorkflow {
 
   fail(code, error) {
     const stage = this.requireStage(code);
+    stage.active = true;
     const timestamp = nowIso();
     if (!stage.startedAt || stage.status !== 'RUNNING') {
       stage.startedAt = timestamp;
@@ -149,6 +153,7 @@ export class DataAgentWorkflow {
 
   skip(code, summary = '当前问题不需要该步骤') {
     const stage = this.requireStage(code);
+    if (!stage.active) return stage;
     const timestamp = nowIso();
     stage.startedAt = timestamp;
     const attempt = stageAttempt(stage, 'SKIPPED', summary, '', timestamp);
@@ -171,7 +176,8 @@ export class DataAgentWorkflow {
   }
 
   finish(summary = '', { warnings = [] } = {}) {
-    const hasFailedStage = this.stages.some((stage) => stage.status === 'FAILED');
+    const activeStages = this.stages.filter((stage) => stage.active);
+    const hasFailedStage = activeStages.some((stage) => stage.status === 'FAILED');
     this.warnings = Array.isArray(warnings) ? warnings : [];
     this.status = hasFailedStage
       ? 'FAILED'
@@ -199,13 +205,15 @@ export class DataAgentWorkflow {
   }
 
   toJSON() {
-    const completedCount = this.stages.filter(
+    const activeStages = this.stages.filter((stage) => stage.active);
+    const completedCount = activeStages.filter(
       (stage) => stage.status === 'SUCCESS',
     ).length;
     return {
       id: this.id,
       name: this.name,
       version: this.version,
+      runtime: this.runtime,
       question: this.question,
       user: this.user,
       theme: this.theme,
@@ -218,10 +226,12 @@ export class DataAgentWorkflow {
       durationMs: this.durationMs ?? null,
       progress: {
         completed: completedCount,
-        total: this.stages.length,
-        percent: Math.round((completedCount / this.stages.length) * 100),
+        total: activeStages.length,
+        percent: activeStages.length > 0
+          ? Math.round((completedCount / activeStages.length) * 100)
+          : 0,
       },
-      stages: this.stages.map((stage) => ({ ...stage })),
+      stages: activeStages.map((stage) => ({ ...stage })),
     };
   }
 }

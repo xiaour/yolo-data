@@ -17,6 +17,7 @@ import {
   createChatStreamState,
   liveElapsedMs,
 } from '../components/chatStreamState.js';
+import { legacyExecutionTimeline, renderExecutionTimeline } from '../components/executionTimeline.js';
 import { renderLiveExecution as renderLiveExecutionView } from '../components/liveExecution.js';
 import { renderContextDecision } from '../components/contextDecision.js';
 
@@ -73,8 +74,12 @@ const {
   navigate,
   registerQueryHooks,
   renderSafeMarkdown,
-  visibleExecutionStages,
 } = core;
+
+function truncateReviewText(value, limit = 12000) {
+  const text = String(value ?? '');
+  return text.length > limit ? `${text.slice(0, limit)}\n… 内容已截断` : text;
+}
 
 async function renderQueryPage(root) {
   await ensureChatLoaded();
@@ -117,7 +122,7 @@ async function renderQueryPage(root) {
               <textarea class="chat-input" id="questionInput" rows="1" placeholder="${escapeAttr(composerPlaceholder())}" aria-label="问数问题"></textarea>
               <div class="chat-input-actions">
                 ${modelOptions.length > 0 ? `
-                  <span class="chat-model-picker${canSwitchModel ? '' : ' is-locked'}" title="${canSwitchModel ? '新会话可选择运行模型' : '会话开始后模型已锁定'}">
+                  <span class="chat-model-picker${canSwitchModel ? '' : ' is-locked'}" title="${canSwitchModel ? '新会话可选择智能体模型' : '会话开始后模型已锁定'}">
                     <select class="chat-model-select" id="chatModelSelect"${canSwitchModel ? '' : ' disabled'}>
                       ${modelOptions.map((model) => (
                         `<option value="${model.id}"${Number(selectedModelId) === Number(model.id) ? ' selected' : ''}>${escapeHtml(model.name)}</option>`
@@ -714,7 +719,7 @@ function bindQuestionAxis() {
 }
 
 function renderLiveExecution() {
-  return renderLiveExecutionView(state.chatStream ?? {}, { renderExecutionDetails });
+  return renderLiveExecutionView(state.chatStream ?? {});
 }
 
 // 提问气泡里显式回显本轮引用的本地文件，避免"上传了但看不出有没有带上"。
@@ -890,222 +895,9 @@ function renderArtifactResultLink(result) {
   `;
 }
 
-const EXECUTION_PHASE_DEFINITIONS = [
-  { code: 'INTENT', name: '理解问题', description: 'AI识别意图、上下文和澄清策略' },
-  { code: 'SKILL_AUDIT', name: 'Skill口径审计', description: 'Skill审计问题口径与数据粒度' },
-  { code: 'SEMANTIC_RESOLVE', name: '语义解析', description: '拆解指标、维度和枚举候选' },
-  { code: 'SEMANTIC_DISCOVERY', name: '检索语义对象', description: '检索指标或业务数据集' },
-  { code: 'SEMANTIC_CONFIRM', name: '确认口径', description: '确认指标、字段和枚举值' },
-  { code: 'PLAN', name: '生成查询计划', description: '生成查询契约和查询计划' },
-  { code: 'VALIDATE', name: '校验门禁', description: '校验条件、权限和只读边界' },
-  { code: 'EXECUTE', name: '执行查询', description: '执行指标或数据集查询' },
-  { code: 'RESULT_ANALYST', name: '结果分析', description: '生成合计、TopN、趋势、异常和业务判断' },
-  { code: 'ANALYSIS_CODE', name: '代码驱动分析', description: '生成分析代码在沙箱内处理已锁定快照并产出契约化结果' },
-  { code: 'RESULT_VALIDATION', name: 'Skill结果验证', description: '按Skill验证结果和回答证据' },
-  { code: 'CODE', name: '代码分析', description: '生成并运行分析代码' },
-  { code: 'ANALYZE', name: '分析结果', description: '整理透视、校验和可视化' },
-  { code: 'RESPOND', name: '生成回答', description: '生成业务回答与交付说明' },
-];
-
-function executionStepStageCode(step) {
-  if (step?.stageCode) {
-    return step.stageCode;
-  }
-  if (step?.name === 'search_indicators' || step?.name === 'list_business_datasets') {
-    return 'SEMANTIC_DISCOVERY';
-  }
-  if (
-    step?.name === 'get_indicator'
-    || step?.name === 'get_business_dataset_definition'
-  ) {
-    return 'SEMANTIC_CONFIRM';
-  }
-  if (step?.name === 'compile_query_contract') {
-    return 'PLAN';
-  }
-  if (step?.name === 'execute_analysis_code') {
-    return 'CODE';
-  }
-  if (
-    step?.name === 'list_workspace_artifacts'
-    || step?.name === 'transform_workspace_artifact'
-  ) {
-    return 'ANALYZE';
-  }
-  if (step?.type === 'plan') {
-    return 'PLAN';
-  }
-  if (step?.type === 'validation') {
-    return 'VALIDATE';
-  }
-  if (step?.type === 'response') {
-    return 'RESPOND';
-  }
-  if (step?.type === 'reuse' || step?.type === 'tool') {
-    return 'EXECUTE';
-  }
-  return 'INTENT';
-}
-
-function executionPhaseStatus(stage, steps) {
-  if (
-    stage?.status === 'FAILED'
-    || steps.some((step) => step.status === 'error' || step.status === 'failed')
-  ) {
-    return 'failed';
-  }
-  if (
-    stage?.status === 'RUNNING'
-    || steps.some((step) => step.status === 'running')
-  ) {
-    return 'running';
-  }
-  if (stage?.status === 'SKIPPED') {
-    return 'skipped';
-  }
-  return 'success';
-}
-
-function truncateReviewText(value, limit = 12000) {
-  const text = String(value ?? '');
-  return text.length > limit ? `${text.slice(0, limit)}\n… 内容已截断` : text;
-}
-
-function renderExecutionReview(step) {
-  const review = step?.review ?? {};
-  const facts = review.facts ?? [];
-  const blocks = [];
-  if (facts.length > 0) {
-    blocks.push(`
-      <div class="execution-review-facts">
-        ${facts.map((fact) => `
-          <div class="execution-review-fact">
-            <span>${escapeHtml(fact.label)}</span>
-            <strong>${escapeHtml(fact.value)}</strong>
-          </div>
-        `).join('')}
-      </div>
-    `);
-  }
-  if (review.details) {
-    blocks.push(`
-      <details class="execution-review-raw">
-        <summary>查看结构化信息</summary>
-        <pre>${escapeHtml(truncateReviewText(JSON.stringify(review.details, null, 2), 16000))}</pre>
-      </details>
-    `);
-  }
-  if (review.code) {
-    blocks.push(`
-      <details class="execution-review-raw">
-        <summary>查看生成代码</summary>
-        <pre>${escapeHtml(truncateReviewText(review.code))}</pre>
-      </details>
-    `);
-  }
-  if (review.stdout) {
-    blocks.push(`
-      <details class="execution-review-raw">
-        <summary>查看代码输出</summary>
-        <pre>${escapeHtml(truncateReviewText(review.stdout, 8000))}</pre>
-      </details>
-    `);
-  }
-  if (review.stderr) {
-    blocks.push(`
-      <details class="execution-review-raw is-error">
-        <summary>查看错误输出</summary>
-        <pre>${escapeHtml(truncateReviewText(review.stderr, 8000))}</pre>
-      </details>
-    `);
-  }
-  if (step?.artifactId) {
-    blocks.push(`
-      <div class="execution-review-artifact">
-        <button class="btn btn-quiet btn-small" type="button"
-          data-open-process-artifact="${escapeAttr(step.artifactId)}">
-          ${icon('file-text', '查看过程文件')}查看过程文件
-        </button>
-      </div>
-    `);
-  }
-  return blocks.join('');
-}
-
-function renderExecutionStep(step) {
-  const review = renderExecutionReview(step);
-  return `
-    <details class="execution-operation is-${escapeAttr(step.status ?? 'success')}">
-      <summary>
-        <span class="execution-operation-type">${step.type === 'tool' ? '工具' : '内部步骤'}</span>
-        <strong>${escapeHtml(step.title ?? step.name ?? '执行步骤')}</strong>
-        <small>${escapeHtml(step.detail ?? '')}</small>
-        <span>${step.durationMs == null ? '执行中' : formatDurationSeconds(step.durationMs)}</span>
-      </summary>
-      ${review ? `<div class="execution-operation-body">${review}</div>` : ''}
-    </details>
-  `;
-}
-
-function renderExecutionPhase({ definition, stage, steps, index }) {
-  const status = executionPhaseStatus(stage, steps);
-  const duration = stage?.durationMs
-    ?? steps.reduce((sum, step) => sum + Number(step.durationMs ?? 0), 0);
-  const successCount = steps.filter((step) => step.status === 'success').length;
-  const outputCount = steps.reduce(
-    (sum, step) => sum + (step.review?.details?.outputs?.length ?? 0),
-    0,
-  );
-  const summary = definition.code === 'CODE'
-    ? `${steps.length} 段代码，${successCount} 段执行成功${outputCount > 0 ? `，生成 ${outputCount} 个文件` : ''}`
-    : stage?.summary
-      || steps[0]?.detail
-      || definition.description;
-  const attempts = stage?.attempts ?? [];
-  return `
-    <details class="execution-phase is-${status}">
-      <summary>
-        <span class="execution-phase-index">${index + 1}</span>
-        <span class="execution-phase-copy">
-          <strong>${escapeHtml(definition.name)}</strong>
-          <small>${escapeHtml(summary)}</small>
-        </span>
-        <span class="execution-phase-meta">
-          ${steps.length > 0 ? `<em>${steps.length} 项操作</em>` : ''}
-          <b>${['PENDING', 'SKIPPED'].includes(stage?.status) || duration == null
-            ? '-'
-            : formatDurationSeconds(duration)}</b>
-        </span>
-      </summary>
-      <div class="execution-phase-body">
-        ${stage?.detail && stage.detail !== summary
-          ? `<p>${escapeHtml(stage.detail)}</p>`
-          : ''}
-        ${steps.length > 0
-          ? `<div class="execution-operation-list">${steps.map(renderExecutionStep).join('')}</div>`
-          : `<div class="execution-phase-empty">本阶段无单独工具调用</div>`}
-        ${attempts.length > 1 ? `
-          <details class="execution-attempts">
-            <summary>查看 ${attempts.length - 1} 次废弃尝试</summary>
-            ${attempts.slice(0, -1).map((attempt) => `
-              <div>
-                <span>${escapeHtml(attempt.status)}</span>
-                <small>${escapeHtml(attempt.summary || attempt.detail || '')}</small>
-              </div>
-            `).join('')}
-          </details>
-        ` : ''}
-      </div>
-    </details>
-  `;
-}
-
 function renderExecutionDetails(result) {
   const workflow = result?.workflow;
-  const stages = visibleExecutionStages(workflow?.stages);
   const steps = result?.processSteps ?? [];
-  const visibleSteps = steps.filter((step) => !step.superseded);
-  const discardedSteps = steps.filter((step) => step.superseded);
   const duration = workflow?.durationMs
     ?? steps.reduce((sum, step) => sum + Number(step.durationMs ?? 0), 0);
   const fingerprint = String(result?.queryFingerprint ?? '').slice(0, 12);
@@ -1123,56 +915,14 @@ function renderExecutionDetails(result) {
       ? `<span class="execution-summary-pill">${result.permissions.rowPolicyCount} 条行权限</span>`
       : '',
   ].join('');
-  if (stages.length === 0 && steps.length === 0 && !summaryMeta) {
-    return '';
-  }
-
-  const phaseMap = new Map();
-  for (const stage of stages) {
-    phaseMap.set(stage.code, { stage, steps: [] });
-  }
-  for (const step of visibleSteps) {
-    const code = executionStepStageCode(step);
-    if (!phaseMap.has(code)) {
-      phaseMap.set(code, { stage: null, steps: [] });
-    }
-    phaseMap.get(code).steps.push(step);
-  }
-  const phases = EXECUTION_PHASE_DEFINITIONS
-    .map((definition) => {
-      const entry = phaseMap.get(definition.code) ?? { stage: null, steps: [] };
-      return { definition, ...entry };
-    })
-    .filter((phase) => phase.steps.length > 0 || Boolean(phase.stage))
-    .map((phase, index) => ({ ...phase, index }));
-
-  return `
-    <details class="execution-details">
-      <summary>
-        <span class="execution-summary-title">${icon('workflow', '分析步骤')}分析步骤</span>
-        <b class="execution-summary-duration">${formatDurationSeconds(duration)}</b>
-        ${summaryMeta ? `<span class="execution-summary-meta">${summaryMeta}</span>` : ''}
-        <small>${fingerprint ? `指纹 ${escapeHtml(fingerprint)}` : ''}</small>
-      </summary>
-      <div class="execution-detail-body">
-        <div class="execution-phase-list">
-          ${phases.map(renderExecutionPhase).join('')}
-        </div>
-        ${discardedSteps.length > 0 ? `
-          <details class="execution-attempts">
-            <summary>查看 ${discardedSteps.length} 次失败或废弃尝试</summary>
-            ${discardedSteps.map((step) => `
-              <div>
-                <span>${escapeHtml(step.status ?? '')}</span>
-                <small>${escapeHtml(step.title ?? step.name)}：${escapeHtml(step.detail ?? '')}</small>
-              </div>
-            `).join('')}
-          </details>
-        ` : ''}
-      </div>
-      <div class="execution-detail-note">阶段结果和工具参数可展开 review，不展示模型私有思维链。</div>
-    </details>
-  `;
+  const timeline = Array.isArray(result?.executionTimeline) && result.executionTimeline.length > 0
+    ? result.executionTimeline
+    : legacyExecutionTimeline(workflow, steps);
+  return renderExecutionTimeline(timeline, {
+    durationMs: duration,
+    summaryMeta,
+    fingerprint,
+  });
 }
 
 function bindExampleQuestions() {
@@ -1619,6 +1369,11 @@ function updateLiveExecution() {
   const details = container.querySelector('.execution-details');
   const wasOpen = Boolean(details?.open);
   container.innerHTML = renderLiveExecution();
+  container.querySelectorAll('[data-open-process-artifact]').forEach((button) => {
+    button.addEventListener('click', () => {
+      openWorkspaceArtifactFromChat(button.dataset.openProcessArtifact);
+    });
+  });
   if (wasOpen) {
     container.querySelector('.execution-details')?.setAttribute('open', '');
   }
@@ -1909,13 +1664,6 @@ export {
   renderClarificationOptions,
   renderAssistantContent,
   renderArtifactResultLink,
-  EXECUTION_PHASE_DEFINITIONS,
-  executionStepStageCode,
-  executionPhaseStatus,
-  truncateReviewText,
-  renderExecutionReview,
-  renderExecutionStep,
-  renderExecutionPhase,
   renderExecutionDetails,
   bindExampleQuestions,
   bindChatActions,

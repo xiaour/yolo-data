@@ -20,6 +20,16 @@ function projectPythonBin() {
   return fs.existsSync(candidate) ? candidate : DEFAULT_PYTHON_BIN;
 }
 
+function projectCodexBin() {
+  const relativePath = process.platform === 'win32'
+    ? path.join('node_modules', '.bin', 'codex.cmd')
+    : path.join('node_modules', '.bin', 'codex');
+  const candidate = path.join(projectRoot, relativePath);
+  return fs.existsSync(candidate)
+    ? candidate
+    : (process.platform === 'win32' ? 'codex.cmd' : 'codex');
+}
+
 function readInt(value, fallback) {
   const parsed = Number.parseInt(value ?? '', 10);
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -65,6 +75,8 @@ export function loadConfig(env = process.env) {
       ? expanded
       : path.resolve(projectRoot, expanded);
   });
+  const codexProvider = String(env.CODEX_PROVIDER ?? 'ollama').trim().toLowerCase() || 'ollama';
+  const defaultCodexModel = codexProvider === 'ollama' ? 'gpt-oss:20b' : '';
 
   return {
     projectRoot,
@@ -129,6 +141,27 @@ export function loadConfig(env = process.env) {
     recovery: {
       // Number of model-led recovery replans after the initial attempt.
       maxAttempts: Math.max(5, Math.min(8, readInt(env.AGENT_RECOVERY_MAX_ATTEMPTS, 5))),
+    },
+    agentRuntime: {
+      defaultMode: ['fast', 'auto', 'deep'].includes(String(env.AGENT_COMPUTE_MODE ?? '').toLowerCase())
+        ? String(env.AGENT_COMPUTE_MODE).toLowerCase()
+        : 'auto',
+      codex: {
+        enabled: String(env.CODEX_RUNTIME_ENABLED ?? 'true').toLowerCase() !== 'false',
+        command: String(env.CODEX_COMMAND ?? '').trim()
+          || projectCodexBin(),
+        provider: codexProvider,
+        providerBaseUrl: String(env.CODEX_PROVIDER_BASE_URL ?? '').trim().replace(/\/+$/, ''),
+        providerApiKey: String(env.CODEX_PROVIDER_API_KEY ?? '').trim(),
+        wireApi: String(env.CODEX_WIRE_API ?? 'responses').trim().toLowerCase() || 'responses',
+        model: String(env.CODEX_MODEL ?? defaultCodexModel).trim() || defaultCodexModel,
+        effort: String(env.CODEX_REASONING_EFFORT ?? 'high').trim() || 'high',
+        timeoutMs: Math.max(10_000, readInt(env.CODEX_TIMEOUT_MS, 300_000)),
+        workingDirectory: path.resolve(
+          projectRoot,
+          String(env.CODEX_WORKING_DIRECTORY ?? './data/codex-runtime').trim(),
+        ),
+      },
     },
     codeExecutionRoot: path.resolve(
       projectRoot,

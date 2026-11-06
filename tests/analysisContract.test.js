@@ -9,6 +9,7 @@ import {
   normalizeAnalysisResult,
   summarizeAnalysisResult,
   validateAnalysisResult,
+  summarizeAnalysisReport,
 } from '../src/analysisContract.js';
 
 function attributionPayload(overrides = {}) {
@@ -151,4 +152,69 @@ test('summarizeAnalysisResult ranks rows by contribution without inventing numbe
   assert.match(text, /总变化：90/);
   const lines = text.split('\n');
   assert.match(lines[2], /渠道C/);
+});
+
+test('report findings must reference existing rows and supported opportunities need evidence', () => {
+  const validation = validateAnalysisResult(attributionPayload({
+    executiveSummary: '渠道A增长，渠道B下降。',
+    findings: [{
+      id: 'f1', title: '渠道B下降', statement: '渠道B下降10',
+      evidenceRefs: ['row:B'], status: 'SUPPORTED', confidence: 'HIGH',
+    }],
+    opportunities: [{
+      id: 'o1', title: '挽回渠道B', rationale: '渠道B同比下降', action: '核查客户流失原因',
+      evidenceRefs: ['row:B'], status: 'SUPPORTED', confidence: 'MEDIUM',
+    }],
+    limitations: ['同期变化不能单独证明因果。'],
+  }));
+  assert.equal(validation.valid, true, JSON.stringify(validation.issues));
+  const report = summarizeAnalysisReport(validation);
+  assert.match(report, /关键发现/);
+  assert.match(report, /机会与行动/);
+  assert.match(report, /同期变化不能单独证明因果/);
+
+  const invalid = validateAnalysisResult(attributionPayload({
+    findings: [{
+      id: 'f1', title: '不存在的分组', statement: '错误引用',
+      evidenceRefs: ['row:missing'], status: 'SUPPORTED', confidence: 'HIGH',
+    }],
+    opportunities: [{
+      id: 'o1', title: '无依据机会', rationale: '没有数据依据', action: '直接投入',
+      evidenceRefs: [], status: 'SUPPORTED', confidence: 'HIGH',
+    }],
+  }));
+  assert.equal(invalid.valid, false);
+  assert.ok(invalid.issues.some((item) => item.code === 'ANALYSIS-EVIDENCE-REF'));
+  assert.ok(invalid.issues.some((item) => item.code === 'ANALYSIS-OPPORTUNITY-EVIDENCE'));
+});
+
+test('an unproven opportunity is allowed only when labelled as a hypothesis', () => {
+  const validation = validateAnalysisResult(attributionPayload({
+    opportunities: [{
+      id: 'o1', title: '验证渠道触达', rationale: '现有快照没有触达数据',
+      action: '补充触达和复购字段后验证', evidenceRefs: [],
+      status: 'HYPOTHESIS', confidence: 'LOW',
+    }],
+  }));
+  assert.equal(validation.valid, true, JSON.stringify(validation.issues));
+});
+
+test('report validation requires an executive summary and evidence-backed findings', () => {
+  const validation = validateAnalysisResult(attributionPayload(), { requireReport: true });
+  assert.equal(validation.valid, false);
+  assert.ok(validation.issues.some((item) => item.code === 'ANALYSIS-REPORT-SUMMARY'));
+  assert.ok(validation.issues.some((item) => item.code === 'ANALYSIS-REPORT-FINDINGS'));
+});
+
+test('report evidence row keys must be unique', () => {
+  const validation = validateAnalysisResult(attributionPayload({
+    rows: [
+      { key: 'A', label: '渠道A-1', delta: 1 },
+      { key: 'A', label: '渠道A-2', delta: 2 },
+    ],
+    totals: { base: null, current: null, delta: 3 },
+    claims: [],
+  }));
+  assert.equal(validation.valid, false);
+  assert.ok(validation.issues.some((item) => item.code === 'ANALYSIS-ROW-KEY-DUPLICATE'));
 });

@@ -1,3 +1,5 @@
+import { responseOutputText } from './harness.js';
+
 // Execution-time reflection for the DataAgent pipeline.
 //
 // After the 13-stage workflow produces a RESPOND, we run three checks to
@@ -507,7 +509,7 @@ export function createHarnessJudge(harness) {
       [],
       { judge: true, callType: 'REFLECTION_JUDGE', signal: options.signal },
     );
-    return payload?.choices?.[0]?.message?.content ?? '';
+    return responseOutputText(payload);
   };
 }
 
