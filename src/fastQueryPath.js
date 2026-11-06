@@ -1,9 +1,4 @@
-import { applySemanticPolicy } from './semanticPolicy.js';
-import { classifyAnalysisSemantics } from './analysisSemantics.js';
-import { extractTemporalMentions } from './timeSemantics.js';
-import { inferAnalysisMode } from './queryIntent.js';
-import { getPlatformLexicon } from './businessLexicon.js';
-
+import { buildSemanticFastPathDraft } from './fastPathDraft.js';
 function normalizeTerm(value) {
   return String(value ?? '').toLowerCase().replace(/\s+/g, '').trim();
 }
@@ -239,6 +234,8 @@ export function buildSemanticFastPathDraft({
     profile,
   };
 }
+export { buildSemanticFastPathDraft };
+
 
 /**
  * Resolve a prompt-defined metric synonym across the datasets available to a

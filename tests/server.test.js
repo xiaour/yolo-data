@@ -404,7 +404,8 @@ test('model connection test turns an HTML upstream error into a readable message
       }),
     });
     const result = await response.json();
-    assert.equal(response.status, 400);
+    assert.equal(response.status, 404);
+    assert.equal(result.code, 404);
     assert.match(result.message, /模型服务返回了 HTML 页面/);
     assert.equal(result.message.includes('<html>'), false);
   } finally {

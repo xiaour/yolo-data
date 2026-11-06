@@ -139,6 +139,17 @@ function testConfig() {
   };
 }
 
+async function createTestApplication(t) {
+  const application = await createApplication(testConfig());
+  t.after(async () => {
+    application.memoryMaintenance?.stop();
+    try { await application.businessDatasets.close(); }
+    finally { await application.database.closeAsync(); }
+  });
+  await application.init();
+  return application;
+}
+
 function createBusinessDataset(application, user, { attachToTheme = true, dbType = 'DORIS' } = {}) {
   const crypto = new DatasourceCrypto({
     keyFilePath: path.join(path.dirname(application.config.dbPath), '.key'),
@@ -217,9 +228,8 @@ function createBusinessDataset(application, user, { attachToTheme = true, dbType
   return dataset;
 }
 
-test('business dataset query is compiled from semantic fields without raw SQL', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('business dataset query is compiled from semantic fields without raw SQL', async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
   const fields = application.database.listDatasetFields(dataset.id, { enabledOnly: true });
@@ -235,9 +245,8 @@ test('business dataset query is compiled from semantic fields without raw SQL', 
   assert.equal('rawSql' in compiled, false);
 });
 
-test('business dataset query groups time dimensions at the requested grain', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('business dataset query groups time dimensions at the requested grain', async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
   const fields = application.database.listDatasetFields(dataset.id, {
@@ -283,9 +292,8 @@ test('business dataset query groups time dimensions at the requested grain', asy
   assert.equal(compiled.timeGrain, 'MONTH');
 });
 
-test('business dataset query orders grouped metrics by their output alias', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('business dataset query orders grouped metrics by their output alias', async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
   const compiled = application.businessDatasets.buildQuery(dataset.id, {
@@ -304,9 +312,8 @@ test('business dataset query orders grouped metrics by their output alias', asyn
   assert.doesNotMatch(compiled.sql, /ORDER BY `sale_amt` DESC/);
 });
 
-test('business dataset query separates row filters from aggregate filters', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('business dataset query separates row filters from aggregate filters', async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
   const compiled = application.businessDatasets.buildQuery(dataset.id, {
@@ -337,9 +344,8 @@ test('business dataset query separates row filters from aggregate filters', asyn
   assert.ok(compiled.values.includes(500000));
 });
 
-test('business dataset query renders scoped metrics with per-metric conditional filters', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('business dataset query renders scoped metrics with per-metric conditional filters', async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
   const compiled = application.businessDatasets.buildQuery(dataset.id, {
@@ -375,9 +381,8 @@ test('business dataset query renders scoped metrics with per-metric conditional 
   assert.ok(compiled.values.includes('%OEM%'));
 });
 
-test('business dataset can load distinct values for enum-like fields', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('business dataset can load distinct values for enum-like fields', async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
   let captured = null;
@@ -402,9 +407,8 @@ test('business dataset can load distinct values for enum-like fields', async () 
   assert.equal(captured.values[0], 50);
 });
 
-test('semantic value preview follows draft dataset selection without saving it', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('semantic value preview follows draft dataset selection without saving it', async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user, { attachToTheme: false });
   application.database.replaceDatasetFields(dataset.id, [
@@ -441,9 +445,8 @@ test('semantic value preview follows draft dataset selection without saving it',
   );
 });
 
-test('agent rejects indicator execution when the theme has a business dataset', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('agent rejects indicator execution when the theme has a business dataset', async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
   let blockedError = null;
@@ -485,7 +488,7 @@ test('agent rejects indicator execution when the theme has a business dataset', 
     userId: user.id,
     themeId: application.database.listThemes()
       .find((item) => item.name === '经营总览').id,
-    question: '本月销售额是多少',
+    question: '检查指标平台访问权限',
   });
 
   assert.equal(blockedError?.code, 'LOCAL_INDICATOR_QUERY_UNSUPPORTED');
@@ -526,7 +529,7 @@ test('dataset definition remains available when optional semantic value enrichme
   const answer = await application.agent.answer({
     userId: user.id,
     themeId: theme.id,
-    question: '上个月销售额是多少',
+    question: '请提供数据集字段定义',
     onEvent: (event) => events.push(event),
   });
 
@@ -538,14 +541,11 @@ test('dataset definition remains available when optional semantic value enrichme
   )));
   assert.ok(events.some((event) => event.code === 'SEMANTIC_VALUE_DOMAIN_UNAVAILABLE'));
   assert.equal(answer.message, 'schema received');
-  await application.businessDatasets.close();
-  await application.database.closeAsync();
 });
 
 for (const dbType of ['DORIS', 'MYSQL', 'TIDB', 'POSTGRESQL']) {
-test(`agent routes and labels the authorized ${dbType} dataset executor`, async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test(`agent routes and labels the authorized ${dbType} dataset executor`, async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user, { dbType });
   application.businessDatasets.executeQuery = async ({ request }) => ({
@@ -618,14 +618,11 @@ test(`agent routes and labels the authorized ${dbType} dataset executor`, async 
     userId: user.id, themeId: answer.theme.id, question: '最近60天各大区销售额明细',
   }).catch((error) => assert.match(error.message, /execution label fixture failure/));
   assert.ok(failures.some((gap) => gap.kind === 'DATASET_EXECUTION' && gap.source === `${dbType}_DATASET`));
-  await application.businessDatasets.close();
-  await application.database.closeAsync();
 });
 }
 
-test('agent does not execute a guessed aggregate when the model only clarifies', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('agent does not execute a guessed aggregate when the model only clarifies', async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user);
   let capturedRequest = null;
@@ -675,9 +672,8 @@ test('agent does not execute a guessed aggregate when the model only clarifies',
   assert.match(answer.message, /请继续补充查询条件/);
 });
 
-test('data source creation generates a readable unique code without user input', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('data source creation generates a readable unique code without user input', async (t) => {
+  const application = await createTestApplication(t);
   const payload = {
     name: 'Doris 开发测试库',
     dbType: 'DORIS',
@@ -706,9 +702,8 @@ test('data source creation generates a readable unique code without user input',
   assert.match(fallback.code, /^ds_[a-z0-9]+$/);
 });
 
-test('aliased metric output columns keep metric semantics', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('aliased metric output columns keep metric semantics', async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user, { attachToTheme: false });
   application.businessDatasets.getPoolById = () => ({
@@ -744,9 +739,8 @@ test('aliased metric output columns keep metric semantics', async () => {
   assert.equal(timeColumn.role, 'TIME');
 });
 
-test('business dataset execution probes one extra row without false truncation', async () => {
-  const application = await createApplication(testConfig());
-  await application.init();
+test('business dataset execution probes one extra row without false truncation', async (t) => {
+  const application = await createTestApplication(t);
   const user = application.database.getUserByUsername('east_manager');
   const dataset = createBusinessDataset(application, user, { attachToTheme: false });
   const requestedLimits = [];

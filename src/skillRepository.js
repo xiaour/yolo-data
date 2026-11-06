@@ -1,9 +1,7 @@
+import { externalSkillUpsertSql, normalizeExternalSkills } from './externalSkillSync.js';
+
 function nowIso() {
   return new Date().toISOString();
-}
-
-function asJson(value) {
-  return JSON.stringify(value ?? []);
 }
 
 export class SkillRepository {

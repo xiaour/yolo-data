@@ -167,6 +167,7 @@ test('configured model is seeded, available to initialized themes, and resolved 
     baseUrl: 'https://models.example/v1',
     apiKeyEnv: 'API_KEY',
     apiKeyEncrypted: '',
+    isDefaultConfModel: true,
     temperature: 0.2,
     maxTokens: 2048,
     timeoutMs: 12_000,

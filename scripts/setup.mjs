@@ -9,7 +9,7 @@
 //
 // Dependency-free on purpose so it can run before `npm install`.
 
-import { spawnSync } from 'node:child_process';
+import { installDependencies, verifyMysqlDriver } from './setup-dependencies.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensurePythonAnalysisRuntime } from './python-setup.mjs';
@@ -86,6 +86,7 @@ function verifyCodexCli() {
   ok(String(version.stdout ?? '').trim() || 'Codex CLI 已安装');
 }
 
+
 function ensureConfigFile() {
   const confPath = resolveConfPath(projectRoot);
   if (confPath) {
@@ -94,21 +95,6 @@ function ensureConfigFile() {
   }
   warn('未找到 yolo-conf.yaml：平台将只使用代码内置默认值与环境变量');
   return null;
-}
-
-async function verifyMysqlDriver() {
-  try {
-    const mysql = await import('mysql2/promise');
-    if (typeof mysql.default?.createConnection !== 'function') {
-      throw new Error('createConnection 不可用');
-    }
-    ok('mysql2 驱动可用（MySQL/Doris 数据源就绪）');
-  } catch (error) {
-    abort(
-      `mysql2 驱动加载失败：${error.message}\n`
-      + '  请手动执行：npm install mysql2',
-    );
-  }
 }
 
 // Python 分析环境是完整安装的一部分：自动创建 .venv 并安装依赖；解释器由应用自动探测，不写回配置文件。
@@ -131,7 +117,7 @@ assertNodeVersion();
 installDependencies();
 verifyCodexCli();
 const confPath = ensureConfigFile();
-await verifyMysqlDriver();
+await verifyMysqlDriver({ ok, abort });
 setupPythonRuntime(confPath);
 
 console.log('\n完成。下一步：');

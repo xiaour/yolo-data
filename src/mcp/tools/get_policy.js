@@ -1,3 +1,4 @@
+import { resolveToolContext } from './resolveToolContext.js';
 // 工具 get_policy：查询用户在某主题下的访问策略（只读）。
 import { z } from 'zod';
 import { wrapToolHandler, buildMeta, assertTenantScope } from './shared.js';
@@ -16,14 +17,7 @@ export function registerGetPolicy(server, ctx) {
     const { agent, database, requestContext, auditToolCall } = ctx;
     assertTenantScope(ctx, args.themeId);
     return auditToolCall(database, buildMeta('get_policy', requestContext, args), async () => {
-      let resolved;
-      try {
-        resolved = agent.resolveContextAsync
-          ? await agent.resolveContextAsync(args.userId, args.themeId)
-          : agent.resolveContext(args.userId, args.themeId);
-      } catch (error) {
-        throw fail(-32002, error?.message ?? '解析上下文失败');
-      }
+      const resolved = await resolveToolContext(agent, args.userId, args.themeId);
       const scope = resolved?.scope;
       if (!scope || scope.allowed === false) {
         throw fail(-32002, scope?.reason ?? '当前用户无该主题的查询权限');

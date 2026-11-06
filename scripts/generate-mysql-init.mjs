@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { mysqlize } from './mysql-schema-conversion.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -44,6 +45,7 @@ function mysqlize(sql) {
     return `${match[1]}${match[2]} LONGTEXT${match[3].replace(/\s+DEFAULT\s+(?:'[^']*'|NULL)/i, '')}`;
   }).join('\n');
 }
+
 
 const database = new PlatformDatabase(sqlitePath);
 const sqlite = new DatabaseSync(sqlitePath, { readOnly: true });
