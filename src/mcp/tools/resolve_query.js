@@ -1,3 +1,4 @@
+import { resolveToolContext } from './resolveToolContext.js';
 // 工具 resolve_query：将语义层参数编译为确定性的查询契约，经平台门禁 review
 // 后冻结落库，返回 contractId。后续 execute_query 凭 contractId 执行。
 import { randomBytes } from 'node:crypto';
@@ -49,14 +50,7 @@ export function registerResolveQuery(server, ctx) {
       if (args.sourceType === 'BUSINESS_DATASET' && !args.datasetId) {
         throw fail(MCP_ERROR.INTERNAL, 'BUSINESS_DATASET 类型必须提供 datasetId');
       }
-      let resolved;
-      try {
-        resolved = agent.resolveContextAsync
-          ? await agent.resolveContextAsync(args.userId, args.themeId)
-          : agent.resolveContext(args.userId, args.themeId);
-      } catch (error) {
-        throw fail(-32002, error?.message ?? '解析上下文失败');
-      }
+      const resolved = await resolveToolContext(agent, args.userId, args.themeId);
       const { theme, scope } = resolved;
       if (!scope || scope.allowed === false) {
         throw fail(-32002, scope?.reason ?? '无查询权限');

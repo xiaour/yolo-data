@@ -1,3 +1,4 @@
+import { registerBootstrapRoute } from './bootstrap.js';
 import {
   deleteUserSessionsAsync,
   setDefaultUserPasswordAsync,
@@ -213,6 +214,7 @@ export function registerUserRoutes(table) {
       });
     },
   });
+  registerBootstrapRoute(table);
 
   table.add({
     id: 'users.preferences.replace',

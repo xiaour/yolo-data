@@ -1,4 +1,6 @@
+
 import { ResponsesApiHarness, responseOutputText } from '../../harness.js';
+import { registerModelConnectionRoute } from './modelConnection.js';
 
 export function registerModelRoutes(table) {
   table.add({
@@ -94,6 +96,8 @@ export function registerModelRoutes(table) {
       });
     },
   });
+
+  registerModelConnectionRoute(table);
 
   table.add({
     id: 'models.create',

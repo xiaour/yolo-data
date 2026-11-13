@@ -32,53 +32,7 @@ function longestCommonSubstringLength(left, right) {
   return longest;
 }
 
-function fuzzyTermMatch(query, term) {
-  const left = normalizeBusinessTerm(query);
-  const right = normalizeBusinessTerm(term);
-  if (left.length < 2 || right.length < 2) return 0;
-  const overlap = longestCommonSubstringLength(left, right);
-  const threshold = Math.max(2, Math.ceil(Math.min(left.length, right.length) * 0.5));
-  return overlap >= threshold ? overlap : 0;
-}
-
-function indicatorValues(indicator) {
-  return [
-    indicator?.name,
-    indicator?.bizName,
-    indicator?.description,
-    indicator?.businessCaliber,
-    indicator?.typeName,
-    ...(indicator?.metrics ?? []).flatMap((metric) => [
-      metric?.metricName,
-      metric?.name,
-      metric?.metricBizName,
-      metric?.bizName,
-    ]),
-    ...(indicator?.dimensions ?? []).flatMap((dimension) => [
-      dimension?.dimensionName,
-      dimension?.name,
-      dimension?.dimensionBizName,
-      dimension?.bizName,
-    ]),
-  ].filter(Boolean).map(normalizeBusinessTerm);
-}
-
-function promptMetricAliases(prompt) {
-  const text = String(prompt ?? '');
-  const aliases = [];
-  for (const line of text.split(/\r?\n/)) {
-    if (!/指标同义词/.test(line)) continue;
-    const expression = line.slice(line.indexOf('：') >= 0 ? line.indexOf('：') + 1 : line.indexOf(':') + 1);
-    for (const mapping of expression.split(/[；;，,]/)) {
-      const match = mapping.match(/^\s*([^=＝]+?)\s*[=＝]\s*(.+?)\s*$/);
-      if (!match) continue;
-      const alias = normalizeBusinessTerm(match[1]);
-      const target = normalizeBusinessTerm(match[2]);
-      if (alias && target) aliases.push({ alias, target });
-    }
-  }
-  return aliases;
-}
+export { normalizeBusinessTerm };
 
 export function scoreIndicator(indicator, question, lexicon = null, prompt = '') {
   const text = normalizeBusinessTerm(question);
