@@ -7,7 +7,7 @@ function compactText(value) {
     .trim();
 }
 
-export function normalizeBusinessTerm(value) {
+function normalizeBusinessTerm(value) {
   return compactText(value);
 }
 
@@ -171,3 +171,5 @@ export function sortIndicators(indicators) {
     })
   ));
 }
+
+export { normalizeBusinessTerm };
