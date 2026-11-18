@@ -40,6 +40,7 @@ export function registerBootstrapRoute(table) {
         models: models.map(toPublicModel),
         indicatorTypes,
         health,
+        compute: health.compute,
       });
     },
   });

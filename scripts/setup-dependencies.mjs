@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 
 export function installDependencies({ projectRoot, info, abort, ok }) {
-  info('安装依赖（含 MySQL/Doris 驱动 mysql2）');
+  info('安装依赖（含 MySQL/Doris 驱动 mysql2 与 Codex CLI）');
   // Windows cannot reliably spawn .cmd files directly (Node may return EINVAL).
   // Run npm.cmd through cmd.exe there; keep direct execution on POSIX.
   const command = process.platform === 'win32'

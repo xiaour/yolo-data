@@ -1,36 +1,5 @@
 import { getPlatformLexicon } from './businessLexicon.js';
-
-function compactText(value) {
-  return String(value ?? '')
-    .toLowerCase()
-    .replace(/\s+/g, '')
-    .trim();
-}
-
-function normalizeBusinessTerm(value) {
-  return compactText(value);
-}
-
-// Short metric labels often differ by one character. Keep this deterministic
-// and explainable instead of requiring an embedding service for small lexical variation.
-function longestCommonSubstringLength(left, right) {
-  const a = normalizeBusinessTerm(left);
-  const b = normalizeBusinessTerm(right);
-  if (!a || !b) return 0;
-  let previous = new Array(b.length + 1).fill(0);
-  let longest = 0;
-  for (let i = 1; i <= a.length; i += 1) {
-    const current = new Array(b.length + 1).fill(0);
-    for (let j = 1; j <= b.length; j += 1) {
-      if (a[i - 1] === b[j - 1]) {
-        current[j] = previous[j - 1] + 1;
-        longest = Math.max(longest, current[j]);
-      }
-    }
-    previous = current;
-  }
-  return longest;
-}
+import { fuzzyTermMatch, indicatorValues, normalizeBusinessTerm, promptMetricAliases } from './indicatorTerms.js';
 
 export { normalizeBusinessTerm };
 
@@ -125,5 +94,3 @@ export function sortIndicators(indicators) {
     })
   ));
 }
-
-export { normalizeBusinessTerm };

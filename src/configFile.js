@@ -82,6 +82,7 @@ export const CONFIG_FILE_MAP = {
   'codeExecution.root': 'CODE_EXECUTION_ROOT',
   'codeExecution.pythonBin': 'PYTHON_BIN',
   'codeExecution.sandbox.backend': 'SANDBOX_BACKEND',
+  'codeExecution.sandbox.allowUnsafeInprocess': 'SANDBOX_ALLOW_UNSAFE_INPROCESS',
   'codeExecution.sandbox.image': 'SANDBOX_IMAGE',
   'codeExecution.sandbox.seccomp': 'SANDBOX_SECCOMP',
 

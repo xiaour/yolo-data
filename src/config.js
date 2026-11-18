@@ -167,6 +167,12 @@ export function loadConfig(env = process.env) {
       projectRoot,
       String(env.CODE_EXECUTION_ROOT ?? './data/code-runs').trim(),
     ),
+    codeExecution: {
+      backend: String(env.SANDBOX_BACKEND ?? 'container').trim().toLowerCase(),
+      allowUnsafeInprocess: env.SANDBOX_ALLOW_UNSAFE_INPROCESS === 'true',
+      image: String(env.SANDBOX_IMAGE ?? 'yolo-data-sandbox:local').trim(),
+      seccompProfile: String(env.SANDBOX_SECCOMP ?? '').trim(),
+    },
     pythonBin: String(env.PYTHON_BIN ?? '').trim() || projectPythonBin(),
     uploads: {
       maxBytes: Math.max(1, readInt(env.UPLOAD_MAX_BYTES, 8 * 1024 * 1024)),

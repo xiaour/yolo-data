@@ -463,6 +463,7 @@ test('uploaded table is materialized into the analysis sandbox input', async (co
     config: {
       codeExecutionRoot: path.join(harness.directory, 'code-runs'),
       pythonBin,
+      codeExecution: { backend: 'inprocess', allowUnsafeInprocess: true },
     },
   });
   try {
@@ -519,7 +520,8 @@ test('analysis code cannot read files outside its run directory', async (context
   const codeExecution = new CodeExecutionService({
     database: harness.database,
     workspace: harness.workspace,
-    config: { codeExecutionRoot: path.join(harness.directory, 'code-runs'), pythonBin },
+    config: { codeExecutionRoot: path.join(harness.directory, 'code-runs'), pythonBin,
+      codeExecution: { backend: 'inprocess', allowUnsafeInprocess: true } },
   });
   try {
     const work = harness.workspace.ensureForSession({

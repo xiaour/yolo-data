@@ -274,7 +274,7 @@ flowchart LR
 | `src/workspace.js` | 多类型产物、血缘、派生结果和 CSV/JSON/XLSX 导出 |
 | `src/processArtifacts.js` | 把产出可读数据表的工作环节落成过程文件（数据行、血缘与步数上限） |
 | `src/artifactCapabilities.js` | 产物粒度、指标、维度、时间范围和派生字段能力清单，以及复用或最小重查决策 |
-| `src/codeExecution.js` | 生成式 Python 代码执行、输入产物物化、文件输出回收和受限执行环境（非安全边界） |
+| `src/codeExecution.js` | 生成式 Python 代码执行、输入产物物化和成功文件输出回收；默认使用独立容器，隔离配置见 `src/codeSandbox.js` |
 | `src/skillAdapter.js` | 标准 `SKILL.md` 扫描、YAML Frontmatter 解析、阶段识别和按需正文抽取 |
 | `src/skills.js` | 内外部 Skill 注册、主题启用、工具裁剪、规划前审计和结果验证 |
 | `src/chart.js` | 根据行列结构、问题和偏好推荐图表 |
@@ -897,12 +897,12 @@ flowchart LR
 ### 7.6 生成式代码执行
 
 复杂或非标准的数据处理不再完全依赖平台内置算子。Harness 可以调用
-`execute_analysis_code`，生成 Python 代码并在当前会话的隔离运行目录中执行：
+`execute_analysis_code`，生成 Python 代码并在独立的 Docker/Podman 容器中执行。容器只挂载本轮输入和输出，缺少容器环境时明确失败，不自动回退到宿主机 Python。配置与验收见 [代码执行隔离](code-sandbox.md)。
 
 ```mermaid
 flowchart LR
   ARTIFACT["工作区产物"] --> MATERIALIZE["物化到 input/"]
-  MODEL["大模型生成 Python 代码"] --> SANDBOX["隔离运行目录"]
+  MODEL["大模型生成 Python 代码"] --> SANDBOX["本轮独立容器"]
   MATERIALIZE --> SANDBOX
   SANDBOX --> OUTPUT["output/ 文件"]
   OUTPUT --> FILEARTIFACT["工作区文件产物"]

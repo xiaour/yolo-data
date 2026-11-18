@@ -21,6 +21,7 @@ function createHarness() {
       projectRoot: directory,
       codeExecutionRoot: path.join(directory, 'code-runs'),
       pythonBin,
+      codeExecution: { backend: 'inprocess', allowUnsafeInprocess: true },
     },
   });
   const user = database.getUserByUsername('admin');

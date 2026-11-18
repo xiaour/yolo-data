@@ -193,7 +193,7 @@ docker compose up -d --build
 - 行级权限在查询执行时强制合并，列级权限在结果返回前处理。
 - 上传内容进入模型上下文前执行提示注入清洗。
 - API Key 和数据库密码应放在 `.env` 或真实进程环境变量中。
-- `SANDBOX_BACKEND=inprocess` 不是安全边界；不可信或多租户环境应使用 Docker/Podman 容器、无网络和只读根文件系统。
+- Python 分析代码默认通过 Docker/Podman 隔离执行。先运行 `docker build -f config/sandbox/Dockerfile -t yolo-data-sandbox:local .`；Docker 不可用时明确报错，不回退到宿主机执行。部署与验证见 [代码执行隔离](docs/code-sandbox.md)。
 - SQLite 适合单机部署；多实例部署建议使用 MySQL 平台库，并统一会话锁、文件存储和审计设施。
 - 对外部署前必须修改默认账号密码、启用会话鉴权并配置 HTTPS。
 

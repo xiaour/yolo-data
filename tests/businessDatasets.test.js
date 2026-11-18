@@ -141,11 +141,6 @@ function testConfig() {
 
 async function createTestApplication(t) {
   const application = await createApplication(testConfig());
-  t.after(async () => {
-    application.memoryMaintenance?.stop();
-    try { await application.businessDatasets.close(); }
-    finally { await application.database.closeAsync(); }
-  });
   await application.init();
   return application;
 }

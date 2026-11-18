@@ -187,7 +187,7 @@ See [`.env.example`](.env.example) for common variables and [`yolo-conf.yaml`](y
 - Row policies are merged during query execution; column policies are applied before result delivery.
 - Uploaded content is sanitized for prompt injection before entering model context.
 - Keep API keys and database passwords in `.env` or real process environment variables.
-- `SANDBOX_BACKEND=inprocess` is not a security boundary. Use Docker or Podman with no network and a read-only root filesystem for untrusted or multi-tenant environments.
+- Python analysis uses Docker/Podman isolation by default. Build the runtime with `docker build -f config/sandbox/Dockerfile -t yolo-data-sandbox:local .`. Missing isolation fails explicitly without falling back to host Python. See [sandbox setup](docs/code-sandbox.md).
 - SQLite suits single-node deployments. Multi-instance deployments should use the MySQL platform store and shared locking, file storage, and audit infrastructure.
 - Change default credentials, enable session authentication, and configure HTTPS before public exposure.
 
