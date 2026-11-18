@@ -139,10 +139,12 @@ codeExecution:
   # Python executable; blank enables automatic detection / Python 解释器；留空时自动探测
   pythonBin: ""
   sandbox:
-    # inprocess (not a security boundary) | container | podman / 执行方式：inprocess（非安全边界）| container | podman
-    backend: inprocess
+    # container | podman; inprocess requires explicit unsafe opt-in / 默认隔离执行；宿主机执行须显式授权
+    backend: container
+    # Local trusted development only / 仅可信本地开发使用
+    allowUnsafeInprocess: false
     # Container image / 容器镜像
-    image: "python:3.12-slim"
+    image: "yolo-data-sandbox:local"
     # Optional seccomp profile / 可选的 seccomp 配置文件
     seccomp: ""
 

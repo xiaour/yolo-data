@@ -10,6 +10,7 @@
 // Dependency-free on purpose so it can run before `npm install`.
 
 import { installDependencies, verifyMysqlDriver } from './setup-dependencies.mjs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensurePythonAnalysisRuntime } from './python-setup.mjs';
@@ -37,26 +38,6 @@ function assertNodeVersion() {
     abort(`需要 Node.js >= ${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}，当前为 ${process.versions.node}`);
   }
   ok(`Node.js ${process.versions.node}`);
-}
-
-function installDependencies() {
-  info('安装依赖（含 MySQL/Doris 驱动 mysql2 与 Codex CLI）');
-  // Windows cannot reliably spawn .cmd files directly (Node may return EINVAL).
-  // Run npm.cmd through cmd.exe there; keep direct execution on POSIX.
-  const command = process.platform === 'win32'
-    ? (process.env.ComSpec || 'cmd.exe')
-    : 'npm';
-  const args = process.platform === 'win32'
-    ? ['/d', '/s', '/c', 'npm.cmd install']
-    : ['install'];
-  const result = spawnSync(command, args, { cwd: projectRoot, stdio: 'inherit' });
-  if (result.error) {
-    abort(`无法执行 npm install：${result.error.message}`);
-  }
-  if (result.status !== 0) {
-    abort('npm install 失败，请检查网络或 npm registry 配置后重试');
-  }
-  ok('依赖已安装');
 }
 
 function runLocalCodex(args, options = {}) {
@@ -114,7 +95,7 @@ function setupPythonRuntime(confPath) {
 console.log('\nYOLO Data 环境初始化\n');
 loadEnvFile({ projectRoot });
 assertNodeVersion();
-installDependencies();
+installDependencies({ projectRoot, info, abort, ok });
 verifyCodexCli();
 const confPath = ensureConfigFile();
 await verifyMysqlDriver({ ok, abort });

@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
+import { runProcess } from './analysisProcess.js';
+import { assertSandboxAllowed, resolveSandboxConfig, runContainerAnalysis } from './codeSandbox.js';
 import { DEFAULT_PYTHON_BIN } from './config.js';
 import { recordCodeGateBlock } from './codeGateAudit.js';
 
@@ -83,7 +85,6 @@ const ALLOWED_EXTENSIONS = new Set([...TEXT_EXTENSIONS, ...BINARY_EXTENSIONS]);
 const MAX_OUTPUT_FILES = 20;
 const MAX_OUTPUT_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_OUTPUT_TOTAL_BYTES = 30 * 1024 * 1024;
-const MAX_CAPTURE_BYTES = 1024 * 1024;
 
 function sanitizeFileName(value, fallback = 'artifact') {
   const base = path.basename(String(value ?? '').trim() || fallback)
@@ -327,81 +328,6 @@ function listFiles(root) {
   return output;
 }
 
-function captureWriter(buffer) {
-  return {
-    push(chunk) {
-      if (buffer.length >= MAX_CAPTURE_BYTES) {
-        return;
-      }
-      buffer.push(chunk.subarray(0, MAX_CAPTURE_BYTES - buffer.length));
-    },
-    text() {
-      return Buffer.concat(buffer).toString('utf8');
-    },
-  };
-}
-
-function runProcess({ command, args, cwd, env, timeoutSeconds }) {
-  return new Promise((resolve) => {
-    const startedAt = Date.now();
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    const stdout = captureWriter(stdoutChunks);
-    const stderr = captureWriter(stderrChunks);
-    const child = spawn(command, args, {
-      cwd,
-      env,
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      child.kill();
-      resolve({
-        exitCode: null,
-        timedOut: true,
-        durationMs: Date.now() - startedAt,
-        stdout: stdout.text(),
-        stderr: `${stderr.text()}\nAnalysis code timed out after ${timeoutSeconds} seconds.`.trim(),
-      });
-    }, timeoutSeconds * 1000);
-    child.stdout.on('data', (chunk) => stdout.push(chunk));
-    child.stderr.on('data', (chunk) => stderr.push(chunk));
-    child.on('error', (error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      resolve({
-        exitCode: null,
-        timedOut: false,
-        durationMs: Date.now() - startedAt,
-        stdout: stdout.text(),
-        stderr: error.message,
-      });
-    });
-    child.on('close', (code) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      resolve({
-        exitCode: code,
-        timedOut: false,
-        durationMs: Date.now() - startedAt,
-        stdout: stdout.text(),
-        stderr: stderr.text(),
-      });
-    });
-  });
-}
-
 export class CodeExecutionService {
   constructor({ database, workspace, config = {} }) {
     this.database = database;
@@ -412,19 +338,7 @@ export class CodeExecutionService {
     );
     this.pythonBin = String(config.pythonBin ?? process.env.PYTHON_BIN ?? '').trim()
       || DEFAULT_PYTHON_BIN;
-    // P0-3：代码执行隔离后端。默认 'inprocess'（当前行为，非安全边界）；
-    // 设为 'container' / 'podman' 时改为独立低权容器 + seccomp + 无网络运行（多租户推荐）。
-    this.backend = String(
-      config.codeExecution?.backend ?? process.env.SANDBOX_BACKEND ?? 'inprocess',
-    ).toLowerCase().trim();
-    this.sandboxImage = String(
-      config.codeExecution?.image ?? process.env.SANDBOX_IMAGE ?? 'python:3.12-slim',
-    ).trim();
-    this.seccompProfile = String(
-      config.codeExecution?.seccompProfile
-        ?? process.env.SANDBOX_SECCOMP
-        ?? path.join(config.projectRoot ?? process.cwd(), 'config', 'sandbox', 'seccomp-profile.json'),
-    );
+    Object.assign(this, resolveSandboxConfig(config));
   }
 
   materializeArtifact({ artifact, runInputDir, index }) {
@@ -548,33 +462,8 @@ export class CodeExecutionService {
     return outputs;
   }
 
-  // 容器后端：把 run.py 放进独立低权容器执行。真正的安全边界在此（区别于 inprocess 的仅"吓阻"）。
-  // 需要宿主具备 docker/podman 且已拉取 sandboxImage；任何缺失都会在执行时以 stderr 形式暴露，不静默降级。
   async runContainerProcess({ runRoot, timeoutSeconds }) {
-    const runtime = this.backend === 'podman' ? 'podman' : 'docker';
-    const args = [
-      'run', '--rm',
-      '--user', '65534:65534',
-      '--network', 'none',
-      '--cap-drop', 'ALL',
-      '--security-opt', 'no-new-privileges',
-      '--security-opt', `seccomp=${this.seccompProfile}`,
-      '--memory', '512m', '--memory-swap', '512m',
-      '--pids-limit', '128',
-      '--shm-size', '64m',
-      '--read-only',
-      '-v', `${runRoot}:/work:rw`,
-      '-w', '/work',
-      this.sandboxImage,
-      'python', '-I', '-B', 'run.py',
-    ];
-    return runProcess({
-      command: runtime,
-      args,
-      cwd: runRoot,
-      env: safeEnv(runRoot),
-      timeoutSeconds,
-    });
+    return runContainerAnalysis({ runRoot, timeoutSeconds, env: process.env, sandbox: this });
   }
 
   async run({
@@ -598,6 +487,7 @@ export class CodeExecutionService {
       await recordCodeGateBlock(this.database, { userId, sessionId, error });
       throw error;
     }
+    assertSandboxAllowed(this);
     const runId = crypto.randomUUID();
     const runRoot = path.join(this.root, String(sessionId ?? 'global'), runId);
     const inputDir = path.join(runRoot, 'input');
@@ -631,7 +521,7 @@ export class CodeExecutionService {
     );
 
     const timeout = normalizeTimeout(timeoutSeconds);
-    // P0-3：隔离后端分流。默认 inprocess 行为不变；container/podman 走独立低权容器。
+    // No automatic fallback to host Python when isolation is unavailable.
     const processResult = (this.backend === 'container' || this.backend === 'podman')
       ? await this.runContainerProcess({ runRoot, timeoutSeconds: timeout })
       : await runProcess({
@@ -641,16 +531,17 @@ export class CodeExecutionService {
         env: safeEnv(runRoot),
         timeoutSeconds: timeout,
       });
-    const outputs = await this.importOutputs({
-      runRoot,
-      userId,
-      workspaceId,
-      sessionId,
-      purpose,
-      artifactPrefix,
-      runId,
-      inputArtifactIds: inputs.map((item) => item.artifactId),
-    });
+    const outputs = processResult.exitCode === 0 && !processResult.timedOut
+      ? await this.importOutputs({
+        runRoot,
+        userId,
+        workspaceId,
+        sessionId,
+        purpose,
+        artifactPrefix,
+        runId,
+        inputArtifactIds: inputs.map((item) => item.artifactId),
+      }) : [];
     const codeArtifactInput = {
       workspaceId,
       userId,
