@@ -1,51 +1,14 @@
-import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveAuthMode } from './auth.js';
+import { resolveBootstrapDatasourceConfig } from './bootstrapDatasourceConfig.js';
 import { applyConfigFile } from './configFile.js';
 import { loadEnvFile } from './envFile.js';
+import { normalizeBaseUrl, parsePathList, readInt } from './envValues.js';
+import { projectCodexBin, projectPythonBin } from './runtimeBinaries.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-// Python 沙箱解释器的兜底候选。Windows 装的是 `python`，macOS/Linux 上是 `python3`；
-// 必须和 yolo-conf.yaml 的 `codeExecution.pythonBin` 注释及 scripts/setup.mjs 探测顺序一致，避免缺少别名时失败。
-export const DEFAULT_PYTHON_BIN = process.platform === 'win32' ? 'python' : 'python3';
-
-function projectPythonBin() {
-  const relativePath = process.platform === 'win32'
-    ? path.join('.venv', 'Scripts', 'python.exe')
-    : path.join('.venv', 'bin', 'python');
-  const candidate = path.join(projectRoot, relativePath);
-  return fs.existsSync(candidate) ? candidate : DEFAULT_PYTHON_BIN;
-}
-
-function projectCodexBin() {
-  const relativePath = process.platform === 'win32'
-    ? path.join('node_modules', '.bin', 'codex.cmd')
-    : path.join('node_modules', '.bin', 'codex');
-  const candidate = path.join(projectRoot, relativePath);
-  return fs.existsSync(candidate)
-    ? candidate
-    : (process.platform === 'win32' ? 'codex.cmd' : 'codex');
-}
-
-function readInt(value, fallback) {
-  const parsed = Number.parseInt(value ?? '', 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function normalizeBaseUrl(value) {
-  return String(value ?? '').trim().replace(/\/+$/, '');
-}
-
-function parsePathList(value, fallback = []) {
-  const items = String(value ?? '')
-    .split(new RegExp(`[${path.delimiter},;]+`))
-    .map((item) => item.trim())
-    .filter(Boolean);
-  return [...new Set(items.length > 0 ? items : fallback)];
-}
 
 export function loadConfig(env = process.env) {
   // 配置面：yolo-conf.yaml 提供结构与默认值，真实环境变量覆盖；平台不读取 .env 文件。
@@ -195,36 +158,7 @@ export function loadConfig(env = process.env) {
     skillDirectories,
     datasourceSecretKey: String(env.DATASOURCE_SECRET_KEY ?? '').trim(),
     datasourceSecretKeyPath: path.resolve(projectRoot, 'data', '.datasource-key'),
-    bootstrapDatasource: {
-      enabled: String(env.DORIS_BOOTSTRAP_ENABLED ?? '').toLowerCase() === 'true',
-      host: String(env.DORIS_BOOTSTRAP_HOST ?? '').trim(),
-      port: readInt(env.DORIS_BOOTSTRAP_PORT, 9030),
-      username: String(env.DORIS_BOOTSTRAP_USER ?? '').trim(),
-      password: String(env.DORIS_BOOTSTRAP_PASSWORD ?? ''),
-      database: String(env.DORIS_BOOTSTRAP_DATABASE ?? '').trim(),
-      salesTable: String(env.DORIS_BOOTSTRAP_SALES_TABLE ?? '').trim(),
-      goodsTable: String(env.DORIS_BOOTSTRAP_GOODS_TABLE ?? '').trim(),
-      // 内置演示数据（config/demo/*）：开启后启动即建表、灌演示行并注册数据集。
-      demo: {
-        enabled: String(env.DEMO_DATA_ENABLED ?? '').toLowerCase() === 'true',
-        loadData: String(env.DEMO_DATA_LOAD ?? 'true').toLowerCase() !== 'false',
-        appendToExisting: String(env.DEMO_DATA_APPEND ?? '').toLowerCase() === 'true',
-        rows: readInt(env.DEMO_DATA_ROWS, 5000),
-        seed: readInt(env.DEMO_DATA_SEED, 20261022),
-        startDate: String(env.DEMO_DATA_START ?? '2024-11-01').trim(),
-        endDate: String(env.DEMO_DATA_END ?? '2026-10-20').trim(),
-        // 默认复用平台 MySQL 数据源（后端为 mysql 时由 ensurePlatformMysqlDatasource 自动创建）。
-        datasourceCode: String(env.DEMO_DATA_DATASOURCE ?? 'platform_mysql').trim(),
-        dbType: String(env.DEMO_DB_TYPE ?? 'MYSQL').trim().toUpperCase(),
-        host: String(env.DEMO_DB_HOST ?? '').trim(),
-        port: readInt(env.DEMO_DB_PORT, 3306),
-        // Blank demo database means reuse the platform database. The config
-        // file loader materializes blank values as empty strings, so use ||.
-        schemaName: String(env.DEMO_DB_DATABASE || env.PLATFORM_DB_NAME || '').trim(),
-        username: String(env.DEMO_DB_USER ?? '').trim(),
-        password: String(env.DEMO_DB_PASSWORD ?? ''),
-      },
-    },
+    bootstrapDatasource: resolveBootstrapDatasourceConfig(env),
   };
 }
 

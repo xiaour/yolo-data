@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { runProcess } from './analysisProcess.js';
 import { assertSandboxAllowed, resolveSandboxConfig, runContainerAnalysis } from './codeSandbox.js';
-import { DEFAULT_PYTHON_BIN } from './config.js';
+import { DEFAULT_PYTHON_BIN } from './runtimeBinaries.js';
 import { recordCodeGateBlock } from './codeGateAudit.js';
 
 const BLOCKED_IMPORTS = [
