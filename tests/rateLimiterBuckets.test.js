@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createTokenBucket } from '../src/http/middleware.js';
+import { createTokenBucket } from '../src/http/rateLimitBucket.js';
 
 test('token bucket evicts fully refilled entries so the map stays bounded', async () => {
   const limit = createTokenBucket({

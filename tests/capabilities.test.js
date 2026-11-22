@@ -6,7 +6,7 @@ import test from 'node:test';
 import { createApplication } from '../src/application.js';
 import { createAgentApplication } from './fixtures/agentDataset.js';
 import { assertGateCoverage, getGate, summarizeGateIssues } from '../src/gateRegistry.js';
-import { STAGE_DEFINITIONS } from '../src/workflow.js';
+import { STAGE_DEFINITIONS } from '../src/workflowStages.js';
 import { describeIndicatorSource } from '../src/indicatorSource.js';
 import { reviewGeneratedCode, validateCode } from '../src/codeExecution.js';
 import { CONTRACT_COMPILER_VERSION } from '../src/contractVersion.js';
