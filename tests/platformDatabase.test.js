@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { PlatformDatabase } from '../src/database.js';
-import { ensurePlatformMysqlDatasource } from '../src/application.js';
+import { ensurePlatformMysqlDatasource } from '../src/applicationBootstrap.js';
 import { createKnexPlatformStore } from '../src/knexPlatformStore.js';
 import {
   createPlatformDatabase,

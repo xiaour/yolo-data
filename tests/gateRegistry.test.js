@@ -6,7 +6,7 @@ import {
   listGates,
   summarizeGateIssues,
 } from '../src/gateRegistry.js';
-import { STAGE_DEFINITIONS } from '../src/workflow.js';
+import { STAGE_DEFINITIONS } from '../src/workflowStages.js';
 
 test('gate registry exposes rules by workflow phase', () => {
   const planGates = listGates({ phase: 'PLAN' }).map((gate) => gate.id);
