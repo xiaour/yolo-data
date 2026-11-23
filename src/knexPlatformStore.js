@@ -3,7 +3,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import knexFactory from 'knex';
 import { DatabaseSync } from 'node:sqlite';
-import { splitSqlStatements } from './mysqlPlatformStore.js';
+import { splitSqlStatements } from './mysqlMigrations.js';
 
 function normalizeBackend(value) {
   const backend = String(value ?? 'sqlite').trim().toLowerCase();

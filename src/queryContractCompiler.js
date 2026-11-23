@@ -12,7 +12,7 @@ import {
   normalizeLikePattern,
   resolveFilterScope,
 } from './querySemantics.js';
-import { normalizeDerivedMetrics } from './derivedMetrics.js';
+import { normalizeDerivedMetrics } from './derivedMetricNormalize.js';
 import {
   attachGateMetadata,
   summarizeGateIssues,
