@@ -2,69 +2,7 @@
 // 普通用户只能访问自己的记忆；管理员可以查看和维护所有用户的记忆，用于运营与排障。
 // 这里只做鉴权、范围收敛和审计，不包含任何业务口径。
 import { MEMORY_KINDS, NOTE_SOURCES, NOTE_STATES } from '../../userMemory.js';
-
-async function requireUser(ctx) {
-  const { request, database, getRequestUser } = ctx;
-  const user = await getRequestUser(request, database);
-  if (!user) {
-    throw Object.assign(new Error('authentication required'), { statusCode: 401 });
-  }
-  return user;
-}
-
-function userLabel(item) {
-  return item?.displayName || item?.username || `#${item?.id}`;
-}
-
-function resolveScope({ database, user, requestedUserId = 0 }) {
-  const isAdmin = user.role === 'ADMIN';
-  if (!isAdmin) {
-    return { isAdmin, userId: Number(user.id), scope: 'self' };
-  }
-  if (requestedUserId) {
-    return { isAdmin, userId: Number(requestedUserId), scope: 'user' };
-  }
-  return { isAdmin, userId: null, scope: 'all' };
-}
-
-async function buildUserOptions(database, store) {
-  const users = await database.userRepository.listUsersAsync();
-  return (await Promise.all(users.map(async (item) => {
-    const stats = await store.statsAsync(item.id);
-    return {
-      id: item.id,
-      name: userLabel(item),
-      username: item.username,
-      role: item.role,
-      memoryCount: stats.notes + stats.documentsWithContent,
-      pendingNotes: stats.pendingNotes,
-    };
-  }))).filter(Boolean);
-}
-
-async function loadOwnedNote({ database, user, id }) {
-  const row = (await database.query(
-    'SELECT id, user_id AS userId FROM user_memory_notes WHERE id = ?', [Number(id)],
-  ))[0];
-  return assertOwnership({ row, user, label: '笔记' });
-}
-
-async function loadOwnedDocument({ database, user, id }) {
-  const row = (await database.query(
-    'SELECT id, user_id AS userId FROM user_memory_documents WHERE id = ?', [Number(id)],
-  ))[0];
-  return assertOwnership({ row, user, label: '记忆文档' });
-}
-
-function assertOwnership({ row, user, label }) {
-  if (!row) {
-    throw Object.assign(new Error(`${label}不存在或无权访问`), { statusCode: 404 });
-  }
-  if (user.role !== 'ADMIN' && Number(row.userId) !== Number(user.id)) {
-    throw Object.assign(new Error(`${label}不存在或无权访问`), { statusCode: 404 });
-  }
-  return row;
-}
+import { assertOwnership, buildUserOptions, loadOwnedDocument, loadOwnedNote, requireUser, resolveScope, userLabel } from './memoryRouteSupport.js';
 
 export function registerMemoryRoutes(table) {
   table.add({
