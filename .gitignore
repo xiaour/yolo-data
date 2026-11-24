@@ -2,8 +2,8 @@
 data/*
 !data/.gitkeep
 
-# Legacy dotenv files. The platform no longer reads them (config lives in yolo-conf.yaml);
-# kept ignored so a leftover file with real credentials can never be committed by accident.
+# .env is read at startup and holds machine-local secrets, so it must never be committed;
+# .env.* variants are not read by the platform and stay ignored for the same reason.
 .env
 .env.*
 !.env.example

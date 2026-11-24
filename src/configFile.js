@@ -1,12 +1,13 @@
 // 配置文件层：yolo-conf.yaml 是唯一的配置面，环境变量做覆盖。
 //
-// 分层优先级：真实环境变量（非空值） > yolo-conf.yaml > 代码内置默认。
+// 分层优先级：真实环境变量（非空值） > .env > yolo-conf.yaml > 代码内置默认。
 // 做法是把 YAML 换算成同名环境变量，只填补「未设置或空串」的键，
 // 因此 Docker / CI 仍可用环境变量覆盖，而不需要改配置文件。
 //
-// 平台不再读取 .env 文件：配置写在 yolo-conf.yaml，机密用真实环境变量提供
-// （docker compose 的 environment、systemd 的 EnvironmentFile、shell export 等）。
-// yolo-conf.yaml 可以随仓库分发，机密不落盘到版本库。
+// .env 不在本层读取：它由 envFile.js 在应用本层之前载入（见 config.js 的 loadConfig），
+// 同样只填补「未设置或空串」的键，所以对本层而言 .env 的值与环境变量没有区别。
+// 机密可以放在 .env 或真实环境变量里（docker compose 的 environment、systemd 的
+// EnvironmentFile、shell export 等）。yolo-conf.yaml 可以随仓库分发，机密不落盘到版本库。
 
 import fs from 'node:fs';
 import path from 'node:path';
