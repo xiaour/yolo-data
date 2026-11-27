@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 
 export function installDependencies({ projectRoot, info, abort, ok }) {
   info('安装依赖（含 MySQL/Doris 驱动 mysql2 与 Codex CLI）');
@@ -33,4 +34,31 @@ export async function verifyMysqlDriver({ ok, abort }) {
       + '  请手动执行：npm install mysql2',
     );
   }
+}
+
+function runLocalCodex(projectRoot, args, options = {}) {
+  const entrypoint = path.join(
+    projectRoot,
+    'node_modules',
+    '@openai',
+    'codex',
+    'bin',
+    'codex.js',
+  );
+  return spawnSync(process.execPath, [entrypoint, ...args], options);
+}
+
+export function verifyCodexCli({ projectRoot, ok, abort }) {
+  const version = runLocalCodex(['--version'], {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  if (version.error || version.status !== 0) {
+    const detail = version.error?.message
+      || String(version.stderr ?? '').trim()
+      || `退出码 ${version.status}`;
+    abort(`Codex CLI 安装后无法运行：${detail}`);
+  }
+  ok(String(version.stdout ?? '').trim() || 'Codex CLI 已安装');
 }

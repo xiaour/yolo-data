@@ -11,79 +11,19 @@ import {
   normalizeValue as normalizeContractValue,
   stableSerialize as serializeStableValue,
 } from './resultSummary.js';
+import {
+  compareText,
+  normalizeCalculation,
+  normalizeDateInfo,
+  normalizePostProcessing,
+  normalizeTimeWindows,
+  uniqueSortedStrings,
+  uniqueStrings,
+} from './queryContractNormalize.js';
 const DATE_DIMENSION_PATTERN =
   /(^|_)(date|time|day|week|month|quarter|year)($|_)|sdt|日期|时间|账期/i;
 const RANKING_PATTERN = /排名|排行|榜单|对比|top\s*\d*|前\s*\d+|最高|最大|最多/i;
 const BOTTOM_RANKING_PATTERN = /最低|最小|最少|倒数|后\s*\d+/i;
-
-function compareText(left, right) {
-  return String(left ?? '').localeCompare(String(right ?? ''), 'zh-CN', {
-    numeric: true,
-    sensitivity: 'base',
-  });
-}
-
-function uniqueSortedStrings(values) {
-  return [...new Set((values ?? []).map((value) => String(value ?? '').trim()).filter(Boolean))]
-    .sort(compareText);
-}
-
-function uniqueStrings(values) {
-  return [...new Set((values ?? []).map((value) => String(value ?? '').trim()).filter(Boolean))];
-}
-
-function normalizeDateInfo(dateInfo) {
-  if (!dateInfo) {
-    return {
-      dateMode: 'ALL',
-      startDate: null,
-      endDate: null,
-      unit: null,
-      period: null,
-      dateField: null,
-    };
-  }
-  const dateMode = String(dateInfo.dateMode ?? 'ALL').toUpperCase();
-  const period = String(dateInfo.period ?? '').toUpperCase();
-  return {
-    dateMode,
-    startDate: dateInfo.startDate ?? null,
-    endDate: dateInfo.endDate ?? null,
-    unit: dateMode === 'RECENT' ? Number(dateInfo.unit) || null : null,
-    period: dateMode === 'RECENT' && period ? period : null,
-    dateField: dateInfo.dateField ?? null,
-    label: dateInfo.label ?? dateInfo.detectWord ?? dateInfo.expression ?? null,
-    expression: dateInfo.expression ?? dateInfo.detectWord ?? null,
-  };
-}
-
-function normalizeTimeWindows(timeWindows) {
-  return (timeWindows ?? []).map((window) => normalizeDateInfo(window));
-}
-
-function normalizeCalculation(calculation) {
-  return {
-    type: String(calculation?.type ?? 'NONE').toUpperCase(),
-    baseWindowIndex: Number.isInteger(calculation?.baseWindowIndex)
-      ? calculation.baseWindowIndex
-      : null,
-    compareWindowIndex: Number.isInteger(calculation?.compareWindowIndex)
-      ? calculation.compareWindowIndex
-      : null,
-    description: String(calculation?.description ?? ''),
-    timeGrain: ['DAY', 'WEEK', 'MONTH', 'QUARTER', 'YEAR'].includes(
-      String(calculation?.timeGrain ?? '').toUpperCase(),
-    )
-      ? String(calculation.timeGrain).toUpperCase()
-      : null,
-  };
-}
-
-function normalizePostProcessing(postProcessing) {
-  return postProcessing && typeof postProcessing === 'object'
-    ? JSON.parse(JSON.stringify(postProcessing))
-    : null;
-}
 
 function columnKey(column) {
   return String(column?.bizName ?? column?.nameEn ?? column?.name ?? '').trim();

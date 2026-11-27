@@ -59,3 +59,21 @@ export function normalizeExternalSkills(skills) {
       toolName: skill.toolName ? String(skill.toolName).trim() : null,
     })).filter((skill) => skill.code && skill.name);
 }
+
+export function externalSkillInsertOnlySql(backend) {
+  return backend === 'mysql' ? `
+        INSERT IGNORE INTO skills
+          (code, name, description, category, kind, tool_name, instruction,
+           default_enabled, status, source, source_path, metadata_json,
+           phase_tags_json, content, content_hash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1,
+                'SKILL_MD', ?, ?, ?, ?, ?, ?, ?)
+      ` : `
+        INSERT OR IGNORE INTO skills
+          (code, name, description, category, kind, tool_name, instruction,
+           default_enabled, status, source, source_path, metadata_json,
+           phase_tags_json, content, content_hash, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1,
+                'SKILL_MD', ?, ?, ?, ?, ?, ?, ?)
+      `;
+}
