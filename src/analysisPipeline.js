@@ -1,7 +1,5 @@
-import {
-  applyDerivedMetrics,
-  normalizeDerivedMetrics,
-} from './derivedMetrics.js';
+import { applyDerivedMetrics } from './derivedMetrics.js';
+import { normalizeDerivedMetrics } from './derivedMetricNormalize.js';
 
 const STAGE_TYPES = new Set([
   'BUCKET_FIELD',

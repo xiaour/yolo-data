@@ -3,8 +3,8 @@ import test from 'node:test';
 import {
   MysqlPlatformStore,
   normalizeMysqlPlatformConfig,
-  splitSqlStatements,
 } from '../src/mysqlPlatformStore.js';
+import { splitSqlStatements } from '../src/mysqlMigrations.js';
 
 test('mysql platform store normalizes connection settings without touching business datasource settings', () => {
   const config = normalizeMysqlPlatformConfig({

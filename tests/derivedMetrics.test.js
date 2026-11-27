@@ -3,8 +3,8 @@ import test from 'node:test';
 import {
   applyDerivedMetricFilters,
   applyDerivedMetrics,
-  normalizeDerivedMetrics,
 } from '../src/derivedMetrics.js';
+import { normalizeDerivedMetrics } from '../src/derivedMetricNormalize.js';
 
 test('derived metric compiler resolves structured ratio and growth formulas', () => {
   const definitions = normalizeDerivedMetrics([
