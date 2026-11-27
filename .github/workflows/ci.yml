@@ -132,4 +132,4 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Live MySQL persistence concurrency acceptance
-        run: node --test --test-concurrency=1 tests/uploadAdmission.mysql.integration.test.js tests/userMemoryAdmission.mysql.integration.test.js tests/dataSourceTestAtomic.mysql.integration.test.js
+        run: node --test --test-concurrency=1 tests/uploadAdmission.mysql.integration.test.js tests/userMemoryAdmission.mysql.integration.test.js tests/dataSourceTestAtomic.mysql.integration.test.js tests/workspaceArtifacts.mysql.integration.test.js
