@@ -24,12 +24,17 @@ function createVenv(projectRoot, basePython, onInfo) {
   }
 }
 
+export function pipInstallEnv(baseEnv = process.env) {
+  // 显式置 0 而非 delete，同时覆盖宿主环境的 PIP_USER=1 与 pip.conf 中的 user = true。
+  return { ...baseEnv, PIP_USER: '0' };
+}
+
 function installRequirements(projectRoot, pythonBin, requirementsPath, onInfo) {
   onInfo('安装 Python 分析依赖 pandas / openpyxl');
   const result = spawnSync(
     pythonBin,
     ['-m', 'pip', 'install', '--disable-pip-version-check', '--upgrade', '-r', requirementsPath],
-    { cwd: projectRoot, stdio: 'inherit' },
+    { cwd: projectRoot, env: pipInstallEnv(process.env), stdio: 'inherit' },
   );
   if (result.error || result.status !== 0) {
     throw new Error(

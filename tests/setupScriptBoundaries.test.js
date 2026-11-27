@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { canRunPython, requirementsDigest } from '../scripts/python-runtime-checks.mjs';
+import { pipInstallEnv } from '../scripts/python-setup.mjs';
 import { verifyMysqlDriver } from '../scripts/setup-dependencies.mjs';
 
 test('runtime probe distinguishes a runnable command, a nonzero exit and a missing executable', () => {
@@ -47,4 +48,15 @@ test('schema generation keeps MySQL long-text fields and bounded composite index
   assert.match(sql, /BIGINT AUTO_INCREMENT PRIMARY KEY/);
   assert.doesNotMatch(sql, /\bAUTOINCREMENT\b/);
   assert.match(sql, /SET FOREIGN_KEY_CHECKS = 1;/);
+});
+
+test('pipInstallEnv forces PIP_USER=0 while preserving other environment variables', () => {
+  const original = { PIP_USER: '1', PIP_INDEX_URL: 'https://example.invalid/simple' };
+  const overridden = pipInstallEnv(original);
+  assert.equal(overridden.PIP_USER, '0');
+  assert.equal(overridden.PIP_INDEX_URL, 'https://example.invalid/simple');
+  assert.equal(original.PIP_USER, '1');
+
+  const withoutPipUser = pipInstallEnv({});
+  assert.equal(withoutPipUser.PIP_USER, '0');
 });
