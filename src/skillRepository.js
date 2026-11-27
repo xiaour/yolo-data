@@ -1,4 +1,8 @@
-import { externalSkillUpsertSql, normalizeExternalSkills } from './externalSkillSync.js';
+import {
+  externalSkillInsertOnlySql,
+  externalSkillUpsertSql,
+  normalizeExternalSkills,
+} from './externalSkillSync.js';
 
 function nowIso() {
   return new Date().toISOString();
@@ -37,21 +41,7 @@ export class SkillRepository {
   async syncExternalSkills(skills = [], { createOnly = false } = {}) {
     const timestamp = nowIso();
     const normalized = normalizeExternalSkills(skills);
-    const insertOnlySql = this.asyncStore.backend === 'mysql' ? `
-        INSERT IGNORE INTO skills
-          (code, name, description, category, kind, tool_name, instruction,
-           default_enabled, status, source, source_path, metadata_json,
-           phase_tags_json, content, content_hash, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1,
-                'SKILL_MD', ?, ?, ?, ?, ?, ?, ?)
-      ` : `
-        INSERT OR IGNORE INTO skills
-          (code, name, description, category, kind, tool_name, instruction,
-           default_enabled, status, source, source_path, metadata_json,
-           phase_tags_json, content, content_hash, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1,
-                'SKILL_MD', ?, ?, ?, ?, ?, ?, ?)
-      `;
+    const insertOnlySql = externalSkillInsertOnlySql(this.asyncStore.backend);
     const upsertSql = externalSkillUpsertSql(this.asyncStore.backend);
 
     let inserted = 0;

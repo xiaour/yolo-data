@@ -9,8 +9,11 @@
 //
 // Dependency-free on purpose so it can run before `npm install`.
 
-import { installDependencies, verifyMysqlDriver } from './setup-dependencies.mjs';
-import { spawnSync } from 'node:child_process';
+import {
+  installDependencies,
+  verifyCodexCli,
+  verifyMysqlDriver,
+} from './setup-dependencies.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensurePythonAnalysisRuntime } from './python-setup.mjs';
@@ -38,33 +41,6 @@ function assertNodeVersion() {
     abort(`需要 Node.js >= ${MIN_NODE_MAJOR}.${MIN_NODE_MINOR}，当前为 ${process.versions.node}`);
   }
   ok(`Node.js ${process.versions.node}`);
-}
-
-function runLocalCodex(args, options = {}) {
-  const entrypoint = path.join(
-    projectRoot,
-    'node_modules',
-    '@openai',
-    'codex',
-    'bin',
-    'codex.js',
-  );
-  return spawnSync(process.execPath, [entrypoint, ...args], options);
-}
-
-function verifyCodexCli() {
-  const version = runLocalCodex(['--version'], {
-    cwd: projectRoot,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  if (version.error || version.status !== 0) {
-    const detail = version.error?.message
-      || String(version.stderr ?? '').trim()
-      || `退出码 ${version.status}`;
-    abort(`Codex CLI 安装后无法运行：${detail}`);
-  }
-  ok(String(version.stdout ?? '').trim() || 'Codex CLI 已安装');
 }
 
 
@@ -96,7 +72,7 @@ console.log('\nYOLO Data 环境初始化\n');
 loadEnvFile({ projectRoot });
 assertNodeVersion();
 installDependencies({ projectRoot, info, abort, ok });
-verifyCodexCli();
+verifyCodexCli({ projectRoot, ok, abort });
 const confPath = ensureConfigFile();
 await verifyMysqlDriver({ ok, abort });
 setupPythonRuntime(confPath);
