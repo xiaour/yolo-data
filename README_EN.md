@@ -118,6 +118,12 @@ Query execution, recovery, and post-answer reflection share a per-session lock s
 - **Observability:** record dynamic workflow stages, tool calls, model calls, tokens, query plans, errors, feedback, and knowledge gaps.
 - **Recovery:** apply bounded retry and strategy replanning to recoverable failures while stopping immediately for cancellation or permission errors.
 
+## Online Demo
+
+- URL: [http://49.232.39.8/](http://49.232.39.8/)
+- Account: `admin`
+- Password: `yolo123456`
+
 ## Screenshots
 
 ![Start a query](docs/screenshots/query_index.png)

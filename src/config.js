@@ -11,8 +11,8 @@ import { projectCodexBin, projectPythonBin } from './runtimeBinaries.js';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export function loadConfig(env = process.env) {
-  // 配置面：yolo-conf.yaml 提供结构与默认值，真实环境变量覆盖；平台不读取 .env 文件。
-  // `env === process.env` 是「真实进程」守卫：测试传自定义 env 时不读工作区配置文件。
+  // 配置面：yolo-conf.yaml 提供结构与默认值；优先级为进程环境变量 > .env > yolo-conf.yaml > 内置默认值。
+  // `env === process.env` 是「真实进程」守卫：测试传自定义 env 时不读工作区的 .env 和配置文件。
   if (env === process.env) {
     loadEnvFile({ projectRoot, target: env });
     applyConfigFile({ projectRoot, target: env });
